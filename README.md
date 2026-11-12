@@ -72,6 +72,7 @@ meta-ethnography-canvas/
 ├── CITATION.cff                # GitHub academic citation metadata
 ├── LICENSE                     # MIT License
 └── README.md                   # Technical overview & repository guide
+```
 
 ### Running Locally
 
