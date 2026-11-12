@@ -6,6 +6,7 @@ abstract: "A zero-backend, single-window browser workspace for conducting Meta-E
 authors:
   - family-names: "Jeong"
     given-names: "Dae Yun"
+    orcid: https://orcid.org/0009-0004-0432-4675
 repository-code: "https://github.com/jdaeyun/meta-ethnography-canvas"
 url: "https://jdaeyun.github.io/meta-ethnography-canvas/"
 license: MIT
