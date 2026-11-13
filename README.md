@@ -20,7 +20,6 @@ No installation, build step, or user account required. Run directly in your desk
 * **📘 [1. Overview & Motivation](https://jdaeyun.github.io/meta-ethnography-canvas/index.html)**
 * **🛠️ [2. Step-by-Step User Manual](https://jdaeyun.github.io/meta-ethnography-canvas/manual.html)**
 * **🎓 [3. Meta-Ethnography 101 & eMERGe Mapping](https://jdaeyun.github.io/meta-ethnography-canvas/meta-ethnography-101.html)**
-* **📋 [4. Copy-Paste Methods Templates (PROSPERO / OSF / Manuscripts)](https://jdaeyun.github.io/meta-ethnography-canvas/templates.html)**
 
 ---
 
