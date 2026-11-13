@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Step-by-step user manual for Meta-Ethnography Canvas: How to extract constructs, build a synthesis matrix, log audit trails, and export manuscript tables.">
+  <link rel="canonical" href="https://jdaeyun.github.io/meta-ethnography-canvas/manual.html">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📖</text></svg>">
+  <title>User Manual | Meta-Ethnography Canvas</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 18px;
+      line-height: 1.75;
+      color: #1e293b;
+      background-color: #f8fafc;
+      scroll-behavior: smooth;
+    }
+    h1, h2, h3, .serif-heading {
+      font-family: 'Merriweather', Georgia, serif;
+    }
+    kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Top Navigation Bar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-5xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+      <a href="index.html" class="flex items-center space-x-3 text-slate-900 hover:text-indigo-700 transition">
+        <div class="bg-indigo-700 text-white p-2 rounded-lg shadow-xs flex items-center justify-center">
+          <i class="ph ph-book-open-text text-xl"></i>
+        </div>
+        <div>
+          <span class="font-bold text-lg tracking-tight block leading-none">Meta-Ethnography Canvas</span>
+          <span class="text-xs text-slate-500 font-medium">Open-Source QES Workspace</span>
+        </div>
+      </a>
+
+      <nav class="flex flex-wrap items-center gap-2 text-sm font-medium">
+        <a href="index.html" class="px-3 py-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition">1. Overview</a>
+        <a href="manual.html" class="px-3 py-2 rounded-lg bg-indigo-50 text-indigo-800 font-semibold">2. User Manual</a>
+        <a href="meta-ethnography-101.html" class="px-3 py-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition">3. Meta-Ethnography 101</a>
+        <a href="https://github.com/jdaeyun/meta-ethnography-canvas" target="_blank" rel="noopener" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition" title="View Source on GitHub">
+          <i class="ph ph-github-logo text-xl"></i>
+        </a>
+        <a href="me_canvas.html" class="ml-1 inline-flex items-center space-x-1.5 px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white font-semibold rounded-lg shadow-xs transition">
+          <i class="ph ph-rocket-launch"></i>
+          <span>Launch App</span>
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Page Header -->
+  <section class="bg-white border-b border-slate-200 py-12 px-6">
+    <div class="max-w-4xl mx-auto">
+      <div class="text-sm font-bold uppercase tracking-wider text-indigo-700 mb-2">Step-by-Step Guide</div>
+      <h1 class="text-3xl md:text-4xl font-bold text-slate-900 leading-tight mb-4">
+        User Manual
+      </h1>
+      <p class="text-xl text-slate-600 leading-relaxed">
+        Everything you need to know to import primary PDFs, extract 1st and 2nd order concepts, build your synthesis matrix, and export tables for your manuscript.
+      </p>
+
+      <!-- Quick Jump Table of Contents -->
+      <div class="mt-8 pt-6 border-t border-slate-100 flex flex-wrap gap-2 text-sm">
+        <span class="font-semibold text-slate-500 py-1.5 mr-1">Jump to:</span>
+        <a href="#getting-started" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-medium transition">1. Getting Started & Saving</a>
+        <a href="#tab1-extract" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-medium transition">2. Tab 1: Extract & Context</a>
+        <a href="#tab2-matrix" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-medium transition">3. Tab 2: Synthesis Matrix</a>
+        <a href="#tab3-audit" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-medium transition">4. Tab 3: Audit Trail</a>
+        <a href="#tab4-export" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-medium transition">5. Tab 4: Export Tables</a>
+        <a href="#team-compare" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-medium transition">6. Team Comparison</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Manual Content -->
+  <main class="flex-1 max-w-4xl mx-auto px-6 py-12 space-y-14">
+
+    <!-- ========================================== -->
+    <!-- 1. GETTING STARTED & SAVING                -->
+    <!-- ========================================== -->
+    <section id="getting-started" class="bg-white p-8 md:p-10 rounded-2xl border border-slate-200 shadow-xs space-y-6">
+      <div class="flex items-center space-x-3">
+        <span class="px-3 py-1 rounded-lg bg-indigo-700 text-white font-bold text-sm">Section 1</span>
+        <h2 class="text-2xl font-bold text-slate-900">Getting Started, Reviewer Tag & Saving</h2>
+      </div>
+
+      <!-- Workflow Scope Callout (Post-Screening QES Tool) -->
+      <div class="bg-indigo-50/70 border border-indigo-200 rounded-xl p-5 text-base text-slate-800 space-y-2">
+        <div class="font-bold text-indigo-950 flex items-center space-x-2">
+          <i class="ph ph-funnel text-xl text-indigo-700"></i>
+          <span>Before You Begin: Complete Your Literature Screening First</span>
+        </div>
+        <p class="text-sm text-slate-700 leading-relaxed">
+          <strong>Meta-Ethnography Canvas</strong> is designed specifically for the <strong>post-screening synthesis phases</strong> (<em>eMERGe</em> Phases 1 and 3–7; the Phase 1 aim is entered in the startup setup window). Literature database searching, deduplication, title/abstract screening, and PRISMA flow diagram tracking are outside the scope of this tool.
+        </p>
+        <p class="text-sm text-slate-700 leading-relaxed">
+          Please complete your systematic search and study selection in your preferred reference manager or screening tool (such as Zotero, EndNote, Rayyan, or Covidence) first, and then import the <strong>final set of included full-text PDFs</strong> here for deep reading, appraisal, and conceptual translation.
+        </p>
+      </div>
+
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 text-base text-slate-700 space-y-2">
+        <div class="font-bold text-slate-900 flex items-center space-x-2">
+          <i class="ph ph-desktop text-xl text-indigo-700"></i>
+          <span>System Requirements (Desktop & Online)</span>
+        </div>
+        <ul class="list-disc pl-6 space-y-1 text-sm text-slate-600">
+          <li><strong>Desktop or Laptop Computer:</strong> Because meta-ethnography involves reading full-text PDFs side-by-side and dragging concepts across wide synthesis matrices, the workspace is designed for desktop/laptop screens with a mouse or trackpad (smartphones and small tablets are not supported).</li>
+          <li><strong>Internet Connection:</strong> While your PDFs and synthesis data stay 100% private in your browser, an active internet connection is required to load the PDF rendering engine and Word export libraries.</li>
+          <li><strong>Recommended Browsers:</strong> Up-to-date versions of Google Chrome, Microsoft Edge, Firefox, or Safari.</li>
+        </ul>
+      </div>
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">1.1 Project Code & Reviewer Name</h3>
+        <p>
+          When you open the app for the first time, a setup window will ask for your <strong>Reviewer Name or Initials</strong> (e.g., <code>DYJ</code>) and a <strong>Project Code</strong> (e.g., <code>PALLIATIVE-2026</code>). 
+        </p>
+        <ul class="list-disc pl-6 space-y-2">
+          <li><strong>Reviewer Name:</strong> Every quote you extract and theme you create will automatically carry your tag (such as <span class="text-xs font-mono bg-slate-200 text-slate-800 px-2 py-0.5 rounded font-bold">@DYJ</span>). You can change it anytime in the top bar.</li>
+          <li><strong>Project Code:</strong> This unique code prevents you from accidentally merging or overwriting backup files from a different systematic review project.</li>
+          <li><strong>Phase 1 Aim:</strong> You can optionally enter your research question here; it will be displayed in your Line of Argument drawer to keep you focused during synthesis.</li>
+        </ul>
+      </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">1.2 How Saving & Backups Work (Important)</h3>
+        <p>
+          <strong>Auto-Save:</strong> All of your work—including uploaded PDFs, highlights, matrix rows, and notes—is saved automatically inside your web browser's local database (<em>IndexedDB</em>). A green <span class="text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded">Saved</span> badge appears in the top bar whenever you make a change.
+        </p>
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 text-base text-slate-800 space-y-2">
+          <div class="font-bold text-amber-900 flex items-center space-x-2">
+            <i class="ph ph-floppy-disk text-xl text-amber-700"></i>
+            <span>Always Keep a JSON Backup</span>
+          </div>
+          <p>
+            Because browser storage stays on your current computer and browser, clearing your browser data or switching computers will not carry your project over automatically.
+          </p>
+          <ul class="list-disc pl-6 space-y-1">
+            <li>Click <strong>Backup</strong> in the top bar at the end of each work session to download a lightweight <code>.json</code> project file.</li>
+<li>Use the <strong>Settings Menu (⚙️) ➔ Restore Project</strong> to load your <code>.json</code> backup on any computer. To respect publisher copyright and keep the backup file lightweight, PDF files themselves are not saved inside the <code>.json</code> file—simply drag and drop the original PDFs (with the same filenames) back onto the screen and they will reconnect to your highlights automatically!</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 2. TAB 1: EXTRACT & CONTEXT                -->
+    <!-- ========================================== -->
+    <section id="tab1-extract" class="bg-white p-8 md:p-10 rounded-2xl border border-slate-200 shadow-xs space-y-6">
+      <div class="flex items-center space-x-3">
+        <span class="px-3 py-1 rounded-lg bg-indigo-700 text-white font-bold text-sm">Section 2</span>
+        <h2 class="text-2xl font-bold text-slate-900">Tab 1: Extract & Context</h2>
+      </div>
+      <p class="text-slate-700">
+        Tab 1 is your reading and extraction workspace. It is divided into three columns: your <strong>Study List</strong> on the left, the <strong>PDF Reader</strong> in the center, and a resizable <strong>Study Details & Extracted Concepts</strong> sidebar on the right.
+      </p>
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">2.1 Adding Studies, Setting the Index Paper & One-Click Sorting</h3>
+        <ul class="list-disc pl-6 space-y-2">
+          <li>Click <strong>+ Add PDF</strong> in the left sidebar (or drag and drop PDF files anywhere on the window).</li>
+          <li><strong>Index Paper (#1):</strong> The study at the top of the left sidebar is automatically marked with an orange <span class="text-[11px] bg-amber-500 text-white px-1 py-0.2 rounded font-bold uppercase">Index</span> badge. It appears as the first column in your Synthesis Matrix.</li>
+          <li><strong>One-Click Methodological Sorting:</strong> Use the <span class="text-xs font-semibold bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded">Year▲</span> button to sort studies chronologically by publication year, or <span class="text-xs font-semibold bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded">Rich★</span> to sort by Conceptual Richness and Methodological Quality (putting your richest, highest-quality paper at #1 as the Index Paper). You can also drag and drop studies manually at any time. Every order change is automatically logged in your Audit Trail.</li>
+        </ul>
+      </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">2.2 Reading PDFs, Zooming & Searching Inside PDFs</h3>
+        <ul class="list-disc pl-6 space-y-2">
+          <li><strong>Zoom Controls:</strong> Use the floating dark toolbar at the top of the PDF viewer to select a zoom level from the dropdown menu (<code>50%</code> to <code>300%</code>, default <code>130%</code>) or click the <strong>−</strong>, <strong>+</strong>, and <strong>Reset</strong> buttons.</li>
+          <li><strong>Full-PDF Keyword Search (<kbd class="px-1.5 py-0.5 bg-slate-100 border rounded text-xs">Ctrl+F</kbd> / <kbd class="px-1.5 py-0.5 bg-slate-100 border rounded text-xs">Cmd+F</kbd>):</strong> Type any word into the <code>Find in PDF...</code> box in the floating toolbar and press <kbd class="px-1.5 py-0.5 bg-slate-100 border rounded text-xs">Enter</kbd> (or <kbd class="px-1.5 py-0.5 bg-slate-100 border rounded text-xs">Shift+Enter</kbd> for previous) to jump across matching pages and highlight matching text spans.</li>
+        </ul>
+      </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">2.3 Entering Study Details, Auto-Fill & Quality Appraisal</h3>
+        <p>
+          Click the study header at the top of the right sidebar (<strong>✏️ Edit Study Info</strong>) to open the study information drawer:
+        </p>
+        <ul class="list-disc pl-6 space-y-2">
+          <li><strong>✨ Auto-fill (Page 1):</strong> Click the purple <strong>✨ Auto-fill (Page 1)</strong> button at the top of the drawer to automatically detect the First Author, Publication Year, and Full Title using the PDF's internal metadata and Page 1 layout heuristics.</li>
+          <li><strong>Quick Fill from Selection:</strong> While the Edit Study Info drawer is open, select any text in the PDF and click the quick buttons (<code>➔ Author</code>, <code>➔ Year</code>, <code>➔ Title</code>, <code>➔ Setting</code>, <code>➔ Sample</code>, <code>➔ Method</code>) in the popup menu—or drag selected text directly into the input boxes.</li>
+          <li><strong>Quality Appraisal & Conceptual Depth:</strong> Choose your appraisal tool (<em>CASP</em>, <em>JBI</em>, <em>MMAT</em>, <em>ETQS</em>, <em>Dixon-Woods</em>, or <em>Custom</em>), select an overall quality rating (High / Moderate / Low / Not appraised), and rate the paper's <strong>Conceptual Depth (Richness)</strong> as <em>Rich (Detailed)</em>, <em>Moderate</em>, or <em>Thin (Basic / Descriptive)</em>.</li>
+        </ul>
+      </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">2.4 Extracting 1st Order Quotes & 2nd Order Concepts</h3>
+        <p>
+          Select any passage in the PDF with your mouse (multi-page selections across page breaks, such as <code>p.2-3</code>, are supported automatically). A dark popup bar will appear:
+        </p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-3">
+          <div class="p-4 rounded-xl bg-blue-50/70 border border-blue-200 space-y-1">
+            <div class="font-bold text-blue-900">🟦 1st Order (Shortcut: Press <kbd class="px-1.5 py-0.5 bg-white border rounded text-xs shadow-2xs">1</kbd>)</div>
+            <p class="text-sm text-slate-700">Use this for <strong>direct participant quotes</strong> (e.g., italicized interview excerpts in the Results section).</p>
+          </div>
+          <div class="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-1">
+            <div class="font-bold text-emerald-900">🟩 2nd Order (Shortcut: Press <kbd class="px-1.5 py-0.5 bg-white border rounded text-xs shadow-2xs">2</kbd>)</div>
+            <p class="text-sm text-slate-700">Use this for the <strong>primary authors' interpretations, themes, and concepts</strong>.</p>
+          </div>
+        </div>
+        <ul class="list-disc pl-6 space-y-2">
+          <li><strong>Manual Entry for Scanned / Non-OCR PDFs:</strong> If you are working with an older scanned PDF where text cannot be highlighted, use the <strong>Manual Entry (No-OCR)</strong> bar above the construct list (`+ 🟦 1st Order` / `+ 🟩 2nd Order`) to type or paste quotes and page numbers manually.</li>
+          <li><strong>Switching Between 1st and 2nd Order:</strong> Tagged a quote as 1st Order when it should be 2nd Order (or vice versa)? Click the <strong>⇄ To 2nd</strong> or <strong>⇄ To 1st</strong> button on the card header to convert it in one click.</li>
+          <li><strong>Linking Quotes to Concepts:</strong> Use the <strong>🔗 Link to 2nd Order...</strong> dropdown on a blue quote card, or drag the blue quote card and drop it directly onto a green 2nd Order card.</li>
+          <li><strong>Fixing Two-Column PDF Line Breaks:</strong> Click <strong>✏️ Edit Quote</strong> (or double-click the quote text) to clean up hyphenations, line breaks, or page headers.</li>
+          <li><strong>Private Reading Notes:</strong> Each card has a collapsible <strong>🌐 Reading & Nuance Notes (Private)</strong> box for personal reading memos or translation nuances—these auto-save quietly without cluttering your formal Audit Trail.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 3. TAB 2: SYNTHESIS MATRIX                 -->
+    <!-- ========================================== -->
+    <section id="tab2-matrix" class="bg-white p-8 md:p-10 rounded-2xl border border-slate-200 shadow-xs space-y-6">
+      <div class="flex items-center space-x-3">
+        <span class="px-3 py-1 rounded-lg bg-indigo-700 text-white font-bold text-sm">Section 3</span>
+        <h2 class="text-2xl font-bold text-slate-900">Tab 2: Synthesis Matrix, Line of Argument & CERQual</h2>
+      </div>
+      <p class="text-slate-700">
+        Tab 2 is where you translate concepts across studies to build your <strong>3rd Order Themes</strong>. Studies appear as columns across the top (starting with your Index Paper), and your 3rd Order Themes appear as rows down the left.
+      </p>
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">3.1 Creating 3rd Order Theme Rows & Mapping Concepts</h3>
+        <ul class="list-disc pl-6 space-y-2">
+          <li><strong>Adding a Theme Row:</strong> Click <strong>+ Add Theme Row (3rd Order)</strong> at either the top-right toolbar or the <strong>bottom of the matrix table</strong>. You can also drag a 2nd Order card from the left pool onto the dashed drop zone to create a new row automatically.</li>
+          <li><strong>Placing Concepts into the Matrix:</strong> Drag any 2nd Order concept from the left pool and drop it into a theme row. It will automatically snap into the column for its study! A single 2nd Order concept can be placed into multiple rows if it relates to more than one theme.</li>
+          <li><strong>Using Unlinked 1st Order Quotes:</strong> If a primary study is mostly descriptive and has a rich quote without a clear author concept, click <strong>+ Convert to 2nd Order</strong> (or drag the quote directly into a matrix row) to wrap it into a concept card.</li>
+          <li><strong>Reordering Theme Rows:</strong> Use the <span class="text-xs font-mono bg-slate-100 border px-1.5 py-0.5 rounded">▲</span> and <span class="text-xs font-mono bg-slate-100 border px-1.5 py-0.5 rounded">▼</span> buttons on any 3rd Order row header to organize the sequence of your themes.</li>
+          <li><strong>Searching & Filtering the Left Concept Pool:</strong> Use the search box, study dropdown filter, and <strong>⚡ Refut.</strong> checkbox at the top of the left pool to quickly locate specific 2nd Order concepts across dozens of studies.</li>
+        </ul>
+      </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">3.2 Marking Similarities (Reciprocal) vs. Contradictions (Refutational)</h3>
+        <p>
+          A key part of meta-ethnography is looking not only at how studies agree, but also at where they differ or contradict one another:
+        </p>
+        <ul class="list-disc pl-6 space-y-2">
+          <li><strong>Inside Each Cell:</strong> Every concept card placed in the matrix has a toggle button at the top-left: <span class="text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded">🤝 Reciprocal</span>. Click it to switch the card to <span class="text-[11px] font-bold bg-rose-600 text-white px-1.5 py-0.5 rounded">⚡ Refutational</span> (the card turns rose-red) and add a note explaining why this study's finding contrasts with the others in that row.</li>
+          <li><strong>Filter for Contradictions:</strong> Check the <strong>⚡ Contradictions Only</strong> toggle in the top toolbar to filter the matrix to rows containing refutational findings.</li>
+        </ul>
+      </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">3.3 Jumping Back to the Exact PDF Page</h3>
+        <p>
+          You never lose sight of the original context in the matrix. Every card in the left pool and inside the matrix cells features a prominent button:
+          <span class="inline-flex items-center space-x-1 text-xs font-bold text-white bg-indigo-600 px-2.5 py-0.5 rounded-md shadow-xs mx-1"><i class="ph ph-file-pdf"></i><span>PDF p.4</span><i class="ph ph-arrow-square-out"></i></span>.
+        </p>
+        <p>
+          Clicking this button immediately switches back to Tab 1, opens that study's PDF to the exact page, scrolls to the highlighted passage, and flashes it in yellow so you can re-read the surrounding paragraph. Linked 1st Order quotes inside matrix cells also have their own clickable <code>p.X</code> buttons.
+        </p>
+      </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">3.4 Using Compact View, GRADE-CERQual & Line of Argument</h3>
+        <ul class="list-disc pl-6 space-y-2">
+          <li><strong>🔭 Compact View:</strong> When you have many studies and themes, check <strong>🔭 Compact View</strong> in the top toolbar to hide full quotes and comment boxes so you can see your entire matrix at a glance.</li>
+          <li><strong>📊 CERQual Tab (Inside Each Row Header):</strong> Click the <strong>📊 CERQual</strong> mini-tab on the left side of any row to assess <em>Methodological Limitations</em>, <em>Coherence</em>, <em>Adequacy</em>, and <em>Relevance</em> (every domain starts as <em>Not assessed</em>). Click <strong>✨ Auto-suggest</strong> to generate a suggested confidence rating (High, Moderate, Low, Very low) and draft an explanation based on your ratings and contributing studies.</li>
+          <li><strong>🔗 Research Aim & Overall Model Drawer:</strong> Click the purple <strong>🔗 Research Aim & Overall Model</strong> button in the top bar to open a drawer where you can keep your Phase 1 research question visible and write your overarching <strong>Line of Argument</strong> model. Click your 3rd Order theme chips (`+ [Theme Name]`) and arrow buttons (`➔`, `⇄`, `⚡`) to build a text diagram showing how your themes connect. Under <strong>Concept relationship map</strong>, add relations between themes to draw a circular or left-to-right map, and use <strong>Download .svg</strong> to save it.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 4. TAB 3: AUDIT TRAIL                      -->
+    <!-- ========================================== -->
+    <section id="tab3-audit" class="bg-white p-8 md:p-10 rounded-2xl border border-slate-200 shadow-xs space-y-6">
+      <div class="flex items-center space-x-3">
+        <span class="px-3 py-1 rounded-lg bg-indigo-700 text-white font-bold text-sm">Section 4</span>
+        <h2 class="text-2xl font-bold text-slate-900">Tab 3: Audit Trail & Reflexive Log</h2>
+      </div>
+      <p class="text-slate-700">
+        The <em>eMERGe</em> guideline asks researchers to explain how interpretive decisions were made and how the researchers' own backgrounds influenced the synthesis (reflexivity).
+      </p>
+      <ul class="list-disc pl-6 space-y-2 text-slate-700">
+        <li><strong>Automatic Logging of Key Decisions:</strong> Whenever you create or rename a 3rd Order theme, change a study's order/Index Paper, mark a construct as Refutational, update CERQual ratings, or save your Line of Argument model, the app automatically logs a timestamped entry showing the <em>Before ➔ After</em> change.</li>
+        <li><strong>Adding Reflexive & Analytic Memos:</strong> Use the form on the left side of Tab 3 to record your personal clinical or academic lens (<em>Reflexivity</em>), notes from supervisor/team meetings, or reasons for grouping themes in a certain way.</li>
+        <li><strong>Adding Reasons to Any Log Entry:</strong> Every item in the chronological timeline has a <code>+ Add reason for this decision...</code> box where you can type a quick rationale.</li>
+        <li><strong>Filtering & Controlling Log Detail:</strong> Use the category dropdown in the top-right corner to filter logs by phase (e.g., <em>3rd Order Evolution</em>, <em>GRADE-CERQual</em>, <em>Team Concordance</em>). By default, routine drag-and-drop actions are hidden so your log stays focused on interpretive decisions; check <strong>Also log minor drag-and-drop actions</strong> if you want every quote link and card placement recorded.</li>
+      </ul>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 5. TAB 4: EXPORT TABLES                    -->
+    <!-- ========================================== -->
+    <section id="tab4-export" class="bg-white p-8 md:p-10 rounded-2xl border border-slate-200 shadow-xs space-y-6">
+      <div class="flex items-center space-x-3">
+        <span class="px-3 py-1 rounded-lg bg-indigo-700 text-white font-bold text-sm">Section 5</span>
+        <h2 class="text-2xl font-bold text-slate-900">Tab 4: Export Tables for Your Manuscript</h2>
+      </div>
+<p class="text-slate-700">
+        Tab 4 first compiles an <strong>eMERGe Methods Summary</strong> (with a 19-item checklist mapping) from your project data, then formats your work into five publication-ready academic tables for your dissertation, journal manuscript, or supplementary appendix:
+      </p>
+      <ol class="list-decimal pl-6 space-y-2 text-slate-700">
+        <li><strong>Table 1 — Study Characteristics & Appraisal:</strong> Lists all included studies in your chosen translation order (#1 Index Paper first), along with setting, sample, methods, quality appraisal ratings, and conceptual depth.</li>
+        <li><strong>Table 2 — Synthesis & Line of Argument:</strong> Shows each 3rd Order Theme, its translation type, your synthesis note, supporting 2nd Order concepts, illustrating 1st Order quotes (with page numbers), contributing studies, and CERQual confidence.</li>
+        <li><strong>Table 2b — Concept × Study Contribution Grid:</strong> A compact cross-tabulation matrix showing which primary studies contributed to each 3rd Order theme (<span class="font-bold">●</span> = Reciprocal contribution; <span class="font-bold text-rose-700">⚡</span> = Refutational contribution; <code>—</code> = Not present), along with page numbers and study counts (<em>n/N</em>).</li>
+        <li><strong>Table 3 — GRADE-CERQual SoQF Table:</strong> A Summary of Qualitative Findings (SoQF) and/or Evidence Profile showing all four CERQual domains and your explanation for each finding. Choose a combined table, SoQF only, Evidence Profile only, or two separate tables (3a / 3b) from the dropdown above the preview.</li>
+        <li><strong>Appendix — Audit Trail:</strong> A chronological table of your interpretive decisions, team concordance records, and reflexive memos.</li>
+      </ol>
+      <p class="text-slate-700 pt-2">
+        <strong>Export Options:</strong> Click <strong>Copy Rich Table</strong> to paste the currently viewed table directly into Microsoft Word or Google Docs with borders and formatting intact. You can also <strong>Copy Markdown</strong>, download the Methods Summary and all five tables together in a single landscape <strong>Word (.docx)</strong> document, or download a <strong>Raw CSV</strong> of your entire synthesis matrix.
+      </p>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 6. TEAM COMPARISON & SHORTCUTS             -->
+    <!-- ========================================== -->
+    <section id="team-compare" class="bg-white p-8 md:p-10 rounded-2xl border border-slate-200 shadow-xs space-y-6">
+      <div class="flex items-center space-x-3">
+        <span class="px-3 py-1 rounded-lg bg-teal-700 text-white font-bold text-sm">Section 6</span>
+        <h2 class="text-2xl font-bold text-slate-900">Comparing Reviewer Files & Keyboard Shortcuts</h2>
+      </div>
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">6.1 Asynchronous Team Workflow & Comparison (Compare Button)</h3>
+        <p>
+          To respect publisher copyright and keep backup files lightweight, <strong>PDF files themselves are not saved inside <code>.json</code> backups</strong>. Because the app reconnects PDFs by matching their <strong>filenames</strong>, we strongly recommend the following workflow when working with co-reviewers across institutions:
+        </p>
+
+        <!-- Recommended Team Setup Box -->
+        <div class="bg-teal-50/70 border border-teal-200 rounded-xl p-5 space-y-3">
+          <div class="font-bold text-teal-950 flex items-center space-x-2">
+            <i class="ph ph-users-three text-xl text-teal-700"></i>
+            <span>Recommended Step-by-Step Team Setup</span>
+          </div>
+          <ol class="list-decimal pl-6 space-y-2 text-sm text-slate-800 leading-relaxed">
+            <li>
+              <strong>Prepare a Private Shared Folder:</strong> Place all included full-text PDFs in a private, access-restricted shared folder (e.g., institutional OneDrive, Google Drive, Dropbox, or a shared Zotero group) so every reviewer uses the exact same PDF filenames.
+            </li>
+            <li>
+              <strong>Lead Reviewer Creates the "Starter JSON":</strong> One lead reviewer sets the <strong>Project Code</strong> and <strong>Phase 1 Aim</strong>, loads all PDFs from the shared folder, fills in the basic citation details (using <em>✨ Auto-fill</em>), and clicks <strong>Backup</strong> to export a starter <code>.json</code> template.
+            </li>
+            <li>
+              <strong>Co-Reviewers Restore & Reconnect PDFs:</strong> Co-reviewers open the app, set their own <strong>Reviewer ID</strong>, and load the starter <code>.json</code> via <strong>Settings (⚙️) ➔ Restore Project</strong>. They then drag and drop the PDFs from the shared folder into the window—the app will automatically link every PDF to its study entry by filename.
+            </li>
+            <li>
+              <strong>Extract Independently, Then Compare & Merge:</strong> After each reviewer extracts quotes and concepts on their own computer, have your co-reviewer click <strong>Backup</strong> and send you their <code>.json</code> file. Click the teal <strong>Compare</strong> button in the top bar and drop their file in to view overlap rates, <strong>Import & Agree</strong>, <strong>Import for Discussion</strong>, or <strong>Interleave Audit Logs</strong> in one click.
+            </li>
+          </ol>
+        </div>
+      </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-3 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">6.2 Handy Keyboard Shortcuts</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+            <span class="text-sm font-medium text-slate-700">Tag 1st Order</span>
+            <kbd class="px-2.5 py-1 bg-white border border-slate-300 rounded text-sm font-bold text-slate-800 shadow-2xs">1</kbd>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+            <span class="text-sm font-medium text-slate-700">Tag 2nd Order</span>
+            <kbd class="px-2.5 py-1 bg-white border border-slate-300 rounded text-sm font-bold text-slate-800 shadow-2xs">2</kbd>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+            <span class="text-sm font-medium text-slate-700">Find in PDF</span>
+            <kbd class="px-2 py-1 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 shadow-2xs">Ctrl+F / Cmd+F</kbd>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+            <span class="text-sm font-medium text-slate-700">Undo Delete</span>
+            <kbd class="px-2 py-1 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 shadow-2xs">Ctrl+Z / Cmd+Z</kbd>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bottom Next-Page Banner -->
+    <div class="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div>
+        <div class="text-xs font-bold uppercase tracking-wider text-indigo-700">Next Guide</div>
+        <div class="text-lg font-bold text-slate-900">New to Meta-Ethnography?</div>
+        <p class="text-sm text-slate-600">Learn the difference between 1st, 2nd, and 3rd order constructs and how the 7 phases work.</p>
+      </div>
+      <a href="meta-ethnography-101.html" class="shrink-0 inline-flex items-center space-x-2 px-5 py-3 bg-indigo-700 hover:bg-indigo-800 text-white font-semibold rounded-xl shadow-xs transition text-sm">
+        <span>Read Meta-Ethnography 101</span>
+        <i class="ph ph-arrow-right"></i>
+      </a>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-slate-200 py-8 px-6 mt-12">
+    <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between text-sm text-slate-500 gap-4">
+      <div>
+        <div><strong>Meta-Ethnography Canvas</strong> v1.1.0 — Built for transparent qualitative evidence synthesis.</div>
+        <div class="text-xs text-slate-400 mt-1">
+          © 2026 Jeong, Dae Yun. Released under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" class="underline hover:text-slate-600">MIT License</a>. <a href="https://doi.org/10.5281/zenodo.24200376" target="_blank" rel="noopener" class="underline hover:text-slate-600">doi:10.5281/zenodo.24200376</a>
+        </div>
+      </div>
+      <div class="flex items-center space-x-4">
+        <a href="index.html" class="hover:text-slate-800">Overview</a>
+        <span>•</span>
+        <a href="manual.html" class="hover:text-slate-800">Manual</a>
+        <span>•</span>
+        <a href="meta-ethnography-101.html" class="hover:text-slate-800">101 Guide</a>
+        <span>•</span>
+        <a href="https://github.com/jdaeyun/meta-ethnography-canvas" target="_blank" rel="noopener" class="hover:text-slate-800 flex items-center space-x-1">
+          <i class="ph ph-github-logo"></i>
+        </a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
