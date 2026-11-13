@@ -3,7 +3,7 @@ message: "If you use Meta-Ethnography Canvas in your research or protocol, pleas
 type: software
 title: "Meta-Ethnography Canvas: An open-source workspace for meta-ethnography, with reporting outputs structured around eMERGe"
 version: "1.1.0"
-doi: 10.5281/zenodo.24200376
+doi: 10.5281/zenodo.24200375
 abstract: "A zero-backend, single-window browser workspace for conducting Meta-Ethnography qualitative evidence synthesis (QES), designed around the eMERGe reporting guideline (France et al., 2019). Supports full-text PDF annotation, 1st/2nd/3rd order construct translation matrices, GRADE-CERQual assessment, reflexive audit trails, and publication-ready Word (.docx) table export."
 authors:
   - family-names: "Jeong"
