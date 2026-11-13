@@ -91,7 +91,7 @@ If you use **Meta-Ethnography Canvas** in your systematic review, protocol regis
 
 **APA (7th ed.):**
 
-> Jeong, D. Y. (2026). Meta-Ethnography Canvas: An open-source workspace for meta-ethnography, with reporting outputs structured around eMERGe \[Computer software] (Version 1.1.0). Zenodo. https://doi.org/10.5281/zenodo.24200376
+> Jeong, D. Y. (2026). *Meta-Ethnography Canvas: An open-source workspace for meta-ethnography, with reporting outputs structured around eMERGe* (Version 1.1.0) \[Computer software]. Zenodo. https://doi.org/10.5281/zenodo.24200376
 
 **BibTeX:**
 
