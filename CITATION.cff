@@ -2,6 +2,8 @@ cff-version: 1.2.0
 message: "If you use Meta-Ethnography Canvas in your research or protocol, please cite it using the metadata below."
 type: software
 title: "Meta-Ethnography Canvas: An open-source, eMERGe-aligned workspace for qualitative evidence synthesis"
+version: "1.1.0"
+doi: 10.5281/zenodo.24200376
 abstract: "A zero-backend, single-window browser workspace for conducting Meta-Ethnography qualitative evidence synthesis (QES), designed around the eMERGe reporting guideline (France et al., 2019). Supports full-text PDF annotation, 1st/2nd/3rd order construct translation matrices, GRADE-CERQual assessment, reflexive audit trails, and publication-ready Word (.docx) table export."
 authors:
   - family-names: "Jeong"
@@ -10,7 +12,7 @@ authors:
 repository-code: "https://github.com/jdaeyun/meta-ethnography-canvas"
 url: "https://jdaeyun.github.io/meta-ethnography-canvas/"
 license: MIT
-date-released: "2026-11-12"
+date-released: "2026-11-13"
 keywords:
   - meta-ethnography
   - qualitative-evidence-synthesis

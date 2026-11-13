@@ -1,5 +1,7 @@
 # 📖 Meta-Ethnography Canvas
 
+**Version 1.1.0** · [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24200376.svg)](https://doi.org/10.5281/zenodo.24200376)
+
 [![Live Workspace](https://img.shields.io/badge/Launch_Workspace-GitHub_Pages-4f46e5?style=for-the-badge&logo=googlechrome&logoColor=white)](https://jdaeyun.github.io/meta-ethnography-canvas/me_canvas.html)
 [![Documentation](https://img.shields.io/badge/Docs_&_Manual-Read_Online-0d9488?style=for-the-badge&logo=readthedocs&logoColor=white)](https://jdaeyun.github.io/meta-ethnography-canvas/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-slate.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
@@ -8,7 +10,7 @@
 
 It bridges the methodological gap between full-text PDF coding and cross-study spreadsheet matrices—keeping 1st, 2nd, and 3rd order constructs, contextual appraisals, GRADE-CERQual assessments, and bidirectional PDF page links in a single local-first environment.
 
-> 📌 **Scope Note:** This tool is designed for the **post-screening synthesis phases** (*eMERGe* Phases 3–7). Complete your database searching, deduplication, and title/abstract screening in your preferred SR tool (e.g., Rayyan, Covidence, Zotero) first, then import your final included full-text PDFs into this workspace.
+> 📌 **Scope Note:** This tool is designed for the **post-screening synthesis phases** (*eMERGe* Phases 1 and 3–7; Phase 1 aim/review question is recorded in Project Setup). Complete your database searching, deduplication, and title/abstract screening in your preferred SR tool (e.g., Rayyan, Covidence, Zotero) first, then import your final included full-text PDFs into this workspace.
 
 ---
 
@@ -26,13 +28,13 @@ No installation, build step, or user account required. Run directly in your desk
 ## ✨ Core Workflow Summary (4-Tab Architecture)
 
 1. **Tab 1 — Extract & Context (Phases 2–3):**
-   Read primary study PDFs, auto-extract Page 1 citation metadata, record multi-framework critical appraisal (`CASP`, `JBI`, `MMAT`, `COREQ`, `ETQS`, `Dixon-Woods`) and conceptual richness, and extract **1st Order** (participant quotes) and **2nd Order** (author concepts) constructs with multi-page highlight support (plus manual entry for non-OCR scans).
+   Read primary study PDFs, auto-extract Page 1 citation metadata, record multi-framework critical appraisal (`CASP`, `JBI`, `MMAT`, `ETQS`, `Dixon-Woods`, or a custom tool) and conceptual richness, and extract **1st Order** (participant quotes) and **2nd Order** (author concepts) constructs with multi-page highlight support (plus manual entry for non-OCR scans).
 2. **Tab 2 — Synthesis Matrix, Line of Argument & CERQual (Phases 4–6):**
-   Order studies chronologically or by conceptual richness to designate the **Index Paper (#1)**. Map 2nd Order constructs into **3rd Order Theme** rows, toggle cell-level **Reciprocal (🤝)** vs. **Refutational (⚡)** translations, jump back to exact PDF highlights in one click, build an overarching **Line of Argument** model, and evaluate **GRADE-CERQual** confidence.
+   Order studies chronologically or by conceptual richness to designate the **Index Paper (#1)**. Map 2nd Order constructs into **3rd Order Theme** rows, toggle cell-level **Reciprocal (🤝)** vs. **Refutational (⚡)** translations, jump back to exact PDF highlights in one click, build an overarching **Line of Argument** model (with a concept relationship map exportable as `.svg`), and evaluate **GRADE-CERQual** confidence (all domains default to *Not assessed*).
 3. **Tab 3 — Audit Trail & Team Concordance (Transparency & Reflexivity):**
    Automatically log interpretive milestones (study re-ordering, construct evolution, CERQual rationales), record reflexive positionality memos, and asynchronously compare/merge `.json` project files across multiple reviewers.
 4. **Tab 4 — Manuscript Table Export (Phase 7):**
-   Generate **Table 1** (Study Characteristics), **Table 2** (1st/2nd/3rd Order Synthesis), **Table 2b** (Concept × Study Contribution Grid `● / ⚡`), **Table 3** (GRADE-CERQual SoQF), and **Appendix A** (Audit Trail). Export via Rich Clipboard Copy, Markdown, CSV, or native landscape **Word (`.docx`)**.
+   Generate an auto-compiled **eMERGe Methods Summary** with the 19-item eMERGe checklist mapping, **Table 1** (Study Characteristics), **Table 2** (1st/2nd/3rd Order Synthesis), **Table 2b** (Concept × Study Contribution Grid `● / ⚡`), **Table 3** (GRADE-CERQual SoQF and/or Evidence Profile, selectable layout), and **Appendix A** (Audit Trail). Export via Rich Clipboard Copy, Markdown, CSV, or native landscape **Word (`.docx`)**.
 
 ---
 
@@ -55,7 +57,7 @@ Meta-Ethnography Canvas (`me_canvas.html`) is intentionally architected as a **d
 * **Unicode-Aware Fuzzy Matching:** Co-reviewers working independently can compare `.json` backups in-browser. The concordance engine (`computeTextSimilarity`) combines NFC Unicode normalization, token-set overlap, and character bigram similarity (supporting both Latin and non-spaced CJK scripts) plus page-proximity weighting to match independently extracted constructs, compute inter-reviewer concordance rates, and interleave audit logs chronologically.
 
 ### 4. Client-Side OpenXML (`.docx`) Generation
-* Uses `docx.js` (`v8.5.0`) to compile all five synthesis and GRADE-CERQual tables into a single landscape OpenXML Word document directly in memory, alongside `ClipboardItem` rich HTML/plain-text dual-MIME copying for one-click pasting into Word or Google Docs.
+* Uses `docx.js` (`v8.5.0`) to compile the Methods Summary, eMERGe checklist mapping, and all synthesis and GRADE-CERQual tables into a single landscape OpenXML Word document directly in memory, alongside `ClipboardItem` rich HTML/plain-text dual-MIME copying for one-click pasting into Word or Google Docs.
 
 ---
 
@@ -67,7 +69,6 @@ meta-ethnography-canvas/
 ├── index.html                  # Documentation Part 1: Overview & Motivation
 ├── manual.html                 # Documentation Part 2: Step-by-Step User Manual
 ├── meta-ethnography-101.html   # Documentation Part 3: Methodology Primer & eMERGe Mapping
-├── templates.html              # Documentation Part 4: Copy-Paste Methods Templates
 ├── CITATION.cff                # GitHub academic citation metadata
 ├── LICENSE                     # MIT License
 └── README.md                   # Technical overview & repository guide
@@ -90,7 +91,7 @@ If you use **Meta-Ethnography Canvas** in your systematic review, protocol regis
 
 **APA (7th ed.):**
 
-> Jeong, D. Y. (2026). Meta-Ethnography Canvas: An open-source, eMERGe-aligned workspace for qualitative evidence synthesis \[Computer software]. GitHub. https://github.com/jdaeyun/meta-ethnography-canvas
+> Jeong, D. Y. (2026). Meta-Ethnography Canvas: An open-source, eMERGe-aligned workspace for qualitative evidence synthesis \[Computer software] (Version 1.1.0). Zenodo. https://doi.org/10.5281/zenodo.24200376
 
 **BibTeX:**
 
@@ -99,8 +100,10 @@ If you use **Meta-Ethnography Canvas** in your systematic review, protocol regis
 author       = {Jeong, Dae Yun},
 title        = {{Meta-Ethnography Canvas: An open-source, eMERGe-aligned workspace for qualitative evidence synthesis}},
 year         = {2026},
-publisher    = {GitHub},
-url          = {[https://github.com/jdaeyun/meta-ethnography-canvas](https://github.com/jdaeyun/meta-ethnography-canvas)}
+version      = {1.1.0},
+publisher    = {Zenodo},
+doi          = {10.5281/zenodo.24200376},
+url          = {https://doi.org/10.5281/zenodo.24200376}
 }
 ```
 
