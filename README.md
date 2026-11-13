@@ -6,7 +6,7 @@
 [![Documentation](https://img.shields.io/badge/Docs_&_Manual-Read_Online-0d9488?style=for-the-badge&logo=readthedocs&logoColor=white)](https://jdaeyun.github.io/meta-ethnography-canvas/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-slate.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-**Meta-Ethnography Canvas** is an open-source, zero-backend, single-window browser workspace for conducting **Meta-Ethnography** qualitative evidence synthesis (QES), engineered around the **eMERGe Reporting Guideline** (France et al., 2019).
+**Meta-Ethnography Canvas** is an open-source, zero-backend, single-window browser workspace for conducting **Meta-Ethnography** qualitative evidence synthesis (QES), with reporting outputs structured around the **eMERGe reporting guidance** (France et al., 2019).
 
 It bridges the methodological gap between full-text PDF coding and cross-study spreadsheet matrices—keeping 1st, 2nd, and 3rd order constructs, contextual appraisals, GRADE-CERQual assessments, and bidirectional PDF page links in a single local-first environment.
 
@@ -91,14 +91,14 @@ If you use **Meta-Ethnography Canvas** in your systematic review, protocol regis
 
 **APA (7th ed.):**
 
-> Jeong, D. Y. (2026). Meta-Ethnography Canvas: An open-source, eMERGe-aligned workspace for qualitative evidence synthesis \[Computer software] (Version 1.1.0). Zenodo. https://doi.org/10.5281/zenodo.24200376
+> Jeong, D. Y. (2026). Meta-Ethnography Canvas: An open-source workspace for meta-ethnography, with reporting outputs structured around eMERGe \[Computer software] (Version 1.1.0). Zenodo. https://doi.org/10.5281/zenodo.24200376
 
 **BibTeX:**
 
 ```
 @software{jeong2026metaethnography,
 author       = {Jeong, Dae Yun},
-title        = {{Meta-Ethnography Canvas: An open-source, eMERGe-aligned workspace for qualitative evidence synthesis}},
+title        = {{Meta-Ethnography Canvas: An open-source workspace for meta-ethnography, with reporting outputs structured around eMERGe}},
 year         = {2026},
 version      = {1.1.0},
 publisher    = {Zenodo},
