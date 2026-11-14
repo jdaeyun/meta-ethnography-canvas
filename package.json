@@ -1,0 +1,18 @@
+{
+  "name": "meta-ethnography-canvas-build",
+  "private": true,
+  "description": "Build tools only: fetches the bundled third-party libraries and builds the Tailwind CSS. The app itself needs no build to run.",
+  "scripts": {
+    "vendor": "node tools/copy-vendor.mjs",
+    "css": "tailwindcss -c tailwind.config.js -i tools/tailwind.input.css -o app/vendor/tailwind/tailwind.css --minify",
+    "build": "npm run vendor && npm run css",
+    "serve": "http-server . -p 8080 -c-1"
+  },
+  "devDependencies": {
+    "@phosphor-icons/web": "2.1.1",
+    "docx": "8.5.0",
+    "http-server": "14.1.1",
+    "pdfjs-dist": "3.11.174",
+    "tailwindcss": "3.4.17"
+  }
+}

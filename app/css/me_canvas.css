@@ -1,0 +1,52 @@
+/* Meta-Ethnography Canvas — styles (Tailwind is loaded from CDN; these are the app-specific rules) */
+
+.page-container { position: relative; margin: 0 auto 24px auto; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); background-color: white; }
+.textLayer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; opacity: 1; line-height: 1.0; }
+.textLayer span, .textLayer br { color: transparent !important; }
+.textLayer ::selection { background: rgba(37, 99, 235, 0.28); color: transparent; }
+.highlight-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; mix-blend-mode: multiply; }
+.hl-box { position: absolute; pointer-events: auto; cursor: pointer; border-radius: 2px; transition: background-color 0.15s ease; }
+.hl-box.first_order { background-color: rgba(96, 165, 250, 0.38); border-bottom: 2px solid rgba(37, 99, 235, 0.75); }
+.hl-box.second_order { background-color: rgba(74, 222, 128, 0.38); border-bottom: 2px solid rgba(22, 163, 74, 0.75); }
+@keyframes pulseFlash {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  25%, 75% { transform: scale(1.03); background-color: rgba(250, 204, 21, 0.75) !important; box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.45); z-index: 30; }
+}
+.hl-flash { animation: pulseFlash 1.8s ease-in-out; }
+
+/* Overlays */
+#dropOverlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(2px); z-index: 99999; justify-content: center; align-items: center; }
+#dropOverlay.active { display: flex; }
+
+/* Matrix Table Styles */
+.matrix-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: max-content; min-width: 100%; }
+.matrix-table th, .matrix-table td { border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; padding: 0.9rem; vertical-align: top; box-sizing: border-box; overflow-wrap: break-word; word-break: break-word; }
+.matrix-table thead th { background: #f8fafc; position: sticky; top: 0; z-index: 15; border-top: 1px solid #e2e8f0; font-size: 0.875rem; color: #334155; width: 290px; min-width: 290px; max-width: 290px; }
+.matrix-table td { width: 290px; min-width: 290px; max-width: 290px; }
+.matrix-table thead th:first-child, .matrix-table td:first-child { left: 0; border-left: 1px solid #e2e8f0; width: 390px; min-width: 390px; max-width: 390px; }
+.matrix-table thead th:first-child { z-index: 25; }
+.matrix-table td:first-child { position: sticky; left: 0; background: #ffffff; z-index: 10; border-left: 1px solid #e2e8f0; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.05); }
+.matrix-context-row td { background-color: #f8fafc; font-size: 0.8125rem; }
+.matrix-context-row td:first-child { background-color: #f1f5f9; }
+.matrix-row-drop.drag-over td { background-color: #eef2ff !important; }
+.drop-input-active { border-color: #4f46e5 !important; background-color: #eef2ff !important; }
+.study-drag-over { border-top: 2px solid #4f46e5 !important; }
+
+/* PDF zoom select: compact look without the native dropdown chrome */
+#zoomPercentInput { -moz-appearance: textfield; appearance: textfield; }
+
+/* Compact Matrix Mode (Bird's-eye Overview) */
+.matrix-compact .matrix-card-detail { display: none !important; }
+.matrix-compact .matrix-cell-card { padding: 0.45rem 0.6rem !important; }
+.matrix-compact .subpanel-synthesis,
+.matrix-compact .subpanel-cerqual,
+.matrix-compact .subpanel-concordance,
+.matrix-compact .cl-subtab-bar { display: none !important; }
+.matrix-compact .matrix-compact-expand-note { display: block !important; }
+
+/* Publication Preview Table (Academic / APA-like formatting) */
+.pub-table { width: 100%; border-collapse: collapse; font-family: Georgia, 'Times New Roman', serif; font-size: 13.5px; color: #1e293b; background: white; }
+.pub-table thead tr { border-top: 2px solid #0f172a; border-bottom: 1.5px solid #0f172a; background-color: #f8fafc; }
+.pub-table th { text-align: left; padding: 8px 10px; font-weight: bold; vertical-align: bottom; }
+.pub-table td { padding: 8px 10px; border-bottom: 1px solid #cbd5e1; vertical-align: top; line-height: 1.45; }
+.pub-table tbody tr:last-child td { border-bottom: 2px solid #0f172a; }

@@ -1,0 +1,4 @@
+/* Input for the Tailwind build (npm run css). Same layers the Play CDN used to generate in the browser. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
