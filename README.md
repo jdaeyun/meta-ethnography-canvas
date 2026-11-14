@@ -1,6 +1,6 @@
 # 📖 Meta-Ethnography Canvas
 
-**Version 1.1.0** · [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24200375.svg)](https://doi.org/10.5281/zenodo.24200375)
+**Version 1.2.1** · [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24200375.svg)](https://doi.org/10.5281/zenodo.24200375)
 
 [![Live Workspace](https://img.shields.io/badge/Launch_Workspace-GitHub_Pages-4f46e5?style=for-the-badge&logo=googlechrome&logoColor=white)](https://jdaeyun.github.io/meta-ethnography-canvas/me_canvas.html)
 [![Documentation](https://img.shields.io/badge/Docs_&_Manual-Read_Online-0d9488?style=for-the-badge&logo=readthedocs&logoColor=white)](https://jdaeyun.github.io/meta-ethnography-canvas/)
@@ -91,7 +91,7 @@ If you use **Meta-Ethnography Canvas** in your systematic review, protocol regis
 
 **APA (7th ed.):**
 
-> Jeong, D. Y. (2026). *Meta-Ethnography Canvas: An open-source workspace for meta-ethnography, with reporting outputs structured around eMERGe* (Version 1.1.0) \[Computer software]. Zenodo. https://doi.org/10.5281/zenodo.24200375
+> Jeong, D. Y. (2026). *Meta-Ethnography Canvas: An open-source workspace for meta-ethnography, with reporting outputs structured around eMERGe* (Version 1.2.1) \[Computer software]. Zenodo. https://doi.org/10.5281/zenodo.24200375
 
 **BibTeX:**
 
@@ -100,7 +100,7 @@ If you use **Meta-Ethnography Canvas** in your systematic review, protocol regis
 author       = {Jeong, Dae Yun},
 title        = {{Meta-Ethnography Canvas: An open-source workspace for meta-ethnography, with reporting outputs structured around eMERGe}},
 year         = {2026},
-version      = {1.1.0},
+version      = {1.2.1},
 publisher    = {Zenodo},
 doi          = {10.5281/zenodo.24200375},
 url          = {https://doi.org/10.5281/zenodo.24200375}
