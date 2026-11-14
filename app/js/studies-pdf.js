@@ -1291,15 +1291,10 @@ async function sortStudiesByMode(mode) {
       return (a.author || a.name || '').localeCompare(b.author || b.name || '');
     });
   } else if (mode === 'richness') {
+    // Conceptual richness only: methodological quality is a separate judgement and does not choose the index paper.
+    // Ties keep the current (reviewer-chosen) order, so the reviewer decides between equally rich studies.
     const richScore = { 'Rich': 3, 'Moderate': 2, 'Thin': 1 };
-    const qualScore = { 'High': 3, 'Moderate': 2, 'Low': 1 };
-    state.docs.sort((a, b) => {
-      const rDiff = (richScore[b.richness] || 0) - (richScore[a.richness] || 0);
-      if (rDiff !== 0) return rDiff;
-      const qDiff = (qualScore[b.quality] || 0) - (qualScore[a.quality] || 0);
-      if (qDiff !== 0) return qDiff;
-      return (parseInt(a.year, 10) || 9999) - (parseInt(b.year, 10) || 9999);
-    });
+    state.docs.sort((a, b) => (richScore[b.richness] || 0) - (richScore[a.richness] || 0));
   }
 
   const newOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
@@ -1315,8 +1310,8 @@ async function sortStudiesByMode(mode) {
     category: 'study_order',
     action: mode === 'year'
       ? 'Sorted Studies Chronologically (by Publication Year) for Translation'
-      : 'Sorted Studies by Conceptual Depth (Richness & Methodological Quality) for Translation',
-    detail: `New Translation Sequence: ${newOrderStr}`,
+      : 'Sorted Studies by Conceptual Richness for Translation',
+    detail: `New Translation Sequence: ${newOrderStr}${mode === 'richness' ? '\n(Richness only; methodological quality was not used to order studies. Equally rich studies keep their previous order.)' : ''}`,
     fromVal: `#1: ${oldIndexPaper}`,
     toVal: `#1: ${newIndexPaper}`
   });
@@ -1329,7 +1324,7 @@ async function sortStudiesByMode(mode) {
 
   renderStudyList();
   if (!divMatrix.classList.contains('hidden')) renderMatrixView();
-  showSnackbar(mode === 'year' ? 'Sorted studies chronologically (Year ▲)' : 'Sorted studies by Richness & Quality (★)');
+  showSnackbar(mode === 'year' ? 'Sorted studies chronologically (Year ▲)' : 'Sorted studies by conceptual richness (★)');
 }
 
 document.getElementById('sortStudiesYearBtn')?.addEventListener('click', () => sortStudiesByMode('year'));

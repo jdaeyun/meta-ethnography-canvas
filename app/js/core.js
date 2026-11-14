@@ -287,7 +287,7 @@ function normalizeAnnotation(a) {
   if (typeof a.nuanceNote !== 'string') a.nuanceNote = '';
   // Page labels are rendered in many HTML templates: keep them to safe characters (digits, ranges, roman numerals, "S1" etc.)
   a.page = sanitizePageLabel(a.page);
-  if (typeof a.concordanceStatus !== 'string') a.concordanceStatus = 'pending'; // 'pending' | 'discuss' | 'agreed'
+  if (typeof a.concordanceStatus !== 'string') a.concordanceStatus = 'pending'; // 'pending' | 'discuss' | 'divergent' | 'agreed'
   if (typeof a.concordanceNote !== 'string') a.concordanceNote = '';
   if (typeof a.by !== 'string' || !a.by) a.by = state.reviewerId || 'Reviewer';
   if (a.type === 'second_order') {
@@ -340,16 +340,68 @@ function secEvidenceText(s) {
 // Study #1 (index paper / earliest study) establishes the rows, so its constructs are not yet
 // translated "into" anything: no reciprocal/refutational relation applies to them.
 function isBaselineDocId(docId) { return state.docs.length > 0 && state.docs[0].id === docId; }
-function isSecRefutational(sec, cid) {
-  return !isBaselineDocId(sec.docId) && !!(sec.clusterRelations && sec.clusterRelations[cid] === 'refutational');
+// How a study's construct relates to a row is a judgement, never a default (Noblit & Hare, Phase 4–5):
+// 'unjudged' until the reviewer decides 'reciprocal' or 'refutational'.
+const CELL_RELATIONS = ['unjudged', 'reciprocal', 'refutational'];
+function cellRelationOf(sec, cid) {
+  if (isBaselineDocId(sec.docId)) return 'baseline';
+  const r = sec.clusterRelations && sec.clusterRelations[cid];
+  return (r === 'reciprocal' || r === 'refutational') ? r : 'unjudged';
 }
+function isSecRefutational(sec, cid) { return cellRelationOf(sec, cid) === 'refutational'; }
+const CELL_REL_SYMBOL = { baseline: '◆', reciprocal: '●', refutational: '⚡', unjudged: '?' };
 // Symbol for a study's contribution to a row (Table 2b, grid exports)
 function contribSymbol(docSecs, cid) {
   if (docSecs.length && isBaselineDocId(docSecs[0].docId)) return '◆';
-  const hasRefut = docSecs.some(sc => isSecRefutational(sc, cid));
-  const hasRecip = docSecs.some(sc => !isSecRefutational(sc, cid));
-  return (hasRefut && hasRecip) ? '● / ⚡' : (hasRefut ? '⚡' : '●');
+  return ['reciprocal', 'refutational', 'unjudged']
+    .filter(r => docSecs.some(sc => cellRelationOf(sc, cid) === r))
+    .map(r => CELL_REL_SYMBOL[r]).join(' / ');
 }
+
+// ---- Empty cells: a study with no construct in a row is not one thing ----
+// Absent entry = not yet checked; 'silent' = the account was re-read and does not address the concept;
+// 'na' = the concept lies outside this study's scope / population, so silence is not informative.
+const EMPTY_CELL_META = {
+  unchecked: { label: 'Not yet checked', sym: '' },
+  silent: { label: 'Checked: not addressed (silence)', sym: '○' },
+  na: { label: 'Checked: outside this study\'s scope', sym: '–' }
+};
+function emptyCellStatus(cluster, docId) {
+  const e = cluster.emptyCells && cluster.emptyCells[docId];
+  return (e && EMPTY_CELL_META[e.status]) ? e : { status: 'unchecked', note: '' };
+}
+
+// Row-level relations are derived from the cells (a relation is between studies, not a property of a theme)
+function rowRelationCounts(cluster) {
+  const counts = { reciprocal: 0, refutational: 0, unjudged: 0, silent: 0, na: 0, unchecked: 0, baseline: 0 };
+  state.docs.forEach(doc => {
+    const secs = state.annotations.filter(a => a.type === 'second_order' && a.docId === doc.id && Array.isArray(a.clusterIds) && a.clusterIds.includes(cluster.id));
+    if (secs.length === 0) { counts[emptyCellStatus(cluster, doc.id).status]++; return; }
+    if (isBaselineDocId(doc.id)) { counts.baseline++; return; }
+    const rels = new Set(secs.map(s => cellRelationOf(s, cluster.id)));
+    ['reciprocal', 'refutational', 'unjudged'].forEach(r => { if (rels.has(r)) counts[r]++; });
+  });
+  return counts;
+}
+function rowRelationSummary(cluster) {
+  const c = rowRelationCounts(cluster);
+  const parts = [];
+  if (c.baseline) parts.push('◆ index/first study');
+  if (c.reciprocal) parts.push(`● ${c.reciprocal} reciprocal`);
+  if (c.refutational) parts.push(`⚡ ${c.refutational} refutational`);
+  if (c.unjudged) parts.push(`? ${c.unjudged} not yet judged`);
+  if (c.silent) parts.push(`○ ${c.silent} silent`);
+  if (c.na) parts.push(`– ${c.na} out of scope`);
+  if (c.unchecked) parts.push(`${c.unchecked} not yet checked`);
+  return parts.join(' · ') || '-';
+}
+function rowHasRefutation(cluster) { return rowRelationCounts(cluster).refutational > 0; }
+
+// A row opened by a construct from a study other than #1: the concept was not in the first study
+function rowOriginDoc(cluster) {
+  return cluster.originDocId ? state.docs.find(d => d.id === cluster.originDocId) || null : null;
+}
+
 function getCellRelationMeta(rel) {
   if (rel === 'baseline') {
     return {
@@ -369,12 +421,21 @@ function getCellRelationMeta(rel) {
       dividerCls: 'border-rose-200/80'
     };
   }
+  if (rel === 'reciprocal') {
+    return {
+      label: '🤝 Reciprocal',
+      cardCls: 'bg-emerald-50/40 border-emerald-200',
+      badgeCls: 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200',
+      quoteBorderCls: 'border-emerald-100',
+      dividerCls: 'border-emerald-100'
+    };
+  }
   return {
-    label: '🤝 Reciprocal',
-    cardCls: 'bg-emerald-50/40 border-emerald-200',
-    badgeCls: 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200',
-    quoteBorderCls: 'border-emerald-100',
-    dividerCls: 'border-emerald-100'
+    label: '? Not yet judged',
+    cardCls: 'bg-white border-slate-300 border-dashed',
+    badgeCls: 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200',
+    quoteBorderCls: 'border-slate-100',
+    dividerCls: 'border-slate-200'
   };
 }
 
@@ -389,6 +450,9 @@ function normalizeCluster(c) {
   if (typeof c.cerqualConfidence !== 'string') c.cerqualConfidence = 'Not assessed';
   if (typeof c.cerqualExplanation !== 'string') c.cerqualExplanation = '';
   if (typeof c.seedConfirmed !== 'boolean') c.seedConfirmed = false;
+  if (!c.emptyCells || typeof c.emptyCells !== 'object') c.emptyCells = {}; // { [docId]: { status: 'silent'|'na', note } }
+  if (typeof c.originDocId !== 'string') c.originDocId = '';             // study whose construct opened the row (if not #1)
+  delete c.translationType;                                              // relations live on the cells (see rowRelationSummary)
   if (typeof c.translationSummary !== 'string') c.translationSummary = ''; // Step A (Phase 5): how the studies' concepts translate into one another
   if (typeof c.synthesisNote !== 'string') c.synthesisNote = '';           // Step B: the reviewer's 3rd order construct (definition & interpretation)
   ['cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote'].forEach(k => { if (typeof c[k] !== 'string') c[k] = ''; });
@@ -397,6 +461,7 @@ function normalizeCluster(c) {
 
 function getConcordanceBadgeMeta(status) {
   if (status === 'agreed') return { label: '✅ Agreed', cls: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+  if (status === 'divergent') return { label: '↔ Divergent (kept)', cls: 'bg-violet-100 text-violet-800 border-violet-300' };
   if (status === 'discuss') return { label: '💬 Discuss', cls: 'bg-amber-100 text-amber-800 border-amber-300' };
   return { label: '⏳ Pending', cls: 'bg-slate-100 text-slate-600 border-slate-300' };
 }

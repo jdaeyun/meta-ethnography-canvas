@@ -161,7 +161,7 @@
             </div>
             <div class="flex items-center space-x-1 shrink-0">
               <button type="button" id="sortStudiesYearBtn" class="px-1.5 py-0.5 bg-white hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 border border-slate-200 rounded text-[11px] font-semibold cursor-pointer transition" title="Sort studies chronologically by Publication Year (logs to Audit Trail)">Year▲</button>
-              <button type="button" id="sortStudiesRichBtn" class="px-1.5 py-0.5 bg-white hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 border border-slate-200 rounded text-[11px] font-semibold cursor-pointer transition" title="Sort studies by Conceptual Richness & Quality (Rich + High first)">Rich★</button>
+              <button type="button" id="sortStudiesRichBtn" class="px-1.5 py-0.5 bg-white hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 border border-slate-200 rounded text-[11px] font-semibold cursor-pointer transition" title="Sort studies by conceptual richness only (Rich first; equally rich studies keep their order). Methodological quality is appraised separately and does not decide the index paper.">Rich★</button>
             </div>
           </div>
           <button id="addPdfBtn" class="w-full inline-flex justify-center items-center space-x-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md shadow-sm cursor-pointer transition">
@@ -413,7 +413,7 @@
             <input type="checkbox" id="matrixCompactToggle" class="rounded text-indigo-600">
             <span>🔭 Compact View</span>
           </label>
-          <label class="inline-flex items-center space-x-1.5 text-xs text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1.5 rounded-md border border-rose-200 cursor-pointer font-semibold transition" title="Show only Matrix rows/cells with Refutational translation or deviant cases">
+          <label class="inline-flex items-center space-x-1.5 text-xs text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1.5 rounded-md border border-rose-200 cursor-pointer font-semibold transition" title="Show only rows with a refutational relation or a study recorded as silent on the concept (deviant / disconfirming cases)">
             <input type="checkbox" id="matrixRefutationalOnlyToggle" class="rounded text-rose-600">
             <span>⚡ Contradictions Only</span>
           </label>
@@ -783,7 +783,7 @@
             <button data-pub="method" class="pub-tab-btn px-2.5 py-1 text-xs font-bold rounded bg-white text-indigo-700 shadow-sm cursor-pointer">Methods Summary</button>
             <button data-pub="table1" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer">Table 1: Studies</button>
             <button data-pub="table2" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer">Table 2: Synthesis & LoA</button>
-            <button data-pub="table2_grid" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer" title="Concept-by-Study Contribution Matrix (● Reciprocal / ⚡ Refutational)">Table 2b: Concept × Study Grid</button>
+            <button data-pub="table2_grid" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer" title="Concept-by-Study Contribution Matrix (● reciprocal / ⚡ refutational / ? not yet judged / ○ silence)">Table 2b: Concept × Study Grid</button>
             <button data-pub="table3" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer">Table 3: CERQual</button>
             <button data-pub="appendix" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer">Appendix: Audit Trail</button>
           </div>

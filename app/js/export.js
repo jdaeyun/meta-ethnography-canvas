@@ -89,8 +89,8 @@ function buildTable2Html() {
     const secondOrderListHtml = mappedSecs.map(s => {
       const doc = state.docs.find(d => d.id === s.docId);
       const dName = doc ? getDisplayName(doc) : 'Study';
-      const isRefut = isSecRefutational(s, c.id);
-      const refutBadge = isRefut ? `<span style="color:#be123c; font-weight:bold;">[⚡Refutational]</span> ` : '';
+      const relTag = cellRelationTag(s, c.id);
+      const refutBadge = relTag ? `<span style="color:${isSecRefutational(s, c.id) ? '#be123c' : '#64748b'}; font-weight:bold;">${escapeHtml(relTag.trim())}</span> ` : '';
       const cellNuance = (s.clusterComments && s.clusterComments[c.id]) ? ` <i>[${escapeHtml(s.clusterComments[c.id])}]</i>` : '';
       const wrapTag = s.origin === 'wrapped_first_order' ? `<span style="color:#b45309; font-size:10px;">[reviewer-wrapped 1st-order quote]</span> ` : '';
       return `<div style="margin-bottom:6px;">• ${refutBadge}${wrapTag}<b>${escapeHtml(dName)} (p.${escapeHtml(secPagesLabel(s))}):</b> ${s.note ? `<b>${escapeHtml(s.note)}</b>${secLabelTag(s) ? ' <span style="color:#b45309; font-size:10px;">' + secLabelTag(s).trim() + '</span>' : ''} — ` : ''}"${escapeHtml(secEvidenceText(s))}"${cellNuance}</div>`;
@@ -108,13 +108,11 @@ function buildTable2Html() {
       });
     });
 
-    const transLabel = c.translationType === 'refutational' ? 'Refutational' : 'Reciprocal';
-
     rowsHtml += `
       <tr>
         <td>
           <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Construct)')}</b>${c.autoSeeded && !c.seedConfirmed ? ' <span style="font-size:10px; color:#b45309;">(provisional: seeded from Index Paper, not yet confirmed)</span>' : ''}
-          <div style="font-size:10.5px; color:#475569; margin-top:4px;"><b>Type:</b> ${escapeHtml(transLabel)}</div>
+          <div style="font-size:10.5px; color:#475569; margin-top:4px;"><b>Relations:</b> ${escapeHtml(rowRelationText(c))}</div>
           <div style="font-size:10px; color:#64748b; margin-top:2px;"><b>Concordance:</b> ${escapeHtml(c.concordanceStatus.toUpperCase())}</div>
         </td>
         <td>${c.translationSummary ? `<div style="margin-bottom:6px;"><b>Translation:</b> ${escapeHtml(c.translationSummary)}</div>` : ''}${c.synthesisNote ? `<div><b>3rd order interpretation:</b> ${escapeHtml(c.synthesisNote)}</div>` : ''}${(!c.translationSummary && !c.synthesisNote) ? '-' : ''}</td>
@@ -154,7 +152,7 @@ function buildTable2Html() {
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>
         <tr>
-          <th style="width:16%;">3rd Order Construct & Translation Type</th>
+          <th style="width:16%;">3rd Order Construct & How Studies Relate</th>
           <th style="width:20%;">Translation (A) & 3rd Order Interpretation (B)</th>
           <th style="width:24%;">2nd Order Constructs (Author Interpretations)</th>
           <th style="width:20%;">Illustrating 1st Order Quotes</th>
@@ -300,56 +298,81 @@ function buildAppendixHtml() {
   `;
 }
 
-function buildTable2GridHtml() {
+// ---- Relations are judged per cell; rows only report what the cells say ----
+function rowRelationText(c) {
+  const od = rowOriginDoc(c);
+  return rowRelationSummary(c) + (od ? ` · emerged in study #${state.docs.indexOf(od) + 1} (${getDisplayName(od)})` : '');
+}
+function cellRelationTag(s, cid) {
+  const r = cellRelationOf(s, cid);
+  return r === 'refutational' ? '[⚡Refutational] ' : r === 'unjudged' ? '[? relation not yet judged] ' : '';
+}
+
+// ---- Table 2b (concept × study grid): one spec, rendered to HTML / Markdown / Word ----
+const TABLE2B_LEGEND = '◆ = study #1, which establishes the rows; ● = reciprocal; ⚡ = refutational; ? = relation not yet judged; ○ = checked, concept not addressed (silence); – = outside the study\'s scope; blank = not yet checked.';
+const TABLE2B_NOTE = 'The grid shows where each concept was found and how studies were judged to relate; it is not a frequency count. In meta-ethnography the weight of a third-order construct rests on the interpretive translation (Table 2), not on how many studies contribute to it.';
+function getTable2bSpec() {
   const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
-  const studyHeaders = state.docs.map((d, idx) =>
-    `<th style="text-align:center; font-size:12px; min-width:70px;">${escapeHtml(getDisplayName(d))}${idx === 0 ? `<br><span style="font-size:9.5px; color:#b45309;">${escapeHtml(firstStudyMeta().short)}</span>` : ''}</th>`
-  ).join('');
+  return {
+    title: 'Table 2b. Concept-by-Study Contribution Matrix Across Included Studies',
+    caption: `${TABLE2B_LEGEND} ${TABLE2B_NOTE}`,
+    headers: ['3rd Order Construct', ...state.docs.map((d, idx) => getDisplayName(d) + (idx === 0 ? ' ' + firstStudyMeta().short : '')), 'CERQual Confidence'],
+    rows: state.clusters.map(c => {
+      normalizeCluster(c);
+      const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
+      return {
+        title: c.thirdOrderTitle || '(Untitled 3rd Order Construct)',
+        provisional: !!(c.autoSeeded && !c.seedConfirmed),
+        relations: rowRelationText(c),
+        cells: state.docs.map(d => {
+          const docSecs = mappedSecs.filter(s => s.docId === d.id);
+          if (docSecs.length === 0) {
+            const ec = emptyCellStatus(c, d.id);
+            return { sym: EMPTY_CELL_META[ec.status].sym, empty: true, note: ec.note || '' };
+          }
+          return {
+            sym: contribSymbol(docSecs, c.id),
+            refut: docSecs.some(s => isSecRefutational(s, c.id)),
+            pages: [...new Set(docSecs.map(s => 'p.' + s.page))].join(', ')
+          };
+        }),
+        cerqual: c.cerqualConfidence || 'Not assessed'
+      };
+    })
+  };
+}
 
-  let rowsHtml = '';
-  state.clusters.forEach(c => {
-    normalizeCluster(c);
-    const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
-    const studyCells = state.docs.map(d => {
-      const docSecs = mappedSecs.filter(s => s.docId === d.id);
-      if (docSecs.length === 0) {
-        return `<td style="text-align:center; color:#cbd5e1;">—</td>`;
-      }
-      const hasRefut = docSecs.some(s => isSecRefutational(s, c.id));
-      const symbol = contribSymbol(docSecs, c.id);
-      const pages = [...new Set(docSecs.map(s => 'p.' + s.page))].join(', ');
-      return `<td style="text-align:center; font-weight:bold; color:${hasRefut ? '#be123c' : '#0f172a'};">${symbol}<div style="font-size:9.5px; font-weight:normal; color:#64748b;">${escapeHtml(pages)}</div></td>`;
-    }).join('');
-
-    const transLabel = c.translationType === 'refutational' ? 'Refutational' : 'Reciprocal';
-
-    rowsHtml += `
+function buildTable2GridHtml() {
+  const spec = getTable2bSpec();
+  const studyHeaders = spec.headers.slice(1, -1).map(h => `<th style="text-align:center; font-size:12px; min-width:70px;">${escapeHtml(h)}</th>`).join('');
+  const rowsHtml = spec.rows.map(r => `
       <tr>
         <td>
-          <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Theme)')}</b>${c.autoSeeded && !c.seedConfirmed ? ' <span style="font-size:10px; color:#b45309;">(provisional)</span>' : ''}
-          <div style="font-size:10.5px; color:#475569;">${escapeHtml(transLabel)}</div>
+          <b>${escapeHtml(r.title)}</b>${r.provisional ? ' <span style="font-size:10px; color:#b45309;">(provisional)</span>' : ''}
+          <div style="font-size:10px; color:#475569;">${escapeHtml(r.relations)}</div>
         </td>
-        ${studyCells}
-        <td style="text-align:center;"><b>${escapeHtml(c.cerqualConfidence || 'Not assessed')}</b></td>
-      </tr>
-    `;
-  });
+        ${r.cells.map(cell => cell.empty
+          ? `<td style="text-align:center; color:#64748b;"${cell.note ? ` title="${escapeHtml(cell.note)}"` : ''}>${escapeHtml(cell.sym)}</td>`
+          : `<td style="text-align:center; font-weight:bold; color:${cell.refut ? '#be123c' : '#0f172a'};">${escapeHtml(cell.sym)}<div style="font-size:9.5px; font-weight:normal; color:#64748b;">${escapeHtml(cell.pages)}</div></td>`).join('')}
+        <td style="text-align:center;"><b>${escapeHtml(r.cerqual)}</b></td>
+      </tr>`).join('');
 
   return `
     <div class="mb-3">
-      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Table 2b. Concept-by-Study Contribution Matrix Across Included Studies</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Showing which primary studies contributed 2nd order constructs to each 3rd order theme (<b>◆</b> = study #1, which establishes the rows; <b>●</b> = Reciprocal / convergent contribution; <b>⚡</b> = Refutational / contrasting contribution; <b>—</b> = Not present).</p>
+      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">${escapeHtml(spec.title)}</h3>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">${escapeHtml(TABLE2B_LEGEND)}</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">${escapeHtml(TABLE2B_NOTE)}</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>
         <tr>
-          <th style="width:22%;">3rd Order Construct (Theme)</th>
+          <th style="width:22%;">${escapeHtml(spec.headers[0])}</th>
           ${studyHeaders}
-          <th style="text-align:center; width:10%;">CERQual Confidence</th>
+          <th style="text-align:center; width:10%;">${escapeHtml(spec.headers[spec.headers.length - 1])}</th>
         </tr>
       </thead>
       <tbody>
-        ${rowsHtml || `<tr><td colspan="${state.docs.length + 2}">No 3rd Order Concept Clusters created yet.</td></tr>`}
+        ${rowsHtml || `<tr><td colspan="${spec.headers.length}">No 3rd Order Concept Clusters created yet.</td></tr>`}
       </tbody>
     </table>
   `;
@@ -458,6 +481,12 @@ function getMethodSections() {
   const cqAllAssessed = nCl > 0 && state.clusters.every(c => c.cerqualConfidence && c.cerqualConfidence !== 'Not assessed');
   const cqCount = state.clusters.filter(c => c.cerqualConfidence && c.cerqualConfidence !== 'Not assessed').length;
   const seedCount = state.clusters.filter(c => c.autoSeeded).length;
+  const emergedRows = state.clusters.filter(c => rowOriginDoc(c));
+  const relTotals = state.clusters.reduce((t, c) => {
+    const k = rowRelationCounts(c);
+    Object.keys(k).forEach(x => { t[x] = (t[x] || 0) + k[x]; });
+    return t;
+  }, {});
 
   const reviewers = new Set();
   state.annotations.forEach(a => { if (a.by) reviewers.add(a.by); });
@@ -473,6 +502,13 @@ function getMethodSections() {
     : strategy === 'chronological'
       ? `Studies were translated in chronological order of publication, beginning with <b>${firstName}</b>, each study being compared with the synthesis of the studies before it.`
       : `Studies were translated in the order shown in Table 1, beginning with <b>${firstName}</b>. ${PH('rationale for this translation order')}`;
+  const emergedHtml = emergedRows.length > 0
+    ? ` ${emergedRows.length} third-order construct${emergedRows.length === 1 ? ' was' : 's were'} opened by a concept from a later study that had no counterpart in ${firstName} (${emergedRows.map(c => { const od = rowOriginDoc(c); return '<i>' + escapeHtml(c.thirdOrderTitle || 'Untitled') + '</i> from study #' + (state.docs.indexOf(od) + 1); }).join('; ')}), so the synthesis was extended rather than fitted to the first study's concepts.`
+    : '';
+  const silenceHtml = (relTotals.silent || relTotals.na)
+    ? ` Where a study did not contribute to a construct, its account was re-checked and the absence recorded as silence (${relTotals.silent || 0} cell${relTotals.silent === 1 ? '' : 's'}) or as outside the study's scope (${relTotals.na || 0}) (Table 2b).`
+    : '';
+  const unjudgedHtml = relTotals.unjudged ? ' ' + PH(`${relTotals.unjudged} study–construct relation(s) are still "not yet judged" in Tab 2; decide reciprocal or refutational before reporting`) : '';
   const seedHtml = seedCount > 0
     ? ` The second-order constructs of the first study (${firstName}) were used to seed the initial third-order rows, which were then refined as further studies were translated into them.`
     : '';
@@ -512,7 +548,7 @@ function getMethodSections() {
   const readingHtml = `${L.readingApproach ? esc(L.readingApproach) : PH('how studies were read and data extracted, by whom, whether independently, and how accuracy was checked (eMERGe Item 9)')} ${scopeText || PH('whether data were extracted from the full accounts or the findings sections only')} First-order constructs (participant quotations) and second-order constructs (the primary authors' interpretations) were extracted and recorded separately${L.unitsTerminology ? '; ' + esc(L.unitsTerminology) : ''}.${L.unitsTerminology ? '' : ' ' + PH('what is meant by the units of synthesis used, e.g., concept, theme, metaphor')}${companionHtml}`;
 
   // Phase 5 (Item 13)
-  const translationHtml = `Data extraction and cross-study translation were managed using <i>Meta-Ethnography Canvas</i>${appCitationHtml()}. ${orderHtml}${seedHtml} ${L.translationDefinitions ? esc(L.translationDefinitions) : PH('working definitions of reciprocal and refutational translation (eMERGe Item 13)')} ${L.translationProcess ? esc(L.translationProcess) : PH('who translated, how meaning was translated from one study into another, and how context and relationships between concepts were preserved')} Through reciprocal and refutational translation, the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b). ${L.alternativeInterpretations ? esc(L.alternativeInterpretations) : PH('how alternative interpretations or explanations were considered (Items 13 and 15)')}`;
+  const translationHtml = `Data extraction and cross-study translation were managed using <i>Meta-Ethnography Canvas</i>${appCitationHtml()}. ${orderHtml}${seedHtml}${emergedHtml} ${L.translationDefinitions ? esc(L.translationDefinitions) : PH('working definitions of reciprocal and refutational translation (eMERGe Item 13)')} ${L.translationProcess ? esc(L.translationProcess) : PH('who translated, how meaning was translated from one study into another, and how context and relationships between concepts were preserved')} Through reciprocal and refutational translation, the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b).${silenceHtml}${unjudgedHtml} ${L.alternativeInterpretations ? esc(L.alternativeInterpretations) : PH('how alternative interpretations or explanations were considered (Items 13 and 15)')}`;
 
   // Phase 6 (Items 15-16) incl. independent team models (Atkins et al., 2008)
   const teamModels = Array.isArray(L.teamModels) ? L.teamModels : [];
@@ -664,7 +700,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
     });
   } else if (state.activePubTable === 'table2') {
     md += `### Table 2. Meta-Ethnographic Translation and Synthesis Table\n\n`;
-    md += `| 3rd Order Construct | Translation Type | Concordance | Translation Summary (A) | 3rd Order Interpretation (B) | 2nd Order Constructs | 1st Order Quotes | Studies | CERQual Confidence |\n`;
+    md += `| 3rd Order Construct | How Studies Relate | Concordance | Translation Summary (A) | 3rd Order Interpretation (B) | 2nd Order Constructs | 1st Order Quotes | Studies | CERQual Confidence |\n`;
     md += `|---|---|---|---|---|---|---|---|---|\n`;
     const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
     state.clusters.forEach(c => {
@@ -673,8 +709,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       const docs = [...new Set(mappedSecs.map(s => getDisplayName(state.docs.find(d => d.id === s.docId))))];
       const secStr = mappedSecs.map(s => {
         const dName = getDisplayName(state.docs.find(d => d.id === s.docId));
-        const isRefut = isSecRefutational(s, c.id);
-        return `${isRefut ? '[⚡Refutational] ' : ''}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): ${s.note ? `**${s.note}**${secLabelTag(s)} - ` : ''}"${secEvidenceText(s)}"`;
+        return `${cellRelationTag(s, c.id)}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): ${s.note ? `**${s.note}**${secLabelTag(s)} - ` : ''}"${secEvidenceText(s)}"`;
       }).join('; ');
       const quotes = [];
       const seenQ = new Set();
@@ -682,7 +717,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
         const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
         firsts.forEach(f => quotes.push(`"${f.text}"${f.note ? ' [' + f.note + ']' : ''} (p.${f.page})`));
       });
-      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cleanMd(c.translationType)} | ${cleanMd(c.concordanceStatus)} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
+      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cleanMd(rowRelationText(c))} | ${cleanMd(c.concordanceStatus)} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
     });
     // Line of Argument block (same content as the HTML preview and the Word export)
     const L = state.loa || {};
@@ -709,20 +744,12 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       }
     }
   } else if (state.activePubTable === 'table2_grid') {
-    md += `### Table 2b. Concept-by-Study Contribution Matrix (◆ = study #1, which establishes the rows; ● = Reciprocal, ⚡ = Refutational)\n\n`;
-    const studyCols = state.docs.map((d, idx) => cleanMd(getDisplayName(d) + (idx === 0 ? ' ' + firstStudyMeta().short : '')));
-    md += `| 3rd Order Construct | ${studyCols.join(' | ')} | CERQual |\n`;
+    const spec = getTable2bSpec();
+    md += `### ${spec.title}\n\n*${spec.caption}*\n\n`;
+    md += `| ${spec.headers.map(cleanMd).join(' | ')} |\n`;
     md += `|---|${state.docs.map(() => ':---:').join('|')}|:---:|\n`;
-    const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
-    state.clusters.forEach(c => {
-      normalizeCluster(c);
-      const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
-      const cells = state.docs.map(d => {
-        const docSecs = mappedSecs.filter(s => s.docId === d.id);
-        if (!docSecs.length) return '—';
-        return contribSymbol(docSecs, c.id).replace(' / ', '/');
-      });
-      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cells.join(' | ')} | **${cleanMd(c.cerqualConfidence)}** |\n`;
+    spec.rows.forEach(r => {
+      md += `| **${cleanMd(r.title)}**${r.provisional ? ' (provisional)' : ''} | ${r.cells.map(cell => cleanMd(cell.sym.replace(' / ', '/')) || ' ').join(' | ')} | **${cleanMd(r.cerqual)}** |\n`;
     });
   } else if (state.activePubTable === 'table3') {
     getTable3Specs().forEach(spec => {
@@ -818,7 +845,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   }
 
   const t2Headers = [
-    '3rd Order Construct & Type', 'Translation (A) & 3rd Order Interpretation (B)',
+    '3rd Order Construct & How Studies Relate', 'Translation (A) & 3rd Order Interpretation (B)',
     '2nd Order Constructs (Author Interpretations)', 'Illustrating 1st Order Quotes',
     'Contributing Studies', 'GRADE-CERQual Confidence'
   ];
@@ -842,11 +869,10 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
       const secParagraphs = mappedSecs.length > 0 ? mappedSecs.map(s => {
         const doc = state.docs.find(d => d.id === s.docId);
         const dName = doc ? getDisplayName(doc) : 'Study';
-        const isRefut = isSecRefutational(s, c.id);
         const cellNuance = (s.clusterComments && s.clusterComments[c.id]) ? ` [${s.clusterComments[c.id]}]` : '';
         return new Paragraph({
           children: [
-            new TextRun({ text: `• ${isRefut ? '[Refutational] ' : ''}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): `, bold: true, font: "Times New Roman", size: 20 }),
+            new TextRun({ text: `• ${cellRelationTag(s, c.id)}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): `, bold: true, font: "Times New Roman", size: 20 }),
             ...(s.note ? [new TextRun({ text: `${s.note}${secLabelTag(s)} — `, bold: true, font: "Times New Roman", size: 20 })] : []),
             new TextRun({ text: `"${secEvidenceText(s)}"${cellNuance}`, font: "Times New Roman", size: 20 })
           ],
@@ -875,11 +901,9 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
         quoteParagraphs.push(new Paragraph({ children: [new TextRun({ text: '-', font: "Times New Roman", size: 20 })] }));
       }
 
-      const transLabel = c.translationType === 'refutational' ? 'Refutational' : 'Reciprocal';
-
       t2Rows.push(new TableRow({
         children: [
-          makeCell(`${c.thirdOrderTitle || '(Untitled)'}\n[Type: ${transLabel} | Concordance: ${c.concordanceStatus.toUpperCase()}]`, { isLastRow: isLast, bold: true }),
+          makeCell(`${c.thirdOrderTitle || '(Untitled)'}\n[Relations: ${rowRelationText(c)} | Concordance: ${c.concordanceStatus.toUpperCase()}]`, { isLastRow: isLast, bold: true }),
           makeCell([c.translationSummary ? 'Translation: ' + c.translationSummary : '', c.synthesisNote ? '3rd order interpretation: ' + c.synthesisNote : ''].filter(Boolean).join('\n\n') || '-', { isLastRow: isLast }),
           makeCell(secParagraphs, { isLastRow: isLast }),
           makeCell(quoteParagraphs, { isLastRow: isLast }),
@@ -890,33 +914,21 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
     });
   }
 
-  // Build Table 2b: Concept-by-Study Contribution Grid for Word (.docx)
-  const t2bHeaders = [
-    '3rd Order Construct (Theme)',
-    ...state.docs.map((d, idx) => getDisplayName(d) + (idx === 0 ? ' ' + firstStudyMeta().short : '')),
-    'CERQual'
-  ];
+  // Build Table 2b: Concept-by-Study Contribution Grid for Word (.docx) from the shared spec
+  const t2bSpec = getTable2bSpec();
   const t2bRows = [
-    new TableRow({ tableHeader: true, children: t2bHeaders.map(h => makeCell(h, { isHeader: true })) })
+    new TableRow({ tableHeader: true, children: t2bSpec.headers.map(h => makeCell(h, { isHeader: true })) })
   ];
-  if (state.clusters.length === 0) {
+  if (t2bSpec.rows.length === 0) {
     t2bRows.push(new TableRow({ children: [makeCell('No themes yet.', { isLastRow: true }), ...Array(state.docs.length + 1).fill(0).map(() => makeCell('-', { isLastRow: true }))] }));
   } else {
-    state.clusters.forEach((c, idx) => {
-      normalizeCluster(c);
-      const isLast = idx === state.clusters.length - 1;
-      const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
-      const studyCells = state.docs.map(d => {
-        const docSecs = mappedSecs.filter(s => s.docId === d.id);
-        if (docSecs.length === 0) return makeCell('—', { isLastRow: isLast });
-        const sym = contribSymbol(docSecs, c.id);
-        return makeCell(sym, { isLastRow: isLast, bold: true });
-      });
+    t2bSpec.rows.forEach((r, idx) => {
+      const isLast = idx === t2bSpec.rows.length - 1;
       t2bRows.push(new TableRow({
         children: [
-          makeCell(c.thirdOrderTitle || '(Untitled)', { isLastRow: isLast, bold: true }),
-          ...studyCells,
-          makeCell(c.cerqualConfidence || 'Not assessed', { isLastRow: isLast, bold: true })
+          makeCell(r.title + (r.provisional ? ' (provisional)' : ''), { isLastRow: isLast, bold: true }),
+          ...r.cells.map(cell => makeCell(cell.sym || ' ', { isLastRow: isLast, bold: !cell.empty })),
+          makeCell(r.cerqual, { isLastRow: isLast, bold: true })
         ]
       }));
     });
@@ -1092,7 +1104,11 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
-          children: [new TextRun({ text: "Table 2b. Concept-by-Study Contribution Matrix (◆ = study #1, which establishes the rows; ● = Reciprocal, ⚡ = Refutational)", bold: true, font: "Times New Roman", size: 24 })],
+          children: [new TextRun({ text: t2bSpec.title, bold: true, font: "Times New Roman", size: 24 })],
+          spacing: { after: 80 }
+        }),
+        new Paragraph({
+          children: [new TextRun({ text: t2bSpec.caption, italics: true, font: "Times New Roman", size: 18 })],
           spacing: { after: 140 }
         }),
         new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: t2bRows }),
@@ -1122,7 +1138,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
 document.getElementById('exportCsvBtn').addEventListener('click', () => {
   const rows = [
-    ['3rd Order Construct', 'Translation Type', '3rd Order Concordance', 'CERQual Confidence', 'CERQual Explanation', 'Step A: Translation Summary', 'Step B: 3rd Order Interpretation', 'StudyOrder', 'Study', 'Title', 'Setting', 'Participants', 'Methodology', 'Appraisal Tool', 'Quality Rating', 'Conceptual Depth (Richness)', 'Study Context Note', 'Study Overview / Key Metaphors', 'Funder', 'Same Primary Study As', '2nd Order Reviewer', '2nd Order Summary', '2nd Order Raw Text', '2nd Order Nuance Memo (Private)', '2nd Order Concordance', 'Cluster-Specific Comment', 'Linked 1st Order Quotes', 'Page']
+    ['3rd Order Construct', 'How Studies Relate (from cells)', '3rd Order Concordance', 'CERQual Confidence', 'CERQual Explanation', 'Step A: Translation Summary', 'Step B: 3rd Order Interpretation', 'StudyOrder', 'Study', 'Title', 'Setting', 'Participants', 'Methodology', 'Appraisal Tool', 'Quality Rating', 'Conceptual Depth (Richness)', 'Study Context Note', 'Study Overview / Key Metaphors', 'Funder', 'Same Primary Study As', '2nd Order Reviewer', '2nd Order Summary', '2nd Order Raw Text', '2nd Order Nuance Memo (Private)', '2nd Order Concordance', 'Cluster-Specific Comment', 'Linked 1st Order Quotes', 'Page']
   ];
 
   const seconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
@@ -1135,11 +1151,11 @@ document.getElementById('exportCsvBtn').addEventListener('click', () => {
     targetClusterIds.forEach(cid => {
       const cluster = state.clusters.find(c => c.id === cid);
       if (cluster) normalizeCluster(cluster);
-      const cellRelation = cid ? (isBaselineDocId(sec.docId) ? 'baseline' : ((sec.clusterRelations && sec.clusterRelations[cid]) || 'reciprocal')) : '';
+      const cellRelation = cid ? cellRelationOf(sec, cid) : '';
       const cellComment = cid && sec.clusterComments ? `[${cellRelation}] ` + (sec.clusterComments[cid] || '') : (cellRelation ? `[${cellRelation}]` : '');
       rows.push([
         cluster ? cluster.thirdOrderTitle : '(Unassigned)',
-        cluster ? cluster.translationType : '',
+        cluster ? rowRelationText(cluster) : '',
         cluster ? `${cluster.concordanceStatus}${cluster.concordanceNote ? ': ' + cluster.concordanceNote : ''}` : '',
         cluster ? cluster.cerqualConfidence : '',
         cluster ? cluster.cerqualExplanation : '',

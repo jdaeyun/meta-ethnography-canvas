@@ -138,6 +138,7 @@ function updateSidebar() {
               <select class="sec-conc-status flex-1 text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
                 <option value="pending" ${sec.concordanceStatus === 'pending' ? 'selected' : ''}>⏳ Pending Review</option>
                 <option value="discuss" ${sec.concordanceStatus === 'discuss' ? 'selected' : ''}>💬 Needs Discussion</option>
+                <option value="divergent" ${sec.concordanceStatus === 'divergent' ? 'selected' : ''}>↔ Divergent — readings kept</option>
                 <option value="agreed" ${sec.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed / Verified</option>
               </select>
             </div>

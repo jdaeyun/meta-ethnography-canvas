@@ -551,7 +551,7 @@ function renderComparisonTabContent() {
         row.className = 'p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between text-xs';
         row.innerHTML = `
           <div>
-            <div class="font-bold text-slate-800">${escapeHtml(pc.thirdOrderTitle || '(Untitled Cluster)')} <span class="text-xs font-normal text-slate-500">(${escapeHtml(pc.translationType)}) • CERQual: ${escapeHtml(pc.cerqualConfidence || 'Not assessed')}</span></div>
+            <div class="font-bold text-slate-800">${escapeHtml(pc.thirdOrderTitle || '(Untitled Cluster)')} <span class="text-xs font-normal text-slate-500">CERQual: ${escapeHtml(pc.cerqualConfidence || 'Not assessed')}</span></div>
             ${pc.translationSummary ? `<div class="text-[13px] text-emerald-800 mt-0.5"><b>A · Translation:</b> ${escapeHtml(pc.translationSummary)}</div>` : ''}
             <div class="text-[13px] text-slate-600 mt-0.5">${pc.translationSummary ? '<b>B · 3rd order:</b> ' : ''}${escapeHtml(pc.synthesisNote || '-')}</div>
           </div>
@@ -560,7 +560,8 @@ function renderComparisonTabContent() {
             : `<button class="imp-cl px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded cursor-pointer">+ Import Row</button>`}
         `;
         row.querySelector('.imp-cl')?.addEventListener('click', async () => {
-          const newCl = normalizeCluster({ ...pc, by: cmp.peerReviewer });
+          // Empty-cell judgements and the row's origin refer to the peer's study ids: re-judge them locally
+          const newCl = normalizeCluster({ ...pc, by: cmp.peerReviewer, emptyCells: {}, originDocId: '' });
           await dbPut('clusters', newCl);
           state.clusters.push(newCl);
           await recordAuditLog({

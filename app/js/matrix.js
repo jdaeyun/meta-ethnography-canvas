@@ -57,7 +57,6 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
     id: 'cl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     by: state.reviewerId || 'Reviewer',
     thirdOrderTitle: initialTitle,
-    translationType: 'reciprocal',
     translationSummary: '',
     synthesisNote: '',
     concordanceStatus: 'pending',
@@ -88,12 +87,18 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
 async function assignSecondOrderToCluster(sec, cluster) {
   normalizeAnnotation(sec);
   if (sec.clusterIds.includes(cluster.id)) return;
+  normalizeCluster(cluster);
+  const rowWasEmpty = !state.annotations.some(a => a.type === 'second_order' && a.id !== sec.id && Array.isArray(a.clusterIds) && a.clusterIds.includes(cluster.id));
   sec.clusterIds.push(cluster.id);
+  // No relation is assumed: the cell stays "not yet judged" until the reviewer decides (Phase 4–5)
   if (!sec.clusterRelations) sec.clusterRelations = {};
-  if (!sec.clusterRelations[cluster.id]) {
-    sec.clusterRelations[cluster.id] = cluster.translationType === 'refutational' ? 'refutational' : 'reciprocal';
-  }
   await dbPut('annotations', sec);
+
+  let clusterChanged = false;
+  if (cluster.emptyCells[sec.docId]) { delete cluster.emptyCells[sec.docId]; clusterChanged = true; }
+  const opensRowBeyondFirst = rowWasEmpty && !cluster.originDocId && !isBaselineDocId(sec.docId);
+  if (opensRowBeyondFirst) { cluster.originDocId = sec.docId; clusterChanged = true; }
+  if (clusterChanged) await dbPut('clusters', cluster);
 
   const doc = state.docs.find(d => d.id === sec.docId);
   await recordAuditLog({
@@ -104,6 +109,16 @@ async function assignSecondOrderToCluster(sec, cluster) {
     toVal: `Cluster: ${cluster.thirdOrderTitle || '(Untitled Row)'} [Total mapped rows: ${sec.clusterIds.length}]`,
     isMinorOp: true
   });
+  if (opensRowBeyondFirst) {
+    const pos = state.docs.findIndex(d => d.id === sec.docId) + 1;
+    await recordAuditLog({
+      clusterIds: [cluster.id],
+      category: 'translation_process',
+      action: `New concept emerged in translation: study #${pos} (${getDisplayName(doc)}) opened 3rd Order row "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+      detail: `${sec.note ? sec.note + ' — ' : ''}"${secEvidenceText(sec).slice(0, 120)}" (p.${sec.page})`,
+      rationale: 'This concept was not present in study #1; translating later studies extended the synthesis rather than fitting into existing rows.'
+    });
+  }
 }
 
 async function removeSecondOrderFromCluster(sec, cluster) {
@@ -113,7 +128,7 @@ async function removeSecondOrderFromCluster(sec, cluster) {
     label: `Unassign "${(sec.note || sec.text).slice(0, 28)}" from "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
     secId: sec.id,
     clusterId: cluster.id,
-    prevRelation: sec.clusterRelations ? sec.clusterRelations[cluster.id] : 'reciprocal',
+    prevRelation: sec.clusterRelations ? sec.clusterRelations[cluster.id] : undefined,
     prevComment: sec.clusterComments ? sec.clusterComments[cluster.id] : ''
   });
   sec.clusterIds = sec.clusterIds.filter(id => id !== cluster.id);
@@ -335,9 +350,7 @@ function renderSecondOrderPool() {
     if (studyFilter !== 'all' && sec.docId !== studyFilter) return false;
     if (state.hiddenStudyIds.has(sec.docId)) return false;
     if (refutOnly) {
-      const hasRefutInCell = !isBaselineDocId(sec.docId) && sec.clusterRelations && Object.values(sec.clusterRelations).includes('refutational');
-      const inRefutCluster = sec.clusterIds.some(cid => state.clusters.find(c => c.id === cid)?.translationType === 'refutational');
-      if (!hasRefutInCell && !inRefutCluster) return false;
+      if (!liveClusterIds(sec).some(cid => isSecRefutational(sec, cid))) return false;
     }
     if (q) {
       const doc = state.docs.find(d => d.id === sec.docId);
@@ -617,12 +630,8 @@ function renderMatrixTable() {
 
   const visibleClusters = state.matrixRefutationalOnly
     ? state.clusters.filter(c => {
-        if (c.translationType === 'refutational') return true;
-        return state.annotations.some(a =>
-          a.type === 'second_order' &&
-          normalizeAnnotation(a).clusterIds.includes(c.id) &&
-          isSecRefutational(a, c.id)
-        );
+        normalizeCluster(c);
+        return rowHasRefutation(c) || Object.values(c.emptyCells).some(e => e && e.status === 'silent');
       })
     : state.clusters;
 
@@ -630,7 +639,7 @@ function renderMatrixTable() {
     const emptyFilterTr = document.createElement('tr');
     emptyFilterTr.innerHTML = `
       <td colspan="${visibleDocCount() + 1}" class="p-8 text-center text-rose-700 bg-rose-50/40 text-xs">
-        No rows match the <b>⚡ Contradictions Only</b> filter. Uncheck the filter above or mark a row/construct as Refutational.
+        No rows match the <b>⚡ Contradictions Only</b> filter. Uncheck the filter above or mark a construct as Refutational (or an empty cell as Silent).
       </td>
     `;
     tbody.appendChild(emptyFilterTr);
@@ -681,6 +690,7 @@ function renderMatrixTable() {
             <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order Cluster">@${escapeHtml(cluster.by || 'Unknown')}</button>
             <span class="cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
             ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from the Index Paper's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
+            ${(() => { const od = rowOriginDoc(cluster); return od ? `<span class="text-[11px] px-1.5 py-0.2 rounded border border-emerald-300 bg-emerald-50 text-emerald-800 font-semibold" title="This row was opened by a construct from a study other than #1: the concept was not present in the first study and emerged during translation.">🌿 Emerged in #${state.docs.indexOf(od) + 1} ${escapeHtml(getDisplayName(od))}</span>` : ''; })()}
             <span class="cl-cerqual-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
           </div>
           <div class="flex items-center space-x-1">
@@ -694,7 +704,7 @@ function renderMatrixTable() {
         <input type="text" class="cluster-title w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-indigo-600" placeholder="3rd Order Construct / Theme Name..." value="${escapeHtml(cluster.thirdOrderTitle)}">
 
         <div class="matrix-compact-expand-note hidden text-xs text-slate-500">
-          <span><i>(${escapeHtml(cluster.translationType)})</i></span>
+          <span><i>(${escapeHtml(rowRelationSummary(cluster))})</i></span>
         </div>
         <!-- 3-Mode Mini-Tab Bar to prevent vertical clutter -->
         <div class="cl-subtab-bar grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
@@ -706,11 +716,8 @@ function renderMatrixTable() {
         <!-- SUB-PANEL 1: SYNTHESIS (Default) -->
         <div class="subpanel-synthesis space-y-2 ${activeSubTab === 'synthesis' ? '' : 'hidden'}">
           <div>
-            <label class="block text-xs font-semibold text-slate-500 mb-0.5">Translation Relationship</label>
-            <select class="cluster-type w-full text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 font-medium text-slate-700">
-              <option value="reciprocal" ${cluster.translationType === 'reciprocal' ? 'selected' : ''}>🤝 Reciprocal (Similar / Supporting)</option>
-              <option value="refutational" ${cluster.translationType === 'refutational' ? 'selected' : ''}>⚡ Refutational (Contradictory / Different)</option>
-            </select>
+            <label class="block text-xs font-semibold text-slate-500 mb-0.5" title="Reciprocal / refutational describe how each study relates to the others in this row, so they are judged per cell (on each construct card), not chosen for the row as a whole.">How the studies relate in this row <span class="font-normal text-slate-400">(from the cells)</span></label>
+            <div class="cl-rel-summary text-xs border border-slate-200 rounded px-2 py-1 bg-slate-50 text-slate-700">${escapeHtml(rowRelationSummary(cluster))}</div>
           </div>
           <div class="rounded border border-emerald-200 bg-emerald-50/40 p-1.5">
             <label class="block text-xs font-bold text-emerald-900 mb-0.5" title="Phase 5 (Noblit & Hare): translate the studies into one another. Keep each study's own concepts and terms visible — name the study and its concept, then say how it maps onto (reciprocal) or challenges (refutational) the others, and what context explains the difference.">Step A · Translation Summary <span class="font-normal text-emerald-700">(Phase 5 — in the studies' own terms)</span></label>
@@ -782,12 +789,13 @@ function renderMatrixTable() {
             <select class="cl-conc-status text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
               <option value="pending" ${cluster.concordanceStatus === 'pending' ? 'selected' : ''}>⏳ Pending</option>
               <option value="discuss" ${cluster.concordanceStatus === 'discuss' ? 'selected' : ''}>💬 Needs Discussion</option>
+              <option value="divergent" ${cluster.concordanceStatus === 'divergent' ? 'selected' : ''}>↔ Divergent — readings kept</option>
               <option value="agreed" ${cluster.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed</option>
             </select>
           </div>
           <div>
             <label class="block text-[11px] font-semibold text-indigo-900 mb-0.5">Co-Reviewer / Supervisor Discussion Note</label>
-            <textarea class="cl-conc-note w-full text-xs border border-slate-200 rounded p-1.5 h-16 resize-y bg-white focus:outline-none focus:border-indigo-500" placeholder="Record team agreement or supervisory feedback on this 3rd order construct...">${escapeHtml(cluster.concordanceNote)}</textarea>
+            <textarea class="cl-conc-note w-full text-xs border border-slate-200 rounded p-1.5 h-16 resize-y bg-white focus:outline-none focus:border-indigo-500" placeholder="Record agreement, or keep differing readings side by side (who reads it how, and why) — divergence is part of the interpretation, not an error to remove...">${escapeHtml(cluster.concordanceNote)}</textarea>
           </div>
         </div>
       </div>
@@ -846,22 +854,6 @@ function renderMatrixTable() {
           action: 'Refined 3rd Order Construct Title',
           fromVal: oldTitle,
           toVal: newTitle || '(Untitled)'
-        });
-      }
-    };
-
-    tdMeta.querySelector('.cluster-type').onchange = async e => {
-      const oldType = cluster.translationType;
-      const newType = e.target.value;
-      if (oldType !== newType) {
-        cluster.translationType = newType;
-        await dbPut('clusters', cluster);
-        await recordAuditLog({
-          clusterIds: [cluster.id],
-          category: 'third_order',
-          action: `Changed Translation Type for "${cluster.thirdOrderTitle || 'Untitled Cluster'}"`,
-          fromVal: oldType,
-          toVal: newType
         });
       }
     };
@@ -1044,7 +1036,43 @@ function renderMatrixTable() {
       );
 
       if (cellConstructs.length === 0) {
-        td.innerHTML = `<div class="h-full min-h-[120px] rounded border border-dashed border-slate-200 flex items-center justify-center text-[13px] text-slate-300 select-none">Drop 2nd Order here</div>`;
+        // An empty cell is not one thing: not yet checked / silent (checked, not addressed) / outside the study's scope
+        const ec = emptyCellStatus(cluster, doc.id);
+        const ecBox = ec.status === 'silent' ? 'border-violet-300 bg-violet-50/40' : ec.status === 'na' ? 'border-slate-300 bg-slate-50' : 'border-slate-200';
+        td.innerHTML = `<div class="h-full min-h-[120px] rounded border border-dashed ${ecBox} flex flex-col items-center justify-center gap-1.5 p-1.5 text-[13px] text-slate-300">
+          <span class="select-none">Drop 2nd Order here</span>
+          <select class="empty-cell-sel text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white text-slate-600 cursor-pointer max-w-full" title="Record what this study's silence means for this row. Silence can itself be a finding (e.g., a concept absent from one setting).">
+            ${Object.entries(EMPTY_CELL_META).map(([k, m]) => `<option value="${k}" ${ec.status === k ? 'selected' : ''}>${m.sym ? m.sym + ' ' : ''}${escapeHtml(m.label)}</option>`).join('')}
+          </select>
+          <input type="text" class="empty-cell-note w-full text-[11px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 focus:outline-none focus:border-indigo-500 ${ec.status === 'unchecked' ? 'hidden' : ''}" placeholder="Why? e.g., re-read the whole account; no reference to …" value="${escapeHtml(ec.note || '')}">
+        </div>`;
+        const ecSel = td.querySelector('.empty-cell-sel');
+        const ecNote = td.querySelector('.empty-cell-note');
+        const saveEmptyCell = async () => {
+          const prev = emptyCellStatus(cluster, doc.id);
+          const status = EMPTY_CELL_META[ecSel.value] ? ecSel.value : 'unchecked';
+          const note = status === 'unchecked' ? '' : ecNote.value.trim();
+          if (prev.status === status && (prev.note || '') === note) return;
+          if (status === 'unchecked') delete cluster.emptyCells[doc.id];
+          else cluster.emptyCells[doc.id] = { status, note };
+          await dbPut('clusters', cluster);
+          await recordAuditLog({
+            clusterIds: [cluster.id],
+            category: 'translation_process',
+            action: `Empty cell judged for ${getDisplayName(doc)} in "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+            detail: note || '',
+            fromVal: EMPTY_CELL_META[prev.status].label,
+            toVal: EMPTY_CELL_META[status].label
+          });
+          const sumEl = tdMeta.querySelector('.cl-rel-summary');
+          if (sumEl) sumEl.textContent = rowRelationSummary(cluster);
+        };
+        ecSel.onchange = async () => {
+          ecNote.classList.toggle('hidden', ecSel.value === 'unchecked');
+          await saveEmptyCell();
+          renderMatrixTable();
+        };
+        ecNote.onchange = saveEmptyCell;
       } else {
         const cellWrap = document.createElement('div');
         cellWrap.className = 'space-y-2.5';
@@ -1054,7 +1082,7 @@ function renderMatrixTable() {
           const otherClustersCount = sec.clusterIds.length - 1;
           const cellComment = (sec.clusterComments && sec.clusterComments[cluster.id]) || '';
           const isBaselineCell = isBaselineDocId(sec.docId);
-          const cellRelation = isBaselineCell ? 'baseline' : ((sec.clusterRelations && sec.clusterRelations[cluster.id]) || 'reciprocal');
+          const cellRelation = cellRelationOf(sec, cluster.id);
           const relMeta = getCellRelationMeta(cellRelation);
           const secBadge = getConcordanceBadgeMeta(sec.concordanceStatus);
           const showConcUI = state.teamMode || sec.concordanceStatus !== 'pending' || Boolean(sec.concordanceNote);
@@ -1090,9 +1118,11 @@ function renderMatrixTable() {
               <div class="flex items-center flex-wrap gap-1">
                 ${isBaselineCell
                   ? `<span class="text-[11px] font-bold px-1.5 py-0.5 rounded border ${relMeta.badgeCls}" title="Study #1 establishes this row; reciprocal / refutational relations are assigned to the studies translated into it.">${relMeta.label}</span>`
-                  : `<button type="button" class="rel-toggle-btn text-[11px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition ${relMeta.badgeCls}" title="Click to toggle between Reciprocal (Convergent) and Refutational (Deviant / Contradictory) role in this row">
-                  ${relMeta.label}
-                </button>`}
+                  : `<select class="rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer transition ${relMeta.badgeCls}" title="How does this study's construct relate to the others in this row? Nothing is assumed: decide after reading it against the other studies.">
+                  <option value="unjudged" ${cellRelation === 'unjudged' ? 'selected' : ''}>? Not yet judged</option>
+                  <option value="reciprocal" ${cellRelation === 'reciprocal' ? 'selected' : ''}>🤝 Reciprocal</option>
+                  <option value="refutational" ${cellRelation === 'refutational' ? 'selected' : ''}>⚡ Refutational</option>
+                </select>`}
                 <button type="button" class="jump-pdf-btn text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 px-2.5 py-0.5 rounded-md shadow-sm cursor-pointer transition flex items-center space-x-1 transform hover:-translate-y-0.5" title="Open PDF & jump to page ${sec.page} in ${escapeHtml(getDisplayName(doc))}"><i class="ph ph-file-pdf"></i><span>PDF p.${sec.page}</span><i class="ph ph-arrow-square-out"></i></button>
                 <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
                 <span class="text-[11px] px-1 py-0.2 rounded border ${secBadge.cls} ${showConcUI ? '' : 'hidden'}">${secBadge.label}</span>
@@ -1152,20 +1182,23 @@ function renderMatrixTable() {
             toggleCellQuoteEdit(false);
           };
 
-          const relToggleBtn = card.querySelector('.rel-toggle-btn');
-          if (relToggleBtn) relToggleBtn.onclick = async (e) => {
+          const relSelect = card.querySelector('.rel-select');
+          if (relSelect) relSelect.onclick = e => e.stopPropagation();
+          if (relSelect) relSelect.onchange = async (e) => {
             e.stopPropagation();
             if (!sec.clusterRelations) sec.clusterRelations = {};
-            const prevRel = sec.clusterRelations[cluster.id] || 'reciprocal';
-            const nextRel = prevRel === 'reciprocal' ? 'refutational' : 'reciprocal';
-            sec.clusterRelations[cluster.id] = nextRel;
+            const prevRel = cellRelationOf(sec, cluster.id);
+            const nextRel = CELL_RELATIONS.includes(e.target.value) ? e.target.value : 'unjudged';
+            if (prevRel === nextRel) return;
+            if (nextRel === 'unjudged') delete sec.clusterRelations[cluster.id];
+            else sec.clusterRelations[cluster.id] = nextRel;
             await dbPut('annotations', sec);
 
             const nextMeta = getCellRelationMeta(nextRel);
             card.className = `matrix-cell-card ${nextMeta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
-            const btnEl = card.querySelector('.rel-toggle-btn');
-            btnEl.className = `rel-toggle-btn text-[11px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition ${nextMeta.badgeCls}`;
-            btnEl.textContent = nextMeta.label;
+            relSelect.className = `rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer transition ${nextMeta.badgeCls}`;
+            const sumEl = tdMeta.querySelector('.cl-rel-summary');
+            if (sumEl) sumEl.textContent = rowRelationSummary(cluster);
             const cmtInput = card.querySelector('.sec-comment-input');
             if (cmtInput) {
               cmtInput.placeholder = nextRel === 'refutational'
@@ -1176,7 +1209,7 @@ function renderMatrixTable() {
             await recordAuditLog({
               clusterIds: [cluster.id],
               category: 'third_order',
-              action: `Marked Construct as ${nextRel.toUpperCase()} in "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+              action: `Judged construct as ${nextRel === 'unjudged' ? 'NOT YET JUDGED' : nextRel.toUpperCase()} in "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
               detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note || '"' + sec.text.slice(0, 65) + '..."'}`,
               fromVal: prevRel,
               toVal: nextRel
