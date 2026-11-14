@@ -1,0 +1,59 @@
+# Copies the app (me_canvas.html + app/) into jdaeyun/jdaeyun.github.io/meta-ethnography-canvas/
+# when a release is published. The documentation pages in that folder are not touched.
+name: Sync app to jdaeyun.github.io
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the app repository
+        uses: actions/checkout@v4
+        with:
+          path: app-repo
+
+      - name: Check that version numbers agree (app/version.js, CITATION.cff, release tag)
+        working-directory: app-repo
+        run: |
+          JS_VER=$(grep -oP "version:\s*'\K[^']+" app/version.js)
+          JS_DATE=$(grep -oP "released:\s*'\K[^']+" app/version.js)
+          CFF_VER=$(grep -oP '^version:\s*"?\K[^"\s]+' CITATION.cff)
+          CFF_DATE=$(grep -oP '^date-released:\s*"?\K[^"\s]+' CITATION.cff)
+          echo "version.js: $JS_VER ($JS_DATE) | CITATION.cff: $CFF_VER ($CFF_DATE) | ref: $GITHUB_REF_NAME"
+          [ "$JS_VER" = "$CFF_VER" ] || { echo "::error::app/version.js ($JS_VER) and CITATION.cff ($CFF_VER) differ"; exit 1; }
+          [ "$JS_DATE" = "$CFF_DATE" ] || { echo "::error::release dates differ ($JS_DATE vs $CFF_DATE)"; exit 1; }
+          if [ "$GITHUB_EVENT_NAME" = "release" ] && [ "${GITHUB_REF_NAME#v}" != "$JS_VER" ]; then
+            echo "::error::release tag $GITHUB_REF_NAME does not match version $JS_VER"; exit 1
+          fi
+
+      - name: Check out the site repository
+        uses: actions/checkout@v4
+        with:
+          repository: jdaeyun/jdaeyun.github.io
+          token: ${{ secrets.SITE_REPO_TOKEN }}
+          path: site
+
+      - name: Copy app files
+        run: |
+          DEST=site/meta-ethnography-canvas
+          mkdir -p "$DEST"
+          cp app-repo/me_canvas.html "$DEST/"
+          # --delete only inside app/: files removed from the app repo disappear from the site too
+          rsync -a --delete app-repo/app/ "$DEST/app/"
+
+      - name: Commit and push if anything changed
+        working-directory: site
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add meta-ethnography-canvas
+          if git diff --cached --quiet; then
+            echo "No changes to sync."
+          else
+            git commit -m "Sync Meta-Ethnography Canvas ${GITHUB_REF_NAME} from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
+            git push
+          fi
