@@ -1,0 +1,33 @@
+# Builds the offline edition (a ZIP that runs by double-clicking me_canvas.html) and attaches it to the release.
+# app/vendor/ is committed, so no npm step is needed here.
+name: Attach offline ZIP to release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write   # needed to upload a file to the release
+
+jobs:
+  offline-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the ZIP
+        run: |
+          # The file name stays the same in every release, so the website can always link to
+          # .../releases/latest/download/meta-ethnography-canvas-offline.zip ; the folder inside carries the version.
+          NAME="meta-ethnography-canvas-offline-${GITHUB_REF_NAME}"
+          mkdir -p "dist/$NAME"
+          cp -r me_canvas.html app CITATION.cff "dist/$NAME/"
+          [ -f LICENSE ] && cp LICENSE "dist/$NAME/"
+          cp tools/OFFLINE-README.txt "dist/$NAME/README.txt"
+          (cd dist && zip -qr meta-ethnography-canvas-offline.zip "$NAME")
+          echo "ZIP=dist/meta-ethnography-canvas-offline.zip" >> "$GITHUB_ENV"
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "$ZIP" --clobber
