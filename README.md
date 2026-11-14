@@ -54,7 +54,7 @@ Meta-Ethnography Canvas (`me_canvas.html`) is intentionally architected as a **d
 * **Hybrid Page-1 Citation Parser:** Combines PDF Info/XMP metadata inspection with spatial Y-coordinate line bucketing and font-height heuristics on Page 1 to auto-detect First Author, Publication Year, and Full Title.
 
 ### 3. Serverless Multi-Reviewer Diff & Merge Engine
-* **Unicode-Aware Fuzzy Matching:** Co-reviewers working independently can compare `.json` backups in-browser. The concordance engine (`computeTextSimilarity`) combines NFC Unicode normalization, token-set overlap, and character bigram similarity (supporting both Latin and non-spaced CJK scripts) plus page-proximity weighting to match independently extracted constructs, compute inter-reviewer concordance rates, and interleave audit logs chronologically.
+* **Unicode-Aware Fuzzy Matching:** Co-reviewers working independently can compare `.json` backups in-browser. The concordance engine (`computeTextSimilarity`) combines NFC Unicode normalization, token-set overlap, and character bigram similarity (supporting both Latin and non-spaced CJK scripts) plus page-proximity weighting to pair up independently extracted constructs, sort them into aligned, divergent, and single-reviewer items for team discussion (no agreement statistic is computed), and interleave audit logs chronologically.
 
 ### 4. Client-Side OpenXML (`.docx`) Generation
 * Uses `docx.js` (`v8.5.0`) to compile the Methods Summary, eMERGe checklist mapping, and all synthesis and GRADE-CERQual tables into a single landscape OpenXML Word document directly in memory, alongside `ClipboardItem` rich HTML/plain-text dual-MIME copying for one-click pasting into Word or Google Docs.
