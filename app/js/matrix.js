@@ -294,7 +294,7 @@ function renderStudyVisibilityBar() {
   const groups = [...new Set(state.docs.map(d => (d.group || '').trim()).filter(Boolean))];
   groups.forEach(g => {
     const members = state.docs.filter(d => (d.group || '').trim() === g);
-    bar.appendChild(mk(`Subgroup: ${g} (${members.length})`, 'Show only this subgroup (subgroup-first translation, eMERGe 11). Click "Show all" afterwards to synthesise across subgroups.', () => {
+    bar.appendChild(mk(`Subgroup: ${g} (${members.length})`, 'Show only this subgroup (subgroup-first translation). Click "Show all" afterwards to synthesise across subgroups.', () => {
       const keep = new Set(members.map(d => d.id));
       state.hiddenStudyIds = new Set(state.docs.filter(d => !keep.has(d.id)).map(d => d.id));
       refreshAfterVisibilityChange();
