@@ -9,7 +9,7 @@ function loadDemoScript() {
   return new Promise((resolve, reject) => {
     if (window.ME_DEMO) { resolve(window.ME_DEMO); return; }
     const s = document.createElement('script');
-    s.src = 'app/demo/demo-data.js';
+    s.src = 'app/demo/demo-data.js?v=' + encodeURIComponent((window.ME_CANVAS && window.ME_CANVAS.version) || '');
     s.onload = () => (window.ME_DEMO ? resolve(window.ME_DEMO) : reject(new Error('Demo data is empty.')));
     s.onerror = () => reject(new Error('Could not load app/demo/demo-data.js.'));
     document.head.appendChild(s);
@@ -23,13 +23,21 @@ function base64ToArrayBuffer(b64) {
   return bytes.buffer;
 }
 
+async function clearDemoStores() {
+  for (const st of ['docs', 'pdf_binaries', 'annotations', 'clusters', 'logs', 'meta']) await dbClear(st);
+}
+
+// Loads the demo the first time, and again whenever the demo content has changed since this browser last got it
+// (the demo database lives in the browser, so an older copy would otherwise stay for ever).
 async function seedDemoIfEmpty() {
   const banner = document.getElementById('demoBanner');
   if (banner) { banner.classList.remove('hidden'); banner.classList.add('flex'); }
-  const existing = await dbGetAll('docs');
-  if (existing.length > 0) return; // keep the visitor's own edits to the demo
   try {
     const demo = await loadDemoScript();
+    const existing = await dbGetAll('docs');
+    const outdated = existing.length > 0 && lsGet('me_demo_build') !== demo.build;
+    if (existing.length > 0 && !outdated) return; // keep the visitor's own edits to the demo
+    if (outdated) { await clearDemoStores(); showSnackbar('The demo was updated to its latest version.'); }
     const data = demo.project;
     for (const d of data.docs) {
       const doc = normalizeDoc({ ...d, hasBinary: !!demo.pdfs[d.name] });
@@ -42,6 +50,8 @@ async function seedDemoIfEmpty() {
     await dbPut('meta', { ...data.loa, id: 'loa_main' });
     lsSet('me_reviewer_id', data.reviewerId);
     lsSet('me_project_code', data.projectCode);
+    lsRemove('me_hidden_studies');
+    lsSet('me_demo_build', demo.build);
   } catch (err) {
     console.error('Demo could not be loaded:', err);
     showSnackbar('The demo could not be loaded: ' + err.message);
@@ -50,7 +60,7 @@ async function seedDemoIfEmpty() {
 
 document.getElementById('demoResetBtn')?.addEventListener('click', async () => {
   if (!confirm('Reset the demo to its original state? Any changes you made in the demo will be lost. Your own projects are not affected.')) return;
-  for (const st of ['docs', 'pdf_binaries', 'annotations', 'clusters', 'logs', 'meta']) await dbClear(st);
-  ['me_reviewer_id', 'me_project_code', 'me_hidden_studies'].forEach(lsRemove);
+  await clearDemoStores();
+  ['me_reviewer_id', 'me_project_code', 'me_hidden_studies', 'me_demo_build'].forEach(lsRemove);
   location.reload();
 });

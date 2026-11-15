@@ -1,0 +1,36 @@
+# Keeps the version shown as plain text in sync with app/version.js (the ONE place to edit at a release).
+# Edit app/version.js and push to main: this workflow updates CITATION.cff, README.md, me_canvas.html and the site pages,
+# commits the result, and re-runs the Website workflow (a push made with GITHUB_TOKEN does not start other workflows).
+# Publish the GitHub release AFTER this workflow has finished, so the release contains the synced files.
+name: Sync version
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/version.js']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Update the files
+        run: node tools/sync-version.mjs
+      - name: Commit and redeploy the website
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then echo "Already in sync."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Sync version text with app/version.js"
+          git push
+          gh workflow run pages.yml

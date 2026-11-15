@@ -159,6 +159,7 @@ function ensureInitialReviewerLogin() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
+  document.querySelectorAll('[data-mec="version"]').forEach(el => { if (window.ME_CANVAS && window.ME_CANVAS.version) el.textContent = window.ME_CANVAS.version; });
   const revInput = document.getElementById('reviewerIdInput');
   // Ask the browser to keep IndexedDB data (prevents automatic eviction, e.g. Safari's 7-day rule)
   try {
