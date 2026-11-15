@@ -6,7 +6,15 @@
 // ========================================================
 // INDEXEDDB ENGINE (Singleton + Binary Store Separation)
 // ========================================================
-const DB_NAME = 'MetaEthnoCanvasDB'; 
+// Demo mode (open me_canvas.html?demo): uses its own database and its own localStorage keys,
+// so the demo never touches a real project in the same browser.
+const DEMO_MODE = /[?&]demo(=|&|#|$)/.test(location.search);
+const LS_PREFIX = DEMO_MODE ? 'demo:' : '';
+function lsGet(key) { try { return localStorage.getItem(LS_PREFIX + key); } catch (e) { return null; } }
+function lsSet(key, value) { try { localStorage.setItem(LS_PREFIX + key, value); } catch (e) { /* storage blocked */ } }
+function lsRemove(key) { try { localStorage.removeItem(LS_PREFIX + key); } catch (e) { /* storage blocked */ } }
+
+const DB_NAME = DEMO_MODE ? 'MetaEthnoCanvasDB_demo' : 'MetaEthnoCanvasDB';
 const DB_VERSION = 6;
 let dbInstancePromise = null;
 
@@ -161,12 +169,12 @@ async function dbClear(store) {
 // STATE & NORMALIZATION
 // ========================================================
 const state = {
-  reviewerId: localStorage.getItem('me_reviewer_id') || '',
-  projectCode: localStorage.getItem('me_project_code') || '',
-  teamMode: localStorage.getItem('me_team_mode') === 'true',
-  logMinorOps: localStorage.getItem('me_log_minor_ops') === 'true',
-  autoSeedIndex: localStorage.getItem('me_auto_seed_index') !== 'false',
-  hiddenStudyIds: new Set((() => { try { return JSON.parse(localStorage.getItem('me_hidden_studies') || '[]'); } catch (e) { return []; } })()),
+  reviewerId: lsGet('me_reviewer_id') || '',
+  projectCode: lsGet('me_project_code') || '',
+  teamMode: lsGet('me_team_mode') === 'true',
+  logMinorOps: lsGet('me_log_minor_ops') === 'true',
+  autoSeedIndex: lsGet('me_auto_seed_index') !== 'false',
+  hiddenStudyIds: new Set((() => { try { return JSON.parse(lsGet('me_hidden_studies') || '[]'); } catch (e) { return []; } })()),
   docs: [],
   annotations: [],
   clusters: [],

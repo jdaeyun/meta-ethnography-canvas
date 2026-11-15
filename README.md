@@ -19,6 +19,7 @@ It puts two jobs in one place: coding full-text PDFs, and comparing studies in a
 Nothing to install and no account needed. Open it in a desktop browser:
 
 * **👉 [Launch Meta-Ethnography Canvas (`me_canvas.html`)](https://jdaeyun.github.io/meta-ethnography-canvas/me_canvas.html)**
+* **🧪 [Try the demo (AI-generated sample project)](https://jdaeyun.github.io/meta-ethnography-canvas/me_canvas.html?demo)** — four fictional papers and a finished two-reviewer analysis. It uses its own storage and does not touch your projects.
 * **📘 [1. Overview & Motivation](https://jdaeyun.github.io/meta-ethnography-canvas/index.html)**
 * **🛠️ [2. Step-by-Step User Manual](https://jdaeyun.github.io/meta-ethnography-canvas/manual.html)**
 * **🎓 [3. Meta-Ethnography 101 & eMERGe Mapping](https://jdaeyun.github.io/meta-ethnography-canvas/meta-ethnography-101.html)**
@@ -67,7 +68,8 @@ Meta-Ethnography Canvas is a **plain HTML and JavaScript** app with **no build s
 ```text
 meta-ethnography-canvas/
 ├── me_canvas.html        # The app page (the screens)
-├── app/                  # App code (js/), styles (css/), version.js, and bundled libraries (vendor/)
+├── demo.html             # Opens the demo (me_canvas.html?demo); works offline too
+├── app/                  # App code (js/), styles (css/), version.js, bundled libraries (vendor/), AI-generated demo data (demo/)
 ├── site/                 # Website pages: index, manual (with screenshots in img/), Meta-Ethnography 101
 ├── tools/                # Build helpers and the offline-edition readme
 ├── CITATION.cff          # How to cite this software

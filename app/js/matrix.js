@@ -234,14 +234,14 @@ const autoSeedToggleEl = document.getElementById('autoSeedIndexToggle');
 autoSeedToggleEl.checked = state.autoSeedIndex;
 autoSeedToggleEl.addEventListener('change', () => {
   state.autoSeedIndex = autoSeedToggleEl.checked;
-  localStorage.setItem('me_auto_seed_index', String(state.autoSeedIndex));
+  lsSet('me_auto_seed_index', String(state.autoSeedIndex));
   if (state.autoSeedIndex) renderMatrixView();
 });
 
 // ---- Paper visibility (focus mode for Tab 2) ----
 function visibleDocCount() { return state.docs.filter(d => !state.hiddenStudyIds.has(d.id)).length; }
 function saveHiddenStudies() {
-  try { localStorage.setItem('me_hidden_studies', JSON.stringify([...state.hiddenStudyIds])); } catch (e) { /* ignore */ }
+  try { lsSet('me_hidden_studies', JSON.stringify([...state.hiddenStudyIds])); } catch (e) { /* ignore */ }
 }
 function refreshAfterVisibilityChange() {
   saveHiddenStudies();
@@ -1305,19 +1305,19 @@ function setMatrixPoolCollapsed(collapsed) {
   matrixPoolResizer.classList.toggle('hidden', collapsed);
   expandPoolBtn.classList.toggle('hidden', !collapsed);
   expandPoolBtn.classList.toggle('flex', collapsed);
-  localStorage.setItem('me_pool_collapsed', collapsed ? 'true' : 'false');
+  lsSet('me_pool_collapsed', collapsed ? 'true' : 'false');
 }
 
 if (collapsePoolBtn && expandPoolBtn) {
   collapsePoolBtn.addEventListener('click', () => setMatrixPoolCollapsed(true));
   expandPoolBtn.addEventListener('click', () => setMatrixPoolCollapsed(false));
-  if (localStorage.getItem('me_pool_collapsed') === 'true') {
+  if (lsGet('me_pool_collapsed') === 'true') {
     setMatrixPoolCollapsed(true);
   }
 }
 
 if (matrixPoolResizer && matrixLeftSidebar) {
-  const savedPoolWidth = parseInt(localStorage.getItem('me_pool_width'), 10);
+  const savedPoolWidth = parseInt(lsGet('me_pool_width'), 10);
   if (!isNaN(savedPoolWidth) && savedPoolWidth >= 240 && savedPoolWidth <= 640) {
     matrixLeftSidebar.style.width = savedPoolWidth + 'px';
   }
@@ -1339,7 +1339,7 @@ if (matrixPoolResizer && matrixLeftSidebar) {
       isMatrixPoolResizing = false;
       document.body.style.cursor = 'default';
       const currentW = parseInt(matrixLeftSidebar.style.width, 10);
-      if (!isNaN(currentW)) localStorage.setItem('me_pool_width', String(currentW));
+      if (!isNaN(currentW)) lsSet('me_pool_width', String(currentW));
     }
   });
 }

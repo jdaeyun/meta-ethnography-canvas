@@ -203,7 +203,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
 
     if (incomingProjCode) {
       state.projectCode = incomingProjCode;
-      localStorage.setItem('me_project_code', incomingProjCode);
+      lsSet('me_project_code', incomingProjCode);
     }
     if (data.loa) {
       state.loa = { projectCode: state.projectCode || '', aim: '', ...state.loa, ...data.loa, id: 'loa_main' };
@@ -263,7 +263,7 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
   state.clusters = [];
   state.logs = [];
   state.projectCode = '';
-  localStorage.removeItem('me_project_code');
+  lsRemove('me_project_code');
   state.loa = { id: 'loa_main', projectCode: '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null };
   state.activeDocId = null;
   state.clusterActiveTabs = {};

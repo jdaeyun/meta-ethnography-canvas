@@ -180,7 +180,7 @@ const TABLE3_MODES = {
   both: 'Both, as two tables (3a SoQF, 3b Evidence Profile)'
 };
 function getTable3Mode() {
-  const v = (() => { try { return localStorage.getItem('me_table3_mode'); } catch (e) { return null; } })();
+  const v = (() => { try { return lsGet('me_table3_mode'); } catch (e) { return null; } })();
   return TABLE3_MODES[v] ? v : 'combined';
 }
 const CERQUAL_CAVEAT = 'GRADE-CERQual was applied to the third-order constructs. Its developers note that further work is needed on applying the approach to more interpretive outputs such as those of meta-ethnography (Lewin et al., 2018).';
@@ -595,7 +595,7 @@ function buildeMERGeTableHtml() {
   sel.innerHTML = Object.entries(TABLE3_MODES).map(([k, v]) => `<option value="${k}">Table 3: ${escapeHtml(v)}</option>`).join('');
   sel.value = getTable3Mode();
   sel.addEventListener('change', () => {
-    try { localStorage.setItem('me_table3_mode', sel.value); } catch (e) {}
+    try { lsSet('me_table3_mode', sel.value); } catch (e) {}
     if (state.activePubTable !== 'table3') {
       state.activePubTable = 'table3';
       document.querySelectorAll('.pub-tab-btn').forEach(b => {

@@ -530,7 +530,7 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
     </div>
     ${alsoHtml}
     ${linkDropdownHtml}
-    <input type="text" class="f-note-input w-full text-xs border border-slate-200 p-1 rounded bg-white" placeholder="Participant attribution / context (e.g. Patient #4, Rural GP)..." value="${escapeHtml(f.note)}">
+    <input type="text" class="f-note-input w-full text-xs border border-slate-200 p-1 rounded bg-white" placeholder="Participant attribution / context (e.g. Patient #4, Night-shift nurse)..." value="${escapeHtml(f.note)}">
     <details class="bg-sky-50/70 border border-sky-200/70 rounded p-1" ${f.nuanceNote ? 'open' : ''}>
       <summary class="text-[11px] font-semibold text-sky-800 cursor-pointer select-none">🌐 Nuance / Translation Memo (Private)</summary>
       <textarea class="f-nuance-input w-full mt-1 text-xs border border-sky-200 rounded p-1 bg-white focus:outline-none focus:border-sky-500 resize-y h-12" placeholder="Notes on tone, wording, or context...">${escapeHtml(f.nuanceNote)}</textarea>
@@ -671,7 +671,7 @@ function openManualAddDrawer(type) {
   } else {
     badge.className = 'text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300';
     badge.textContent = '🟦 Add 1st Order Quote';
-    noteInput.placeholder = 'Participant attribution / context, e.g. Patient #4, Rural GP (optional)...';
+    noteInput.placeholder = 'Participant attribution / context, e.g. Patient #4, Night-shift nurse (optional)...';
     textInput.placeholder = 'Paste or type 1st Order participant quote...';
     submitBtn.className = 'px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs cursor-pointer transition';
   }

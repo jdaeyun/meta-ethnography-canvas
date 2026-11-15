@@ -21,7 +21,7 @@ jobs:
           # .../releases/latest/download/meta-ethnography-canvas-offline.zip ; the folder inside carries the version.
           NAME="meta-ethnography-canvas-offline-${GITHUB_REF_NAME}"
           mkdir -p "dist/$NAME"
-          cp -r me_canvas.html app CITATION.cff "dist/$NAME/"
+          cp -r me_canvas.html demo.html app CITATION.cff "dist/$NAME/"
           [ -f LICENSE ] && cp LICENSE "dist/$NAME/"
           cp tools/OFFLINE-README.txt "dist/$NAME/README.txt"
           (cd dist && zip -qr meta-ethnography-canvas-offline.zip "$NAME")
