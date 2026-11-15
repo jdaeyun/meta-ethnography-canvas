@@ -5,10 +5,10 @@
   "appVersion": "1.3.0",
   "projectCode": "AI-DEMO-NIGHTSHIFT",
   "reviewerId": "Reviewer A",
-  "exportedAt": "2026-11-15T07:49:53.941Z",
+  "exportedAt": "2026-11-15T10:21:48.706Z",
   "docs": [
     {
-      "id": "doc_1794728917562_fwbi",
+      "id": "doc_1794738031007_hkfr",
       "name": "AI-GENERATED_Hartwell-2018_staff-nurses-UK.pdf",
       "hasBinary": true,
       "author": "Hartwell",
@@ -24,13 +24,13 @@
       "contextNote": "",
       "studyOverview": "",
       "order": 0,
-      "addedAt": "2026-11-15T07:48:37.562Z",
+      "addedAt": "2026-11-15T10:20:31.007Z",
       "group": "Nurses' views",
       "funder": "",
       "companionOf": ""
     },
     {
-      "id": "doc_1794728917568_yp0f",
+      "id": "doc_1794738031011_4u3q",
       "name": "AI-GENERATED_Sato-2020_staff-nurses-Japan.pdf",
       "hasBinary": true,
       "author": "Sato",
@@ -46,13 +46,13 @@
       "contextNote": "",
       "studyOverview": "",
       "order": 1,
-      "addedAt": "2026-11-15T07:48:37.568Z",
+      "addedAt": "2026-11-15T10:20:31.011Z",
       "group": "Nurses' views",
       "funder": "",
       "companionOf": ""
     },
     {
-      "id": "doc_1794728917571_xf8q",
+      "id": "doc_1794738031015_fiqe",
       "name": "AI-GENERATED_Nguyen-2021_nurse-managers-Canada.pdf",
       "hasBinary": true,
       "author": "Nguyen",
@@ -68,13 +68,13 @@
       "contextNote": "",
       "studyOverview": "",
       "order": 2,
-      "addedAt": "2026-11-15T07:48:37.571Z",
+      "addedAt": "2026-11-15T10:20:31.015Z",
       "group": "Managers' views",
       "funder": "",
       "companionOf": ""
     },
     {
-      "id": "doc_1794728917575_7pk4",
+      "id": "doc_1794738031018_5n71",
       "name": "AI-GENERATED_Reyes-2022_unit-managers-Australia.pdf",
       "hasBinary": true,
       "author": "Reyes",
@@ -90,7 +90,7 @@
       "contextNote": "",
       "studyOverview": "",
       "order": 3,
-      "addedAt": "2026-11-15T07:48:37.575Z",
+      "addedAt": "2026-11-15T10:20:31.018Z",
       "group": "Managers' views",
       "funder": "",
       "companionOf": ""
@@ -98,8 +98,8 @@
   ],
   "annotations": [
     {
-      "id": "a_1794728929311_6o44",
-      "docId": "doc_1794728917562_fwbi",
+      "id": "a_1794738042726_pxws",
+      "docId": "doc_1794738031007_hkfr",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as solitary accountability: responsibility that is not only heavy but also carried alone, with no one to check a judgement against.",
@@ -111,19 +111,19 @@
             "left": 0.620458255597015,
             "top": 0.5638199267044077,
             "width": 0.1932500189088342,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630193
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.5807178404893978,
+            "top": 0.5791136081680379,
             "width": 0.7633514490469946,
-            "height": 0.013689449142270438
+            "height": 0.016905043706418432
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.5976300141172445,
+            "top": 0.5960186518744564,
             "width": 0.054333353292658315,
-            "height": 0.013689449142270438
+            "height": 0.015300811385058566
           }
         ]
       },
@@ -132,19 +132,19 @@
       "concordanceStatus": "agreed",
       "concordanceNote": "[Peer @Reviewer B label: Lone responsibility]",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ],
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728980358_jdgr": "reciprocal"
+        "cl_1794738095030_gb5j": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728930810_5ht2",
-      "docId": "doc_1794728917562_fwbi",
+      "id": "a_1794738044225_cm86",
+      "docId": "doc_1794738031007_hkfr",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as working against the body clock: a bodily cost that nurses manage privately and rarely raise at work.",
@@ -156,13 +156,13 @@
             "left": 0.630405247831787,
             "top": 0.7364638441684372,
             "width": 0.2534400684499798,
-            "height": 0.013689449142270438
+            "height": 0.015343590913628136
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.7534615768534231,
+            "top": 0.7518074350820654,
             "width": 0.5847095287918516,
-            "height": 0.013689449142270438
+            "height": 0.015343590913628136
           }
         ]
       },
@@ -171,19 +171,19 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ],
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728983347_2u1f": "reciprocal"
+        "cl_1794738098047_iq81": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728932311_af1n",
-      "docId": "doc_1794728917562_fwbi",
+      "id": "a_1794738045726_evuy",
+      "docId": "doc_1794738031007_hkfr",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as invisibility to the day team, a gap in the organisation’s view of its own night work.",
@@ -195,13 +195,13 @@
             "left": 0.3910756605486083,
             "top": 0.892295406904616,
             "width": 0.4197465743495361,
-            "height": 0.013689449142270438
+            "height": 0.01574999643503927
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.910105950632424,
+            "top": 0.9080454033396552,
             "width": 0.2977444912263009,
-            "height": 0.013689449142270438
+            "height": 0.01574999643503927
           }
         ]
       },
@@ -210,19 +210,19 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ],
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728986349_g2dp": "reciprocal"
+        "cl_1794738101097_qztm": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728933812_dqwd",
-      "docId": "doc_1794728917562_fwbi",
+      "id": "a_1794738047228_1puv",
+      "docId": "doc_1794738031007_hkfr",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "After midnight it’s me and one healthcare assistant for thirty-two patients. If something goes wrong, there’s no one to ask.",
@@ -234,13 +234,13 @@
             "left": 0.11733656464300121,
             "top": 0.6208307784448215,
             "width": 0.7775872012404196,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           },
           {
             "left": 0.10954013715207746,
-            "top": 0.6377286922298117,
+            "top": 0.6361244599084518,
             "width": 0.07682486007462687,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           }
         ]
       },
@@ -251,12 +251,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728929311_6o44"
+        "a_1794738042726_pxws"
       ]
     },
     {
-      "id": "a_1794728935578_4k9i",
-      "docId": "doc_1794728917562_fwbi",
+      "id": "a_1794738048991_whvq",
+      "docId": "doc_1794738031007_hkfr",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "You make the call, and you carry it home with you.",
@@ -279,12 +279,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728929311_6o44"
+        "a_1794738042726_pxws"
       ]
     },
     {
-      "id": "a_1794728937344_ztvl",
-      "docId": "doc_1794728917562_fwbi",
+      "id": "a_1794738050758_tpw3",
+      "docId": "doc_1794738031007_hkfr",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "Around four in the morning my brain just stops. You check the chart three times and still don’t trust it.",
@@ -307,12 +307,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728930810_5ht2"
+        "a_1794738044225_cm86"
       ]
     },
     {
-      "id": "a_1794728939094_1204",
-      "docId": "doc_1794728917562_fwbi",
+      "id": "a_1794738052525_22b8",
+      "docId": "doc_1794738031007_hkfr",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "Days see the tidy ward in the morning. They never see how it got that way.",
@@ -335,12 +335,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728932311_af1n"
+        "a_1794738045726_evuy"
       ]
     },
     {
-      "id": "a_1794728940842_jzlo",
-      "docId": "doc_1794728917562_fwbi",
+      "id": "a_1794738054274_ry4f",
+      "docId": "doc_1794738031007_hkfr",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "Nobody from management has ever come on at night.",
@@ -363,12 +363,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728932311_af1n"
+        "a_1794738045726_evuy"
       ]
     },
     {
-      "id": "a_1794728943526_m2iv",
-      "docId": "doc_1794728917568_yp0f",
+      "id": "a_1794738056958_68z2",
+      "docId": "doc_1794738031011_4u3q",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as fatigue as the price of the job: tiredness is accepted as normal, so it is not treated as a problem for the organisation to solve.",
@@ -380,25 +380,25 @@
             "left": 0.2550140713241226,
             "top": 0.6366449441727152,
             "width": 0.20831287502521179,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.6535428579577053,
+            "top": 0.6519386256363455,
             "width": 0.3650144022287213,
-            "height": 0.013689449142270438
+            "height": 0.01690504370641832
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.670455031585552,
+            "top": 0.6688436693427638,
             "width": 0.37988974573920936,
-            "height": 0.013689449142270438
+            "height": 0.017354228756399137
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.6882513154705036,
+            "top": 0.686197898099163,
             "width": 0.04161791076290844,
-            "height": 0.013689449142270438
+            "height": 0.01574286651361101
           }
         ]
       },
@@ -407,19 +407,19 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ],
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728983347_2u1f": "reciprocal"
+        "cl_1794738098047_iq81": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728945026_dlf3",
-      "docId": "doc_1794728917568_yp0f",
+      "id": "a_1794738058458_vny5",
+      "docId": "doc_1794738031011_4u3q",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as owed recovery: the rest that nurses are due, but which is absorbed by the rest of life.",
@@ -431,19 +431,19 @@
             "left": 0.8595368281060911,
             "top": 0.38497297759778687,
             "width": 0.023049317391085067,
-            "height": 0.013689449142270438
+            "height": 0.01574999643503927
           },
           {
             "left": 0.5201089148850343,
-            "top": 0.402783521325595,
+            "top": 0.40072297403282614,
             "width": 0.3840875857200484,
-            "height": 0.013689449142270438
+            "height": 0.01735422875639908
           },
           {
             "left": 0.5201089148850343,
-            "top": 0.4196814351105851,
+            "top": 0.4180772027892252,
             "width": 0.3175837976502621,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           }
         ]
       },
@@ -452,19 +452,19 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ],
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728983347_2u1f": "reciprocal"
+        "cl_1794738098047_iq81": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728946528_brga",
-      "docId": "doc_1794728917568_yp0f",
+      "id": "a_1794738059958_oiv8",
+      "docId": "doc_1794738031011_4u3q",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as a life out of step: night work separates nurses from the rhythm of daily life at home.",
@@ -476,19 +476,19 @@
             "left": 0.6195044624848729,
             "top": 0.5298102014915795,
             "width": 0.25965043868495363,
-            "height": 0.013689449142270438
+            "height": 0.015300811385058566
           },
           {
             "left": 0.5201089148850343,
-            "top": 0.5467223751194262,
+            "top": 0.5451110128766381,
             "width": 0.37385475494150866,
-            "height": 0.013689449142270438
+            "height": 0.016905043706418432
           },
           {
             "left": 0.5201089148850343,
-            "top": 0.5636202889044163,
+            "top": 0.5620160565830565,
             "width": 0.08856417343182732,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630193
           }
         ]
       },
@@ -497,19 +497,19 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ],
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728983347_2u1f": "reciprocal"
+        "cl_1794738098047_iq81": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728948028_k4wm",
-      "docId": "doc_1794728917568_yp0f",
+      "id": "a_1794738061459_1rbo",
+      "docId": "doc_1794738031011_4u3q",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "Everyone is tired. If you say it out loud it sounds like you are not suited to the job.",
@@ -521,13 +521,13 @@
             "left": 0.1173369191836426,
             "top": 0.7104538907981234,
             "width": 0.3434417466090157,
-            "height": 0.013689449142270438
+            "height": 0.015300811385058566
           },
           {
             "left": 0.10954013715207746,
-            "top": 0.7273660644259701,
+            "top": 0.7257547021831819,
             "width": 0.23304988465611137,
-            "height": 0.013689449142270438
+            "height": 0.015300811385058566
           }
         ]
       },
@@ -538,12 +538,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728943526_m2iv"
+        "a_1794738056958_68z2"
       ]
     },
     {
-      "id": "a_1794728949794_ibqy",
-      "docId": "doc_1794728917568_yp0f",
+      "id": "a_1794738063226_pop5",
+      "docId": "doc_1794738031011_4u3q",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "After a night shift I tell myself I will sleep all day, but then the laundry, then the shopping, and it is evening.",
@@ -555,19 +555,19 @@
             "left": 0.5404672688079871,
             "top": 0.44188401043820497,
             "width": 0.35050423557886246,
-            "height": 0.013689449142270438
+            "height": 0.01574999643503927
           },
           {
             "left": 0.5327148043565954,
-            "top": 0.45969455416601307,
+            "top": 0.45763400687324424,
             "width": 0.34112986587333605,
-            "height": 0.013689449142270438
+            "height": 0.01735422875639908
           },
           {
             "left": 0.5327148043565954,
-            "top": 0.4765924679510032,
+            "top": 0.4749882356296433,
             "width": 0.06028790275816864,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           }
         ]
       },
@@ -578,12 +578,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728945026_dlf3"
+        "a_1794738058458_vny5"
       ]
     },
     {
-      "id": "a_1794728951561_p2ww",
-      "docId": "doc_1794728917568_yp0f",
+      "id": "a_1794738064991_dsdx",
+      "docId": "doc_1794738031011_4u3q",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "My children are going to school when I get home. We pass each other at the door.",
@@ -595,13 +595,13 @@
             "left": 0.5405194256756757,
             "top": 0.5867354941748542,
             "width": 0.3520531842476805,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           },
           {
             "left": 0.5327148043565954,
-            "top": 0.6036334079598443,
+            "top": 0.6020291756384845,
             "width": 0.22087740142194434,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           }
         ]
       },
@@ -612,12 +612,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728946528_brga"
+        "a_1794738059958_oiv8"
       ]
     },
     {
-      "id": "a_1794728954261_5n1y",
-      "docId": "doc_1794728917571_xf8q",
+      "id": "a_1794738067673_p9dy",
+      "docId": "doc_1794738031015_fiqe",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as autonomy in the quiet hours: what staff may experience as being alone, managers read as being trusted.",
@@ -629,25 +629,25 @@
             "left": 0.3351573530153288,
             "top": 0.6328375661300213,
             "width": 0.1359805175978217,
-            "height": 0.013689449142270438
+            "height": 0.015350720835056397
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.6498495586578635,
+            "top": 0.6481882869650777,
             "width": 0.3114079360377168,
-            "height": 0.013689449142270438
+            "height": 0.016954953156416153
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.6667474724428537,
+            "top": 0.6651432401214938,
             "width": 0.3551852750605083,
-            "height": 0.013689449142270438
+            "height": 0.017354228756399137
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.6845580161706618,
+            "top": 0.682497468877893,
             "width": 0.05237557987091568,
-            "height": 0.013689449142270438
+            "height": 0.01574999643503927
           }
         ]
       },
@@ -656,21 +656,21 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ],
       "clusterComments": {
-        "cl_1794728980358_jdgr": "Same night conditions, read differently: managers (not staff) call it trust and autonomy. Both hospitals had a night coordinator on every floor, so nights may feel safer from the manager’s seat."
+        "cl_1794738095030_gb5j": "Same night conditions, read differently: managers (not staff) call it trust and autonomy. Both hospitals had a night coordinator on every floor, so nights may feel safer from the manager’s seat."
       },
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728980358_jdgr": "refutational"
+        "cl_1794738095030_gb5j": "refutational"
       },
       "passages": []
     },
     {
-      "id": "a_1794728955760_8csm",
-      "docId": "doc_1794728917571_xf8q",
+      "id": "a_1794738069156_8gjb",
+      "docId": "doc_1794738031015_fiqe",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as support at a distance: help that exists on paper but arrives late or in the form of a phone call.",
@@ -682,19 +682,19 @@
             "left": 0.5802459409035902,
             "top": 0.3359618976998873,
             "width": 0.32419936844493746,
-            "height": 0.013689449142270438
+            "height": 0.015749996435039326
           },
           {
             "left": 0.5201089148850343,
-            "top": 0.3537724414276955,
+            "top": 0.35171189413492665,
             "width": 0.3787188949677289,
-            "height": 0.013689449142270438
+            "height": 0.01735422875639908
           },
           {
             "left": 0.5201089148850343,
-            "top": 0.37067035521268554,
+            "top": 0.36906612289132573,
             "width": 0.07732216241427992,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630249
           }
         ]
       },
@@ -703,19 +703,19 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ],
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728986349_g2dp": "reciprocal"
+        "cl_1794738101097_qztm": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728957260_b7of",
-      "docId": "doc_1794728917571_xf8q",
+      "id": "a_1794738070639_rqnj",
+      "docId": "doc_1794738031015_fiqe",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as fatigue as an individual matter: the organisation provides the roster, and the nurse is expected to cope with the rest.",
@@ -727,25 +727,25 @@
             "left": 0.7510280102864058,
             "top": 0.49273461006459707,
             "width": 0.13597831156716422,
-            "height": 0.013689449142270438
+            "height": 0.01570008698504144
           },
           {
             "left": 0.5201089148850343,
-            "top": 0.5104453348924095,
+            "top": 0.5084346970496385,
             "width": 0.3363342703711174,
-            "height": 0.013689449142270438
+            "height": 0.017354228756399137
           },
           {
             "left": 0.5201089148850343,
-            "top": 0.5274430675773953,
+            "top": 0.5257889258060376,
             "width": 0.3721396448920936,
-            "height": 0.013689449142270438
+            "height": 0.016954953156416264
           },
           {
             "left": 0.5201089148850343,
-            "top": 0.5443552412052419,
+            "top": 0.5427438789624539,
             "width": 0.09151095766942319,
-            "height": 0.013689449142270438
+            "height": 0.015300811385058455
           }
         ]
       },
@@ -754,21 +754,21 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ],
       "clusterComments": {
-        "cl_1794728983347_2u1f": "The manager’s version of the same idea: the roster is fair, the tiredness is yours."
+        "cl_1794738098047_iq81": "The manager’s version of the same idea: the roster is fair, the tiredness is yours."
       },
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728983347_2u1f": "reciprocal"
+        "cl_1794738098047_iq81": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728958759_mjie",
-      "docId": "doc_1794728917571_xf8q",
+      "id": "a_1794738072122_9g35",
+      "docId": "doc_1794738031015_fiqe",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "At night they run their own ship. I trust them to.",
@@ -791,12 +791,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728954261_5n1y"
+        "a_1794738067673_p9dy"
       ]
     },
     {
-      "id": "a_1794728960509_em6s",
-      "docId": "doc_1794728917571_xf8q",
+      "id": "a_1794738073873_3nvb",
+      "docId": "doc_1794738031015_fiqe",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "I’m on the phone from home if they need me, but I can’t be on the ward.",
@@ -808,13 +808,13 @@
             "left": 0.5404288208450988,
             "top": 0.3929727494403012,
             "width": 0.3537467854981847,
-            "height": 0.013689449142270438
+            "height": 0.01574999643503927
           },
           {
             "left": 0.5327148043565954,
-            "top": 0.4107832931681093,
+            "top": 0.40872274587534047,
             "width": 0.15011203484267843,
-            "height": 0.013689449142270438
+            "height": 0.01574999643503927
           }
         ]
       },
@@ -825,12 +825,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728955760_8csm"
+        "a_1794738069156_8gjb"
       ]
     },
     {
-      "id": "a_1794728962259_1ftf",
-      "docId": "doc_1794728917571_xf8q",
+      "id": "a_1794738075642_zq1s",
+      "docId": "doc_1794738031015_fiqe",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "I can roster fairly, but I can’t roster away tiredness. That’s on them to manage.",
@@ -842,13 +842,13 @@
             "left": 0.5406626600947962,
             "top": 0.5501162177192808,
             "width": 0.2927360137656313,
-            "height": 0.013689449142270438
+            "height": 0.015300811385058455
           },
           {
             "left": 0.5327148043565954,
-            "top": 0.5670283913471273,
+            "top": 0.5654170291043392,
             "width": 0.26073761786506655,
-            "height": 0.013689449142270438
+            "height": 0.015300811385058566
           }
         ]
       },
@@ -859,12 +859,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728957260_b7of"
+        "a_1794738070639_rqnj"
       ]
     },
     {
-      "id": "a_1794728964942_ziao",
-      "docId": "doc_1794728917575_7pk4",
+      "id": "a_1794738078342_ildk",
+      "docId": "doc_1794738031018_5n71",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as escalation without back-up: a duty to act that is not matched by someone to act with.",
@@ -891,21 +891,21 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ],
       "clusterComments": {
-        "cl_1794728980358_jdgr": "Managers confirm what staff describe: a duty to act with nobody to act with."
+        "cl_1794738095030_gb5j": "Managers confirm what staff describe: a duty to act with nobody to act with."
       },
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728980358_jdgr": "reciprocal"
+        "cl_1794738095030_gb5j": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728966442_laf1",
-      "docId": "doc_1794728917575_7pk4",
+      "id": "a_1794738079842_n7x1",
+      "docId": "doc_1794738031018_5n71",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as rostering as a hidden inequity: the burden of night work falls most on the people with the least say.",
@@ -917,13 +917,13 @@
             "left": 0.37345231192012907,
             "top": 0.7009568354556733,
             "width": 0.4926122396883824,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.7178547492406634,
+            "top": 0.7162505169193036,
             "width": 0.3384741988957241,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630193
           }
         ]
       },
@@ -932,19 +932,19 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ],
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728986349_g2dp": "reciprocal"
+        "cl_1794738101097_qztm": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728967942_z9b2",
-      "docId": "doc_1794728917575_7pk4",
+      "id": "a_1794738081356_nsl8",
+      "docId": "doc_1794738031018_5n71",
       "type": "second_order",
       "by": "Reviewer A",
       "text": "We interpret this as nights outside our line of sight: the organisation cannot fix what it does not see.",
@@ -971,19 +971,19 @@
       "concordanceStatus": "pending",
       "concordanceNote": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ],
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {
-        "cl_1794728986349_g2dp": "reciprocal"
+        "cl_1794738101097_qztm": "reciprocal"
       },
       "passages": []
     },
     {
-      "id": "a_1794728969425_da1n",
-      "docId": "doc_1794728917575_7pk4",
+      "id": "a_1794738082856_11cl",
+      "docId": "doc_1794738031018_5n71",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "We say ‘just escalate’, but escalate to whom? There is nobody.",
@@ -1006,12 +1006,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728964942_ziao"
+        "a_1794738078342_ildk"
       ]
     },
     {
-      "id": "a_1794728971175_ulh1",
-      "docId": "doc_1794728917575_7pk4",
+      "id": "a_1794738084609_lw11",
+      "docId": "doc_1794738031018_5n71",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "Nights go to whoever can’t say no. Usually the new grads and the casuals.",
@@ -1034,12 +1034,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728966442_laf1"
+        "a_1794738079842_n7x1"
       ]
     },
     {
-      "id": "a_1794728972925_7y2w",
-      "docId": "doc_1794728917575_7pk4",
+      "id": "a_1794738086375_jf90",
+      "docId": "doc_1794738031018_5n71",
       "type": "first_order",
       "by": "Reviewer A",
       "text": "I find out about a bad night from the incident report on Monday.",
@@ -1062,12 +1062,12 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728967942_z9b2"
+        "a_1794738081356_nsl8"
       ]
     },
     {
-      "id": "a_1794728384116_ku9f",
-      "docId": "doc_1794728917568_yp0f",
+      "id": "a_1794737776588_h9uv",
+      "docId": "doc_1794738031011_4u3q",
       "type": "second_order",
       "by": "Reviewer B",
       "text": "Nurses spoke about exhaustion as something that simply comes with nursing. Complaining was seen as weak, and the word gaman (enduring quietly) came up in all three groups.",
@@ -1079,25 +1079,25 @@
             "left": 0.09693424768051634,
             "top": 0.5850243130320704,
             "width": 0.34648618709661155,
-            "height": 0.013689449142270438
+            "height": 0.015300811385058566
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.6019364866599171,
+            "top": 0.6003251244171289,
             "width": 0.37783081005445746,
-            "height": 0.013689449142270438
+            "height": 0.01690504370641832
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.6188344004449071,
+            "top": 0.6172301681235473,
             "width": 0.3630365381706333,
-            "height": 0.013689449142270438
+            "height": 0.017354228756399137
           },
           {
             "left": 0.09693424768051634,
-            "top": 0.6366449441727152,
+            "top": 0.6345843968799464,
             "width": 0.15402651806423961,
-            "height": 0.013689449142270438
+            "height": 0.01574999643503927
           }
         ]
       },
@@ -1113,8 +1113,8 @@
       "passages": []
     },
     {
-      "id": "a_1794728389531_7yyq",
-      "docId": "doc_1794728917571_xf8q",
+      "id": "a_1794737782002_v72x",
+      "docId": "doc_1794738031015_fiqe",
       "type": "first_order",
       "by": "Reviewer B",
       "text": "The best nurses I have grow on nights. Nobody is looking over their shoulder.",
@@ -1126,13 +1126,13 @@
             "left": 0.11733806159237596,
             "top": 0.7467737105537097,
             "width": 0.3488523913372328,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           },
           {
             "left": 0.10954013715207746,
-            "top": 0.7636716243386998,
+            "top": 0.76206739201734,
             "width": 0.19739160510790643,
-            "height": 0.013689449142270438
+            "height": 0.015293681463630304
           }
         ]
       },
@@ -1143,13 +1143,13 @@
       "clusterIds": [],
       "clusterComments": {},
       "parentIds": [
-        "a_1794728954261_5n1y"
+        "a_1794738067673_p9dy"
       ]
     }
   ],
   "clusters": [
     {
-      "id": "cl_1794728980358_jdgr",
+      "id": "cl_1794738095030_gb5j",
       "by": "Reviewer A",
       "thirdOrderTitle": "Responsibility without back-up",
       "translationType": "refutational",
@@ -1168,11 +1168,11 @@
       "cerqualAdeqNote": "Three studies, each with rich quotes.",
       "cerqualRelNote": "Hospital wards in four countries; relevant to the review question.",
       "order": 0,
-      "createdAt": 1794728980358,
+      "createdAt": 1794738095030,
       "seedConfirmed": false
     },
     {
-      "id": "cl_1794728983347_2u1f",
+      "id": "cl_1794738098047_iq81",
       "by": "Reviewer A",
       "thirdOrderTitle": "Fatigue is normalised and left to the individual",
       "translationType": "reciprocal",
@@ -1191,11 +1191,11 @@
       "cerqualAdeqNote": "Four studies with good quotes.",
       "cerqualRelNote": "Relevant to the review question.",
       "order": 1,
-      "createdAt": 1794728983347,
+      "createdAt": 1794738098047,
       "seedConfirmed": false
     },
     {
-      "id": "cl_1794728986349_g2dp",
+      "id": "cl_1794738101097_qztm",
       "by": "Reviewer A",
       "thirdOrderTitle": "Night work sits outside the organisation’s view",
       "translationType": "reciprocal",
@@ -1214,15 +1214,15 @@
       "cerqualAdeqNote": "Fewer quotes for the rostering idea (one study only).",
       "cerqualRelNote": "Relevant to the review question.",
       "order": 2,
-      "createdAt": 1794728986349,
+      "createdAt": 1794738101098,
       "seedConfirmed": false
     }
   ],
   "logs": [
     {
-      "id": "log_1794728993158_ca5k",
-      "timestamp": 1794728993158,
-      "isoTime": "2026-11-15T07:49:53.158Z",
+      "id": "log_1794738107909_3rzw",
+      "timestamp": 1794738107909,
+      "isoTime": "2026-11-15T10:21:47.909Z",
       "reviewer": "Reviewer A",
       "category": "reflexive_memo",
       "action": "[Refutational Tension] — Cluster: Responsibility without back-up",
@@ -1231,13 +1231,13 @@
       "toVal": "",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728992710_28bu",
-      "timestamp": 1794728992710,
-      "isoTime": "2026-11-15T07:49:52.710Z",
+      "id": "log_1794738107441_jla9",
+      "timestamp": 1794738107441,
+      "isoTime": "2026-11-15T10:21:47.441Z",
       "reviewer": "Reviewer A",
       "category": "reflexive_memo",
       "action": "[Reflexivity (Positionality)] ",
@@ -1247,9 +1247,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728991180_5n5o",
-      "timestamp": 1794728991180,
-      "isoTime": "2026-11-15T07:49:51.180Z",
+      "id": "log_1794738105908_mc5x",
+      "timestamp": 1794738105908,
+      "isoTime": "2026-11-15T10:21:45.908Z",
       "reviewer": "Reviewer A",
       "category": "relating_studies",
       "action": "Updated Phase 4: Process / Outcome of Relating Studies (eMERGe items 11–12)",
@@ -1259,9 +1259,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728991178_nd0i",
-      "timestamp": 1794728991178,
-      "isoTime": "2026-11-15T07:49:51.178Z",
+      "id": "log_1794738105908_5n3g",
+      "timestamp": 1794738105908,
+      "isoTime": "2026-11-15T10:21:45.908Z",
       "reviewer": "Reviewer A",
       "category": "team_model",
       "action": "Updated How independent models were merged",
@@ -1271,9 +1271,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728991178_vl4n",
-      "timestamp": 1794728991178,
-      "isoTime": "2026-11-15T07:49:51.178Z",
+      "id": "log_1794738105907_vwbu",
+      "timestamp": 1794738105907,
+      "isoTime": "2026-11-15T10:21:45.907Z",
       "reviewer": "Reviewer A",
       "category": "line_of_argument",
       "action": "Updated Context where the model applies (Item 16)",
@@ -1283,9 +1283,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728991177_z45z",
-      "timestamp": 1794728991177,
-      "isoTime": "2026-11-15T07:49:51.177Z",
+      "id": "log_1794738105906_k9xo",
+      "timestamp": 1794738105906,
+      "isoTime": "2026-11-15T10:21:45.906Z",
       "reviewer": "Reviewer A",
       "category": "translation_process",
       "action": "Updated Working definitions (Item 13) / Translation process (Item 13) / Alternative interpretations (Items 13/15)",
@@ -1295,9 +1295,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728991175_k1ru",
-      "timestamp": 1794728991175,
-      "isoTime": "2026-11-15T07:49:51.175Z",
+      "id": "log_1794738105905_jafz",
+      "timestamp": 1794738105905,
+      "isoTime": "2026-11-15T10:21:45.905Z",
       "reviewer": "Reviewer A",
       "category": "line_of_argument",
       "action": "Updated Review Aim / Line of Argument Synthesis: \"Night work as an unseen, individually carried burden\"",
@@ -1307,9 +1307,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728990838_yhzr",
-      "timestamp": 1794728990838,
-      "isoTime": "2026-11-15T07:49:50.838Z",
+      "id": "log_1794738105568_j78w",
+      "timestamp": 1794738105568,
+      "isoTime": "2026-11-15T10:21:45.568Z",
       "reviewer": "Reviewer A",
       "category": "line_of_argument",
       "action": "Added relation: \"Responsibility without back-up\" ⇄ \"Fatigue is normalised and left to the individual\"",
@@ -1318,14 +1318,14 @@
       "toVal": "",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr",
-        "cl_1794728983347_2u1f"
+        "cl_1794738095030_gb5j",
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728990488_xhot",
-      "timestamp": 1794728990488,
-      "isoTime": "2026-11-15T07:49:50.488Z",
+      "id": "log_1794738105219_5tul",
+      "timestamp": 1794738105219,
+      "isoTime": "2026-11-15T10:21:45.219Z",
       "reviewer": "Reviewer A",
       "category": "line_of_argument",
       "action": "Added relation: \"Night work sits outside the organisation’s view\" ➔ \"Fatigue is normalised and left to the individual\"",
@@ -1334,14 +1334,14 @@
       "toVal": "",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp",
-        "cl_1794728983347_2u1f"
+        "cl_1794738101097_qztm",
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728990140_mpxg",
-      "timestamp": 1794728990140,
-      "isoTime": "2026-11-15T07:49:50.140Z",
+      "id": "log_1794738104870_fk24",
+      "timestamp": 1794738104870,
+      "isoTime": "2026-11-15T10:21:44.870Z",
       "reviewer": "Reviewer A",
       "category": "line_of_argument",
       "action": "Added relation: \"Night work sits outside the organisation’s view\" ➔ \"Responsibility without back-up\"",
@@ -1350,14 +1350,14 @@
       "toVal": "",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp",
-        "cl_1794728980358_jdgr"
+        "cl_1794738101097_qztm",
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728988686_xsny",
-      "timestamp": 1794728988686,
-      "isoTime": "2026-11-15T07:49:48.686Z",
+      "id": "log_1794738103414_23dd",
+      "timestamp": 1794738103414,
+      "isoTime": "2026-11-15T10:21:43.414Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
@@ -1366,13 +1366,13 @@
       "toVal": "Moderate [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728988662_l2hg",
-      "timestamp": 1794728988662,
-      "isoTime": "2026-11-15T07:49:48.662Z",
+      "id": "log_1794738103392_d138",
+      "timestamp": 1794738103392,
+      "isoTime": "2026-11-15T10:21:43.392Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
@@ -1381,13 +1381,13 @@
       "toVal": "Moderate [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728988654_jzwk",
-      "timestamp": 1794728988654,
-      "isoTime": "2026-11-15T07:49:48.654Z",
+      "id": "log_1794738103379_x0et",
+      "timestamp": 1794738103379,
+      "isoTime": "2026-11-15T10:21:43.379Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
@@ -1396,13 +1396,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728988644_zq4y",
-      "timestamp": 1794728988644,
-      "isoTime": "2026-11-15T07:49:48.644Z",
+      "id": "log_1794738103371_ywj2",
+      "timestamp": 1794738103371,
+      "isoTime": "2026-11-15T10:21:43.371Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
@@ -1411,13 +1411,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728988631_fagu",
-      "timestamp": 1794728988631,
-      "isoTime": "2026-11-15T07:49:48.631Z",
+      "id": "log_1794738103359_w0iq",
+      "timestamp": 1794738103359,
+      "isoTime": "2026-11-15T10:21:43.359Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
@@ -1426,13 +1426,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728988612_lt62",
-      "timestamp": 1794728988612,
-      "isoTime": "2026-11-15T07:49:48.612Z",
+      "id": "log_1794738103342_1ap0",
+      "timestamp": 1794738103342,
+      "isoTime": "2026-11-15T10:21:43.342Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
@@ -1441,13 +1441,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728988596_95m7",
-      "timestamp": 1794728988596,
-      "isoTime": "2026-11-15T07:49:48.596Z",
+      "id": "log_1794738103327_d18v",
+      "timestamp": 1794738103327,
+      "isoTime": "2026-11-15T10:21:43.327Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
@@ -1456,13 +1456,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Not assessed]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728988583_5l5z",
-      "timestamp": 1794728988583,
-      "isoTime": "2026-11-15T07:49:48.583Z",
+      "id": "log_1794738103316_8dw5",
+      "timestamp": 1794738103316,
+      "isoTime": "2026-11-15T10:21:43.316Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
@@ -1471,13 +1471,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Not assessed, R:Not assessed]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728988571_w7qj",
-      "timestamp": 1794728988571,
-      "isoTime": "2026-11-15T07:49:48.571Z",
+      "id": "log_1794738103312_u9dd",
+      "timestamp": 1794738103312,
+      "isoTime": "2026-11-15T10:21:43.312Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
@@ -1486,13 +1486,13 @@
       "toVal": "Not assessed [L:Minor, C:Not assessed, A:Not assessed, R:Not assessed]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728987276_6ung",
-      "timestamp": 1794728987276,
-      "isoTime": "2026-11-15T07:49:47.276Z",
+      "id": "log_1794738102011_rb32",
+      "timestamp": 1794738102011,
+      "isoTime": "2026-11-15T10:21:42.011Z",
       "reviewer": "Reviewer A",
       "category": "third_order",
       "action": "Updated Step B 3rd Order Definition & Interpretation for \"Night work sits outside the organisation’s view\"",
@@ -1500,13 +1500,13 @@
       "toVal": "The organisation cannot see night work, so support arrives late and the burden falls on those with the least say.",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728987261_8u35",
-      "timestamp": 1794728987261,
-      "isoTime": "2026-11-15T07:49:47.261Z",
+      "id": "log_1794738101994_q1j9",
+      "timestamp": 1794738101994,
+      "isoTime": "2026-11-15T10:21:41.994Z",
       "reviewer": "Reviewer A",
       "category": "translation_process",
       "action": "Updated Step A Translation Summary for \"Night work sits outside the organisation’s view\"",
@@ -1514,13 +1514,13 @@
       "toVal": "Hartwell’s “invisibility to the day team” corresponds to Reyes’s “nights outside our line of sight”: nurses and managers both say nights are not seen. Nguyen’s “support at a distance” and Reyes’s “rostering as a hidden inequity” show what follows when no one is looking.",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728986351_vhec",
-      "timestamp": 1794728986351,
-      "isoTime": "2026-11-15T07:49:46.351Z",
+      "id": "log_1794738101099_4jfo",
+      "timestamp": 1794738101099,
+      "isoTime": "2026-11-15T10:21:41.099Z",
       "reviewer": "Reviewer A",
       "category": "third_order",
       "action": "Created New 3rd Order Concept Cluster (Row)",
@@ -1528,13 +1528,13 @@
       "toVal": "Night work sits outside the organisation’s view",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728986349_g2dp"
+        "cl_1794738101097_qztm"
       ]
     },
     {
-      "id": "log_1794728985612_he79",
-      "timestamp": 1794728985612,
-      "isoTime": "2026-11-15T07:49:45.612Z",
+      "id": "log_1794738100362_kzre",
+      "timestamp": 1794738100362,
+      "isoTime": "2026-11-15T10:21:40.362Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
@@ -1543,13 +1543,13 @@
       "toVal": "High [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728985595_x4b4",
-      "timestamp": 1794728985595,
-      "isoTime": "2026-11-15T07:49:45.595Z",
+      "id": "log_1794738100341_pi9m",
+      "timestamp": 1794738100341,
+      "isoTime": "2026-11-15T10:21:40.341Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
@@ -1558,13 +1558,13 @@
       "toVal": "High [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728985583_ivwa",
-      "timestamp": 1794728985583,
-      "isoTime": "2026-11-15T07:49:45.583Z",
+      "id": "log_1794738100330_kmip",
+      "timestamp": 1794738100330,
+      "isoTime": "2026-11-15T10:21:40.330Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
@@ -1573,13 +1573,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728985562_vq21",
-      "timestamp": 1794728985562,
-      "isoTime": "2026-11-15T07:49:45.562Z",
+      "id": "log_1794738100316_x6zx",
+      "timestamp": 1794738100316,
+      "isoTime": "2026-11-15T10:21:40.316Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
@@ -1588,13 +1588,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728985548_bf14",
-      "timestamp": 1794728985548,
-      "isoTime": "2026-11-15T07:49:45.548Z",
+      "id": "log_1794738100307_uc68",
+      "timestamp": 1794738100307,
+      "isoTime": "2026-11-15T10:21:40.307Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
@@ -1603,13 +1603,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728985531_tv2z",
-      "timestamp": 1794728985531,
-      "isoTime": "2026-11-15T07:49:45.531Z",
+      "id": "log_1794738100292_gjk1",
+      "timestamp": 1794738100292,
+      "isoTime": "2026-11-15T10:21:40.292Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
@@ -1618,13 +1618,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728985526_2ryq",
-      "timestamp": 1794728985526,
-      "isoTime": "2026-11-15T07:49:45.526Z",
+      "id": "log_1794738100278_83m0",
+      "timestamp": 1794738100278,
+      "isoTime": "2026-11-15T10:21:40.278Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
@@ -1633,13 +1633,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Not assessed]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728985512_rytw",
-      "timestamp": 1794728985512,
-      "isoTime": "2026-11-15T07:49:45.512Z",
+      "id": "log_1794738100273_dcap",
+      "timestamp": 1794738100273,
+      "isoTime": "2026-11-15T10:21:40.273Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
@@ -1648,13 +1648,13 @@
       "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Not assessed, R:Not assessed]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728985507_55bx",
-      "timestamp": 1794728985507,
-      "isoTime": "2026-11-15T07:49:45.507Z",
+      "id": "log_1794738100264_uzyg",
+      "timestamp": 1794738100264,
+      "isoTime": "2026-11-15T10:21:40.264Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
@@ -1663,13 +1663,13 @@
       "toVal": "Not assessed [L:Minor, C:Not assessed, A:Not assessed, R:Not assessed]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728984239_jvfy",
-      "timestamp": 1794728984239,
-      "isoTime": "2026-11-15T07:49:44.239Z",
+      "id": "log_1794738098963_01ii",
+      "timestamp": 1794738098963,
+      "isoTime": "2026-11-15T10:21:38.963Z",
       "reviewer": "Reviewer A",
       "category": "third_order",
       "action": "Updated Step B 3rd Order Definition & Interpretation for \"Fatigue is normalised and left to the individual\"",
@@ -1677,13 +1677,13 @@
       "toVal": "Staff nurses and managers both treat the costs of night work as normal and as the individual’s to manage, so fatigue is rarely raised as an organisational problem.",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728984227_v345",
-      "timestamp": 1794728984227,
-      "isoTime": "2026-11-15T07:49:44.227Z",
+      "id": "log_1794738098945_4o4r",
+      "timestamp": 1794738098945,
+      "isoTime": "2026-11-15T10:21:38.945Z",
       "reviewer": "Reviewer A",
       "category": "translation_process",
       "action": "Updated Step A Translation Summary for \"Fatigue is normalised and left to the individual\"",
@@ -1691,13 +1691,13 @@
       "toVal": "Hartwell’s “working against the body clock” matches Sato’s “fatigue as the price of the job”: tiredness is expected and managed privately. Sato’s “owed recovery” and “a life out of step” extend this into days off and home life. Nguyen’s “fatigue as an individual matter” shows managers holding the same view.",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728983348_d6u2",
-      "timestamp": 1794728983348,
-      "isoTime": "2026-11-15T07:49:43.348Z",
+      "id": "log_1794738098049_w6yc",
+      "timestamp": 1794738098049,
+      "isoTime": "2026-11-15T10:21:38.049Z",
       "reviewer": "Reviewer A",
       "category": "third_order",
       "action": "Created New 3rd Order Concept Cluster (Row)",
@@ -1705,13 +1705,13 @@
       "toVal": "Fatigue is normalised and left to the individual",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728983347_2u1f"
+        "cl_1794738098047_iq81"
       ]
     },
     {
-      "id": "log_1794728982618_0z22",
-      "timestamp": 1794728982618,
-      "isoTime": "2026-11-15T07:49:42.618Z",
+      "id": "log_1794738097322_xfqu",
+      "timestamp": 1794738097322,
+      "isoTime": "2026-11-15T10:21:37.322Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
@@ -1720,13 +1720,13 @@
       "toVal": "Moderate [L:Minor, C:Moderate, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728982603_egtg",
-      "timestamp": 1794728982603,
-      "isoTime": "2026-11-15T07:49:42.603Z",
+      "id": "log_1794738097292_t5ka",
+      "timestamp": 1794738097292,
+      "isoTime": "2026-11-15T10:21:37.292Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
@@ -1735,13 +1735,13 @@
       "toVal": "Moderate [L:Minor, C:Moderate, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728982596_n1zi",
-      "timestamp": 1794728982596,
-      "isoTime": "2026-11-15T07:49:42.596Z",
+      "id": "log_1794738097283_yh8v",
+      "timestamp": 1794738097283,
+      "isoTime": "2026-11-15T10:21:37.283Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
@@ -1750,13 +1750,13 @@
       "toVal": "Not assessed [L:Minor, C:Moderate, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728982591_lng7",
-      "timestamp": 1794728982591,
-      "isoTime": "2026-11-15T07:49:42.591Z",
+      "id": "log_1794738097274_5bc1",
+      "timestamp": 1794738097274,
+      "isoTime": "2026-11-15T10:21:37.274Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
@@ -1765,13 +1765,13 @@
       "toVal": "Not assessed [L:Minor, C:Moderate, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728982583_grem",
-      "timestamp": 1794728982583,
-      "isoTime": "2026-11-15T07:49:42.583Z",
+      "id": "log_1794738097265_vkjg",
+      "timestamp": 1794738097265,
+      "isoTime": "2026-11-15T10:21:37.265Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
@@ -1780,13 +1780,13 @@
       "toVal": "Not assessed [L:Minor, C:Moderate, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728982569_fi9d",
-      "timestamp": 1794728982569,
-      "isoTime": "2026-11-15T07:49:42.569Z",
+      "id": "log_1794738097247_xlxp",
+      "timestamp": 1794738097247,
+      "isoTime": "2026-11-15T10:21:37.247Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
@@ -1795,13 +1795,13 @@
       "toVal": "Not assessed [L:Minor, C:Moderate, A:Minor, R:Minor]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728982564_z5ln",
-      "timestamp": 1794728982564,
-      "isoTime": "2026-11-15T07:49:42.564Z",
+      "id": "log_1794738097240_c4ij",
+      "timestamp": 1794738097240,
+      "isoTime": "2026-11-15T10:21:37.240Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
@@ -1810,13 +1810,13 @@
       "toVal": "Not assessed [L:Minor, C:Moderate, A:Minor, R:Not assessed]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728982558_v2al",
-      "timestamp": 1794728982558,
-      "isoTime": "2026-11-15T07:49:42.558Z",
+      "id": "log_1794738097229_q5d8",
+      "timestamp": 1794738097229,
+      "isoTime": "2026-11-15T10:21:37.229Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
@@ -1825,13 +1825,13 @@
       "toVal": "Not assessed [L:Minor, C:Moderate, A:Not assessed, R:Not assessed]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728982552_s1p1",
-      "timestamp": 1794728982552,
-      "isoTime": "2026-11-15T07:49:42.552Z",
+      "id": "log_1794738097224_hyou",
+      "timestamp": 1794738097224,
+      "isoTime": "2026-11-15T10:21:37.224Z",
       "reviewer": "Reviewer A",
       "category": "cerqual",
       "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
@@ -1840,13 +1840,13 @@
       "toVal": "Not assessed [L:Minor, C:Not assessed, A:Not assessed, R:Not assessed]",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728981272_phmv",
-      "timestamp": 1794728981272,
-      "isoTime": "2026-11-15T07:49:41.272Z",
+      "id": "log_1794738095942_qajg",
+      "timestamp": 1794738095942,
+      "isoTime": "2026-11-15T10:21:35.942Z",
       "reviewer": "Reviewer A",
       "category": "third_order",
       "action": "Updated Step B 3rd Order Definition & Interpretation for \"Responsibility without back-up\"",
@@ -1854,13 +1854,13 @@
       "toVal": "At night, responsibility is carried by one person with little back-up. Whether this is felt as isolation or as autonomy depends on who is speaking: staff nurses report isolation, managers report trust.",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728981262_k0lm",
-      "timestamp": 1794728981262,
-      "isoTime": "2026-11-15T07:49:41.262Z",
+      "id": "log_1794738095928_icqy",
+      "timestamp": 1794738095928,
+      "isoTime": "2026-11-15T10:21:35.928Z",
       "reviewer": "Reviewer A",
       "category": "translation_process",
       "action": "Updated Step A Translation Summary for \"Responsibility without back-up\"",
@@ -1868,13 +1868,13 @@
       "toVal": "Hartwell’s “solitary accountability” and Reyes’s “escalation without back-up” describe the same thing from two sides: a nurse who must decide alone. Nguyen’s “autonomy in the quiet hours” describes the same conditions but reads them as trust, so it is translated refutationally.",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728981246_jb1d",
-      "timestamp": 1794728981246,
-      "isoTime": "2026-11-15T07:49:41.246Z",
+      "id": "log_1794738095907_09iv",
+      "timestamp": 1794738095907,
+      "isoTime": "2026-11-15T10:21:35.907Z",
       "reviewer": "Reviewer A",
       "category": "third_order",
       "action": "Changed Translation Type for \"Responsibility without back-up\"",
@@ -1882,13 +1882,13 @@
       "toVal": "refutational",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728980360_qcxd",
-      "timestamp": 1794728980360,
-      "isoTime": "2026-11-15T07:49:40.360Z",
+      "id": "log_1794738095031_108l",
+      "timestamp": 1794738095031,
+      "isoTime": "2026-11-15T10:21:35.031Z",
       "reviewer": "Reviewer A",
       "category": "third_order",
       "action": "Created New 3rd Order Concept Cluster (Row)",
@@ -1896,13 +1896,13 @@
       "toVal": "Responsibility without back-up",
       "rationale": "",
       "clusterIds": [
-        "cl_1794728980358_jdgr"
+        "cl_1794738095030_gb5j"
       ]
     },
     {
-      "id": "log_1794728978457_4kzs",
-      "timestamp": 1794728978457,
-      "isoTime": "2026-11-15T07:49:38.457Z",
+      "id": "log_1794738091972_jcif",
+      "timestamp": 1794738091972,
+      "isoTime": "2026-11-15T10:21:31.972Z",
       "reviewer": "Reviewer A",
       "category": "concordance",
       "action": "Imported Peer Construct from @Reviewer B as AGREED (Nguyen et al. (2021), p.1)",
@@ -1912,9 +1912,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728977924_9vj0",
-      "timestamp": 1794728977924,
-      "isoTime": "2026-11-15T07:49:37.924Z",
+      "id": "log_1794738091438_nayj",
+      "timestamp": 1794738091438,
+      "isoTime": "2026-11-15T10:21:31.438Z",
       "reviewer": "Reviewer A",
       "category": "concordance",
       "action": "Imported Peer Construct from @Reviewer B as DISCUSS (Sato et al. (2020), p.1)",
@@ -1924,9 +1924,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728976672_f5k7",
-      "timestamp": 1794728976672,
-      "isoTime": "2026-11-15T07:49:36.672Z",
+      "id": "log_1794738090195_kgfi",
+      "timestamp": 1794738090195,
+      "isoTime": "2026-11-15T10:21:30.195Z",
       "reviewer": "Reviewer A",
       "category": "concordance",
       "action": "Confirmed Inter-Reviewer Agreement with @Reviewer B (Hartwell et al. (2018), p.1)",
@@ -1936,9 +1936,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728927449_hnpo",
-      "timestamp": 1794728927449,
-      "isoTime": "2026-11-15T07:48:47.449Z",
+      "id": "log_1794738040860_eudb",
+      "timestamp": 1794738040860,
+      "isoTime": "2026-11-15T10:20:40.860Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Updated Critical Appraisal / Richness for Reyes et al. (2022)",
@@ -1948,9 +1948,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728927445_nqyj",
-      "timestamp": 1794728927445,
-      "isoTime": "2026-11-15T07:48:47.445Z",
+      "id": "log_1794738040848_zxbl",
+      "timestamp": 1794738040848,
+      "isoTime": "2026-11-15T10:20:40.848Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Updated Critical Appraisal / Richness for Reyes et al. (2022)",
@@ -1960,9 +1960,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728927444_a5tb",
-      "timestamp": 1794728927444,
-      "isoTime": "2026-11-15T07:48:47.444Z",
+      "id": "log_1794738040847_tebh",
+      "timestamp": 1794738040847,
+      "isoTime": "2026-11-15T10:20:40.847Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Set subgroup for Reyes et al. (2022)",
@@ -1971,9 +1971,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728925753_416r",
-      "timestamp": 1794728925753,
-      "isoTime": "2026-11-15T07:48:45.753Z",
+      "id": "log_1794738039171_8kfi",
+      "timestamp": 1794738039171,
+      "isoTime": "2026-11-15T10:20:39.171Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Updated Critical Appraisal / Richness for Nguyen et al. (2021)",
@@ -1983,9 +1983,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728925747_5kdm",
-      "timestamp": 1794728925747,
-      "isoTime": "2026-11-15T07:48:45.747Z",
+      "id": "log_1794738039164_gymz",
+      "timestamp": 1794738039164,
+      "isoTime": "2026-11-15T10:20:39.164Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Updated Critical Appraisal / Richness for Nguyen et al. (2021)",
@@ -1995,9 +1995,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728925746_bede",
-      "timestamp": 1794728925746,
-      "isoTime": "2026-11-15T07:48:45.746Z",
+      "id": "log_1794738039161_y845",
+      "timestamp": 1794738039161,
+      "isoTime": "2026-11-15T10:20:39.161Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Set subgroup for Nguyen et al. (2021)",
@@ -2006,9 +2006,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728924085_zusi",
-      "timestamp": 1794728924085,
-      "isoTime": "2026-11-15T07:48:44.085Z",
+      "id": "log_1794738037497_lwre",
+      "timestamp": 1794738037497,
+      "isoTime": "2026-11-15T10:20:37.497Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Updated Critical Appraisal / Richness for Sato et al. (2020)",
@@ -2018,9 +2018,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728924080_ocq0",
-      "timestamp": 1794728924080,
-      "isoTime": "2026-11-15T07:48:44.080Z",
+      "id": "log_1794738037488_akbf",
+      "timestamp": 1794738037488,
+      "isoTime": "2026-11-15T10:20:37.488Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Updated Critical Appraisal / Richness for Sato et al. (2020)",
@@ -2030,9 +2030,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728924078_eal9",
-      "timestamp": 1794728924078,
-      "isoTime": "2026-11-15T07:48:44.078Z",
+      "id": "log_1794738037486_0jba",
+      "timestamp": 1794738037486,
+      "isoTime": "2026-11-15T10:20:37.486Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Set subgroup for Sato et al. (2020)",
@@ -2041,9 +2041,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728922415_h0go",
-      "timestamp": 1794728922415,
-      "isoTime": "2026-11-15T07:48:42.415Z",
+      "id": "log_1794738035812_tqv3",
+      "timestamp": 1794738035812,
+      "isoTime": "2026-11-15T10:20:35.812Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Updated Critical Appraisal / Richness for Hartwell et al. (2018)",
@@ -2053,9 +2053,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728922404_3fg0",
-      "timestamp": 1794728922404,
-      "isoTime": "2026-11-15T07:48:42.404Z",
+      "id": "log_1794738035801_jelv",
+      "timestamp": 1794738035801,
+      "isoTime": "2026-11-15T10:20:35.801Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Updated Critical Appraisal / Richness for Hartwell et al. (2018)",
@@ -2065,9 +2065,9 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728922396_30su",
-      "timestamp": 1794728922396,
-      "isoTime": "2026-11-15T07:48:42.396Z",
+      "id": "log_1794738035797_bj5n",
+      "timestamp": 1794738035797,
+      "isoTime": "2026-11-15T10:20:35.797Z",
       "reviewer": "Reviewer A",
       "category": "context_appraisal",
       "action": "Set subgroup for Hartwell et al. (2018)",
@@ -2076,15 +2076,167 @@
       "rationale": ""
     },
     {
-      "id": "log_1794728917186_z540",
-      "timestamp": 1794728917186,
-      "isoTime": "2026-11-15T07:48:37.186Z",
+      "id": "log_1794738030584_dvo7",
+      "timestamp": 1794738030584,
+      "isoTime": "2026-11-15T10:20:30.584Z",
       "reviewer": "Reviewer A",
       "category": "line_of_argument",
       "action": "Configured Project [AI-DEMO-NIGHTSHIFT] & Phase 1 Research Aim",
       "detail": "Phase 1 Aim: [AI-GENERATED DEMO] To synthesise qualitative evidence on how nurses and nurse managers experience night shifts in hospitals.\nReview question: How do nurses and nurse managers experience night shifts in hospitals, and how do their accounts differ?",
       "fromVal": "(Initial Setup)",
       "toVal": "[AI-DEMO-NIGHTSHIFT] [AI-GENERATED DEMO] To synthesise qualitative evidence on ho",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737764513_yo66",
+      "timestamp": 1794737764513,
+      "isoTime": "2026-11-15T10:16:04.513Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Reyes et al. (2022)",
+      "detail": "Setting: Australia, two regional hospitals | Sample: 10 unit managers and after-hours coordinators | Note: -",
+      "fromVal": "CASP:Moderate| Richness:None",
+      "toVal": "CASP:Moderate| Richness:Moderate",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737764502_iseh",
+      "timestamp": 1794737764502,
+      "isoTime": "2026-11-15T10:16:04.502Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Reyes et al. (2022)",
+      "detail": "Setting: Australia, two regional hospitals | Sample: 10 unit managers and after-hours coordinators | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:Moderate| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737764497_o0o9",
+      "timestamp": 1794737764497,
+      "isoTime": "2026-11-15T10:16:04.497Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Reyes et al. (2022)",
+      "fromVal": "(none)",
+      "toVal": "Managers' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737762830_o6gk",
+      "timestamp": 1794737762830,
+      "isoTime": "2026-11-15T10:16:02.830Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Nguyen et al. (2021)",
+      "detail": "Setting: Canada, two large urban hospitals (night coordinator on every floor) | Sample: 11 charge nurses and night coordinators | Note: -",
+      "fromVal": "CASP:Moderate| Richness:None",
+      "toVal": "CASP:Moderate| Richness:Rich",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737762825_1x3b",
+      "timestamp": 1794737762825,
+      "isoTime": "2026-11-15T10:16:02.825Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Nguyen et al. (2021)",
+      "detail": "Setting: Canada, two large urban hospitals (night coordinator on every floor) | Sample: 11 charge nurses and night coordinators | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:Moderate| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737762823_0inr",
+      "timestamp": 1794737762823,
+      "isoTime": "2026-11-15T10:16:02.823Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Nguyen et al. (2021)",
+      "fromVal": "(none)",
+      "toVal": "Managers' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737761189_dgcf",
+      "timestamp": 1794737761189,
+      "isoTime": "2026-11-15T10:16:01.189Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Sato et al. (2020)",
+      "detail": "Setting: Japan, university hospital | Sample: 18 nurses in 3 focus groups | Note: -",
+      "fromVal": "CASP:Moderate| Richness:None",
+      "toVal": "CASP:Moderate| Richness:Moderate",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737761185_h9tb",
+      "timestamp": 1794737761185,
+      "isoTime": "2026-11-15T10:16:01.185Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Sato et al. (2020)",
+      "detail": "Setting: Japan, university hospital | Sample: 18 nurses in 3 focus groups | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:Moderate| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737761181_60q3",
+      "timestamp": 1794737761181,
+      "isoTime": "2026-11-15T10:16:01.181Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Sato et al. (2020)",
+      "fromVal": "(none)",
+      "toVal": "Nurses' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737759523_mqt8",
+      "timestamp": 1794737759523,
+      "isoTime": "2026-11-15T10:15:59.523Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Hartwell et al. (2018)",
+      "detail": "Setting: UK, acute medical wards (one teaching hospital) | Sample: 14 staff nurses | Note: -",
+      "fromVal": "CASP:High| Richness:None",
+      "toVal": "CASP:High| Richness:Rich",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737759511_4apz",
+      "timestamp": 1794737759511,
+      "isoTime": "2026-11-15T10:15:59.511Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Hartwell et al. (2018)",
+      "detail": "Setting: UK, acute medical wards (one teaching hospital) | Sample: 14 staff nurses | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:High| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737759510_vkv8",
+      "timestamp": 1794737759510,
+      "isoTime": "2026-11-15T10:15:59.510Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Hartwell et al. (2018)",
+      "fromVal": "(none)",
+      "toVal": "Nurses' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794737754301_is0p",
+      "timestamp": 1794737754301,
+      "isoTime": "2026-11-15T10:15:54.301Z",
+      "reviewer": "Reviewer B",
+      "category": "line_of_argument",
+      "action": "Configured Project [AI-DEMO-NIGHTSHIFT] & Phase 1 Research Aim",
+      "detail": "Phase 1 Aim: [AI-GENERATED DEMO] To synthesise qualitative evidence on nurses and managers on night shifts in hospitals.\nReview question: How do nurses and nurse managers experience night shifts in hospitals?",
+      "fromVal": "(Initial Setup)",
+      "toVal": "[AI-DEMO-NIGHTSHIFT] [AI-GENERATED DEMO] To synthesise qualitative evidence on nu",
       "rationale": ""
     }
   ],
@@ -2102,28 +2254,28 @@
     "appraisalUse": "",
     "links": [
       {
-        "id": "lk_mwhjavn3k6jf",
-        "from": "cl_1794728986349_g2dp",
-        "to": "cl_1794728980358_jdgr",
+        "id": "lk_mwhoq8m2q670",
+        "from": "cl_1794738101097_qztm",
+        "to": "cl_1794738095030_gb5j",
         "type": "leads",
         "note": ""
       },
       {
-        "id": "lk_mwhjavwr4ipz",
-        "from": "cl_1794728986349_g2dp",
-        "to": "cl_1794728983347_2u1f",
+        "id": "lk_mwhoq8vr3lgy",
+        "from": "cl_1794738101097_qztm",
+        "to": "cl_1794738098047_iq81",
         "type": "leads",
         "note": ""
       },
       {
-        "id": "lk_mwhjaw6hh0k6",
-        "from": "cl_1794728980358_jdgr",
-        "to": "cl_1794728983347_2u1f",
+        "id": "lk_mwhoq95h176j",
+        "from": "cl_1794738095030_gb5j",
+        "to": "cl_1794738098047_iq81",
         "type": "mutual",
         "note": ""
       }
     ],
-    "updatedAt": 1794728991162,
+    "updatedAt": 1794738105891,
     "reviewQuestion": "How do nurses and nurse managers experience night shifts in hospitals, and how do their accounts differ?",
     "readingApproach": "",
     "extractionScope": "",

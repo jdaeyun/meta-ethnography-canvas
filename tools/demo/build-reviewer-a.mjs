@@ -27,6 +27,9 @@ while (await p.locator('#compareTabContent .imp-agree').count() > 0) {
   if (/Exhaustion is part of nursing/.test(txt)) await card.locator('.imp-discuss').click(); else await btn.click();
   await p.waitForTimeout(500);
 }
+// Audit logs: merge Reviewer B's trail into the shared one
+await p.locator('#compareWorkspace button', { hasText: 'Logs' }).first().click(); await p.waitForTimeout(500);
+await p.click('#mergePeerLogsBtn'); await p.waitForTimeout(600);
 if (shotDir) await p.screenshot({ path: shotDir + '/cmp2.png' });
 await p.click('#closeCompareModalBtn'); await p.waitForTimeout(400);
 console.log('annotations after merge:', await p.evaluate(() => state.annotations.length));
