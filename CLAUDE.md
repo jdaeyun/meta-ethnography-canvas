@@ -66,7 +66,8 @@ visible in the UI or changes how something works, update the manual (and the 101
 Release checklist: edit ONLY `app/version.js` (version, released) and push to main. `tools/sync-version.mjs` (run by the
 `Sync version` workflow, or locally with `npm run sync-version`; `--check` only reports) copies it into CITATION.cff, README.md,
 me_canvas.html and the site pages (the fallback text of `<span data-mec="version">`). Wait for that workflow to finish, then publish
-a release tagged `vX.Y.Z` (use `vX.Y.Z-beta.N` and "pre-release" for beta versions).
+a release whose tag is exactly `v` + the version in `app/version.js` (e.g. `v1.3.2-beta.1`; tick "pre-release" for beta versions).
+The website's offline-ZIP link is built from that tag (`site/js/site.js`), because `releases/latest/download/...` ignores pre-releases.
 
 ## Rules
 
