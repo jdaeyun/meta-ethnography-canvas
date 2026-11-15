@@ -106,6 +106,23 @@ function createDebouncedSaver(fn, delay = 350) {
   return debounced;
 }
 
+// Text field whose "commit" (save + audit-log entry) must never be skipped.
+// The commit runs once after typing, on whichever comes first: change, blur, a tab switch / re-render
+// (flushAllPendingSaves) or leaving the page. Use it instead of a bare `onchange` for every logged text field.
+function bindPendingCommit(el, commitFn) {
+  let dirty = false;
+  const run = async () => {
+    if (!dirty) return;
+    dirty = false;
+    pendingSaveCleanups.delete(run);
+    await commitFn();
+  };
+  el.addEventListener('input', () => { dirty = true; pendingSaveCleanups.add(run); });
+  el.addEventListener('change', run);
+  el.addEventListener('blur', run);
+  return run;
+}
+
 window.addEventListener('beforeunload', () => {
   flushAllPendingSaves();
 });
@@ -115,6 +132,30 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// ---- Backup reminder: remember when the first change after the last JSON backup happened ----
+function markUnbackedChange() {
+  if (!lsGet('unbackedSince')) lsSet('unbackedSince', String(Date.now()));
+  updateBackupReminder();
+}
+function markBackupDone() {
+  lsSet('lastBackupAt', String(Date.now()));
+  lsRemove('unbackedSince');
+  updateBackupReminder();
+}
+function updateBackupReminder() {
+  const el = document.getElementById('backupReminder');
+  if (!el) return;
+  const since = parseInt(lsGet('unbackedSince') || '', 10);
+  if (!since) { el.classList.add('hidden'); return; }
+  const days = Math.floor((Date.now() - since) / 86400000);
+  const last = parseInt(lsGet('lastBackupAt') || '', 10);
+  el.textContent = days >= 1 ? `${days}d` : '●';
+  el.className = `${days >= 7 ? 'bg-rose-100 text-rose-700 border-rose-300' : 'bg-amber-100 text-amber-800 border-amber-300'} text-[10px] font-bold leading-none px-1 py-0.5 rounded border`;
+  el.title = (days >= 1 ? `Changes not backed up for ${days} day${days === 1 ? '' : 's'}. ` : 'Changes since the last backup. ')
+    + (last ? `Last backup: ${new Date(last).toLocaleString()}.` : 'No backup made yet.')
+    + ' Click Backup to save a JSON file.';
+}
+
 async function dbPut(store, item) {
   const db = await initDB();
   return new Promise((resolve, reject) => {
@@ -122,6 +163,7 @@ async function dbPut(store, item) {
     tx.objectStore(store).put(item);
     tx.oncomplete = () => {
       if (store !== 'pdf_binaries') flashSaveStatus('saved');
+      markUnbackedChange();
       resolve();
     };
     tx.onerror = () => { flashSaveStatus('error'); reject(tx.error); };
@@ -151,7 +193,7 @@ async function dbDelete(store, key) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).delete(key);
-    tx.oncomplete = () => { flashSaveStatus('saved'); resolve(); };
+    tx.oncomplete = () => { flashSaveStatus('saved'); markUnbackedChange(); resolve(); };
     tx.onerror = () => reject(tx.error);
   });
 }

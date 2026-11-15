@@ -169,6 +169,7 @@ function computeClusterEvidenceStats(clusterId) {
 }
 
 function renderMatrixView() {
+  flushAllPendingSaves();
   renderStudyVisibilityBar();
   renderSecondOrderPool();
   renderMatrixTable();
@@ -851,7 +852,8 @@ function renderMatrixTable() {
       debouncedSaveCluster();
     });
 
-    tdMeta.querySelector('.cluster-title').onchange = async e => {
+    bindPendingCommit(tdMeta.querySelector('.cluster-title'), async () => {
+      const e = { target: tdMeta.querySelector('.cluster-title') };
       const oldTitle = initialClusterTitle || '(Untitled)';
       const newTitle = e.target.value.trim();
       if (initialClusterTitle !== newTitle) {
@@ -867,7 +869,7 @@ function renderMatrixTable() {
           toVal: newTitle || '(Untitled)'
         });
       }
-    };
+    });
 
     tdMeta.querySelector('.cluster-type').onchange = async e => {
       const oldType = cluster.translationType;
@@ -903,7 +905,8 @@ function renderMatrixTable() {
       refreshStepBWarn();
       debouncedSaveCluster();
     });
-    tdMeta.querySelector('.cluster-trans').onchange = async e => {
+    bindPendingCommit(tdMeta.querySelector('.cluster-trans'), async () => {
+      const e = { target: tdMeta.querySelector('.cluster-trans') };
       const oldVal = initialTransSummary;
       const newVal = e.target.value.trim();
       if (oldVal !== newVal) {
@@ -918,7 +921,7 @@ function renderMatrixTable() {
           toVal: newVal || '(Empty)'
         });
       }
-    };
+    });
 
     let initialClusterNote = cluster.synthesisNote || '';
     tdMeta.querySelector('.cluster-note').addEventListener('input', e => {
@@ -927,7 +930,8 @@ function renderMatrixTable() {
       debouncedSaveCluster();
     });
 
-    tdMeta.querySelector('.cluster-note').onchange = async e => {
+    bindPendingCommit(tdMeta.querySelector('.cluster-note'), async () => {
+      const e = { target: tdMeta.querySelector('.cluster-note') };
       const oldNote = initialClusterNote;
       const newNote = e.target.value.trim();
       if (oldNote !== newNote) {
@@ -942,7 +946,7 @@ function renderMatrixTable() {
           toVal: newNote
         });
       }
-    };
+    });
 
     const updateClusterConcordance = async () => {
       const oldStatus = cluster.concordanceStatus;
@@ -983,7 +987,7 @@ function renderMatrixTable() {
       });
       seedBtn.remove();
     };
-    tdMeta.querySelector('.cl-conc-note').onchange = updateClusterConcordance;
+    bindPendingCommit(tdMeta.querySelector('.cl-conc-note'), updateClusterConcordance);
 
     // GRADE-CERQual Handlers
     const saveCerqualChanges = async () => {
@@ -1030,8 +1034,11 @@ function renderMatrixTable() {
       }
     };
 
-    ['.cq-lim', '.cq-coh', '.cq-adeq', '.cq-rel', '.cq-conf', '.cq-exp', '.cq-lim-note', '.cq-coh-note', '.cq-adeq-note', '.cq-rel-note'].forEach(sel => {
+    ['.cq-lim', '.cq-coh', '.cq-adeq', '.cq-rel', '.cq-conf'].forEach(sel => {
       tdMeta.querySelector(sel).onchange = saveCerqualChanges;
+    });
+    ['.cq-exp', '.cq-lim-note', '.cq-coh-note', '.cq-adeq-note', '.cq-rel-note'].forEach(sel => {
+      bindPendingCommit(tdMeta.querySelector(sel), saveCerqualChanges);
     });
 
     tdMeta.querySelector('.del-cluster').onclick = async () => {
@@ -1231,7 +1238,8 @@ function renderMatrixTable() {
             debouncedSaveCellSec();
           });
 
-          card.querySelector('.sec-label-input').onchange = async e => {
+          bindPendingCommit(card.querySelector('.sec-label-input'), async () => {
+            const e = { target: card.querySelector('.sec-label-input') };
             const oldLabel = initialSecLabel;
             const newLabel = e.target.value.trim();
             sec.note = newLabel;
@@ -1246,7 +1254,7 @@ function renderMatrixTable() {
                 toVal: newLabel
               });
             }
-          };
+          });
 
           // "Note on how this concept fits": 3-line preview, click to edit (full text), logged to the Audit Trail on blur
           const cmtView = card.querySelector('.sec-comment-view');

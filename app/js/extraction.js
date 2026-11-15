@@ -190,6 +190,22 @@ function updateSidebar() {
 
     const debouncedSaveSec = createDebouncedSaver(async () => { await dbPut('annotations', sec); }, 350);
     w.querySelector('.sec-note-input').addEventListener('input', e => { sec.note = e.target.value; debouncedSaveSec(); });
+    let initialSecNote = sec.note || '';
+    bindPendingCommit(w.querySelector('.sec-note-input'), async () => {
+      const newNote = (sec.note || '').trim();
+      if (newNote === initialSecNote.trim()) return;
+      const oldNote = initialSecNote;
+      initialSecNote = newNote;
+      sec.note = newNote;
+      await dbPut('annotations', sec);
+      await recordAuditLog({
+        clusterIds: sec.clusterIds,
+        category: 'matrix_mapping',
+        action: `Updated 2nd Order Summary Label (${getDisplayName(state.docs.find(d => d.id === sec.docId))})`,
+        fromVal: oldNote || '(None)',
+        toVal: newNote
+      });
+    });
     const noteSrcSel = w.querySelector('.sec-notesrc');
     if (noteSrcSel) noteSrcSel.onchange = async e => {
       const prev = sec.noteSource;
@@ -230,7 +246,7 @@ function updateSidebar() {
     };
 
     w.querySelector('.sec-conc-status').onchange = updateSecConcordance;
-    w.querySelector('.sec-conc-note').onchange = updateSecConcordance;
+    bindPendingCommit(w.querySelector('.sec-conc-note'), updateSecConcordance);
 
     w.querySelector('.del').onclick = async () => {
       if (!confirm('Delete this 2nd Order Construct? (Linked 1st Order quotes will be unlinked, and you can Undo with Ctrl+Z)')) return;
