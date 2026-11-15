@@ -44,7 +44,9 @@ export async function tagPassage(p, start, end, btnId) {
       const [s1, o1] = map[a]; const [s2, o2] = map[e];
       const r = document.createRange();
       r.setStart(spans[s1].firstChild, Math.max(0, o1)); r.setEnd(spans[s2].firstChild, o2 + 1);
-      spans[s1].scrollIntoView({ block: 'center' });
+      // Scroll the PDF viewer itself (scrollIntoView can also move outer containers and shift the measured rectangles)
+      const vc = document.getElementById('pdfViewerContainer');
+      vc.scrollTop += spans[s1].getBoundingClientRect().top - vc.getBoundingClientRect().top - vc.clientHeight / 2;
       const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
       return true;
     }
@@ -75,4 +77,34 @@ export async function extractPaper(p, docIdx, items) {
 }
 export async function downloadBackup(p, outPath) {
   const dl = p.waitForEvent('download'); await p.click('#backupJsonBtn'); const d = await dl; await d.saveAs(outPath);
+}
+
+// Guard: every stored highlight must sit on the text it belongs to (stored top vs. text-layer span, page 1 only).
+export async function verifyHighlights(p, nDocs) {
+  const bad = [];
+  for (let i = 0; i < nDocs; i++) {
+    await selectStudy(p, i); await p.waitForTimeout(600);
+    const res = await p.evaluate(() => {
+      const pc = document.querySelector('#pdfPagesWrapper .page-container'); const pr = pc.getBoundingClientRect();
+      const spans = [...pc.querySelectorAll('.textLayer span')];
+      const out = [];
+      for (const a of state.annotations.filter(x => x.docId === state.activeDocId)) {
+        const m = (a.rectsMap || {})['1']; if (!m || !m.length) continue;
+        const stored = Math.min(...m.map(r => r.top)) * pr.height;
+        // spans whose whole text is part of the annotation; the first line may start mid-span, so allow one line of slack
+        const inside = spans.filter(sp => { const t = sp.textContent.trim(); return t.length >= 15 && a.text.includes(t); });
+        let exp;
+        if (inside.length) exp = Math.min(...inside.map(sp => sp.getBoundingClientRect().top - pr.top));
+        else { // short passage: use spans that contain its first words (any of them must be close to the stored position)
+          const near = spans.filter(sp => sp.textContent.includes(a.text.slice(0, 12))).map(sp => sp.getBoundingClientRect().top - pr.top);
+          if (!near.length) { out.push([a.text.slice(0, 30), 'no matching text']); continue; }
+          exp = near.reduce((best, t) => Math.abs(t - stored) < Math.abs(best - stored) ? t : best, near[0]);
+        }
+        if (stored > exp + 6 || stored < exp - 25) out.push([a.text.slice(0, 30), 'stored ' + stored.toFixed(0) + ' vs text ' + exp.toFixed(0)]);
+      }
+      return out;
+    });
+    bad.push(...res);
+  }
+  return bad;
 }

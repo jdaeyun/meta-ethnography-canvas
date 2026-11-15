@@ -381,6 +381,7 @@ function renderComparisonTabContent() {
         ${differs ? '' : '</details>'}
       `;
       card.querySelector('.mark-agreed-btn').onclick = async () => {
+        await mergePeerAuditLogs();
         l.concordanceStatus = 'agreed';
         if (p.note && !l.note) l.note = p.note;
         else if (p.note && p.note !== l.note && !l.concordanceNote.includes(p.note)) {
@@ -495,6 +496,7 @@ function renderComparisonTabContent() {
       alert('Independent models recorded. Open "Research Aim & Overall Model" in Tab 2 to compare them side by side and write how they were merged.');
     };
     loaSection.querySelector('.cmp-import-rel').onclick = async () => {
+      await mergePeerAuditLogs();
       const byTitle = t => state.clusters.find(c => (c.thirdOrderTitle || '').trim().toLowerCase() === String(t || '').trim().toLowerCase());
       let added = 0, skipped = 0;
       for (const l of peerModel.links) {
@@ -522,7 +524,7 @@ function renderComparisonTabContent() {
       <div class="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between">
         <div>
           <h4 class="text-xs font-bold text-slate-800">🕒 Merge Audit Trail Logs by Date</h4>
-          <p class="text-[13px] text-slate-500">Chronologically merges @${escapeHtml(cmp.peerReviewer)}'s audit trail entries with yours (skipping duplicate IDs) so you have a unified multi-reviewer audit trail.</p>
+          <p class="text-[13px] text-slate-500">This happens automatically when you adopt anything from @${escapeHtml(cmp.peerReviewer)}. Use this button if you only compared. It merges @${escapeHtml(cmp.peerReviewer)}'s audit trail entries with yours (skipping duplicate IDs) so you have a unified multi-reviewer audit trail.</p>
         </div>
         <button id="mergePeerLogsBtn" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg cursor-pointer shrink-0">
           Merge Audit Logs
@@ -535,18 +537,8 @@ function renderComparisonTabContent() {
     `;
 
     restBox.querySelector('#mergePeerLogsBtn').onclick = async () => {
-      let added = 0;
-      for (const pl of peerLogs) {
-        if (!state.logs.find(x => x.id === pl.id)) {
-          const entry = { ...pl, reviewer: pl.reviewer || cmp.peerReviewer };
-          await dbPut('logs', entry);
-          state.logs.push(entry);
-          added++;
-        }
-      }
-      state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      updateAuditBadge();
-      alert(`Merged ${added} new audit trail entries from @${cmp.peerReviewer}!`);
+      const added = await mergePeerAuditLogs();
+      alert(added ? `Merged ${added} new audit trail entries from @${cmp.peerReviewer}!` : `Nothing new to merge: @${cmp.peerReviewer}'s audit trail entries are already in your trail.`);
     };
 
     const clList = restBox.querySelector('#peerClustersList');
@@ -568,6 +560,7 @@ function renderComparisonTabContent() {
             : `<button class="imp-cl px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded cursor-pointer">+ Import Row</button>`}
         `;
         row.querySelector('.imp-cl')?.addEventListener('click', async () => {
+          await mergePeerAuditLogs();
           const newCl = normalizeCluster({ ...pc, by: cmp.peerReviewer });
           await dbPut('clusters', newCl);
           state.clusters.push(newCl);
@@ -587,7 +580,29 @@ function renderComparisonTabContent() {
   }
 }
 
+// Adds the other reviewer's audit trail entries (skipping ids we already have) so the shared trail shows both reviewers.
+// Called automatically the first time something from that reviewer is adopted, and by the "Merge Audit Logs" button.
+async function mergePeerAuditLogs() {
+  const cmp = state.peerComparison;
+  if (!cmp || !cmp.peerData) return 0;
+  let added = 0;
+  for (const pl of (cmp.peerData.logs || [])) {
+    if (state.logs.find(x => x.id === pl.id)) continue;
+    const entry = { ...pl, reviewer: pl.reviewer || cmp.peerReviewer };
+    await dbPut('logs', entry);
+    state.logs.push(entry);
+    added++;
+  }
+  if (added) {
+    state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    await recordAuditLog({ category: 'concordance', action: `Merged ${added} audit trail entries from @${cmp.peerReviewer}`, detail: 'Both reviewers\' decisions now appear in one trail.', isMinorOp: false });
+    updateAuditBadge();
+  }
+  return added;
+}
+
 async function importPeerConstruct(item, status) {
+  await mergePeerAuditLogs();
   const cmp = state.peerComparison;
   let targetDocId = item.localDocId;
   if (!targetDocId && item.peerDoc) {
