@@ -1,0 +1,15 @@
+/* Meta-Ethnography Canvas — shared styles for the documentation pages (Tailwind does the rest) */
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 18px;
+  line-height: 1.75;
+  color: #1e293b;
+  background-color: #f8fafc;
+}
+h1, h2, h3, .serif-heading {
+  font-family: 'Merriweather', Georgia, serif;
+}
+kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}

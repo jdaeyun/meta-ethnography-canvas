@@ -22,6 +22,8 @@ app/js/audit-view.js   Tab 3: memos, timeline, per-row history
 app/js/compare.js      compare & merge another reviewer's JSON
 app/js/export.js       Tab 4: Methods summary, eMERGe checklist, Tables 1/2/2b/3, Appendix; Markdown/.docx/CSV
 app/js/backup.js       JSON backup/restore, reset
+site/                  website (GitHub Pages): index.html (overview), manual.html, meta-ethnography-101.html,
+                       css/site.css, js/site.js. Plain HTML (Tailwind from CDN, separate from the app build), no build step
 ```
 
 ## Building app/vendor (only when libraries or Tailwind classes change)
@@ -46,11 +48,12 @@ Test both ways after changes: `npm run serve` (http) and double-clicking me_canv
 
 ## Publishing
 
-`me_canvas.html` and `app/` are copied to jdaeyun/jdaeyun.github.io under `meta-ethnography-canvas/`
-by `.github/workflows/sync-to-site.yml` when a GitHub release is published. The documentation pages
-(index.html, manual.html, meta-ethnography-101.html) live only in that site repository and read
-`app/version.js` for version / DOI. Release checklist: update `app/version.js` and `CITATION.cff`
-(same version and date), commit, then publish a release tagged `vX.Y.Z`.
+`.github/workflows/pages.yml` publishes site/ together with the app (me_canvas.html, app/) to GitHub Pages
+(https://jdaeyun.github.io/meta-ethnography-canvas/) on every push to main that touches them. The pages sit next to
+the app, link to it as `me_canvas.html` and read `app/version.js` for version / DOI (js/site.js). When a change is
+visible in the UI or changes how something works, update the manual (and the 101 if relevant) in site/.
+Release checklist: update `app/version.js` and `CITATION.cff` (same version and date), commit, then publish a
+release tagged `vX.Y.Z`.
 
 ## Rules
 
