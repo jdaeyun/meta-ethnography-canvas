@@ -521,11 +521,11 @@ function renderComparisonTabContent() {
     restBox.innerHTML = `
       <div class="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between">
         <div>
-          <h4 class="text-xs font-bold text-slate-800">🕒 Interleave & Merge Audit Trail Logs</h4>
+          <h4 class="text-xs font-bold text-slate-800">🕒 Merge Audit Trail Logs by Date</h4>
           <p class="text-[13px] text-slate-500">Chronologically merges @${escapeHtml(cmp.peerReviewer)}'s audit trail entries with yours (skipping duplicate IDs) so you have a unified multi-reviewer audit trail.</p>
         </div>
         <button id="mergePeerLogsBtn" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg cursor-pointer shrink-0">
-          Interleave Audit Logs
+          Merge Audit Logs
         </button>
       </div>
       <div class="bg-white p-4 rounded-xl border border-slate-200 space-y-2.5">
