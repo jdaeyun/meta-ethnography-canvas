@@ -1264,18 +1264,13 @@ function renderMatrixTable() {
             cmtInput.classList.remove('hidden');
             cmtInput.focus();
           };
-          cmtInput.addEventListener('input', e => {
-            if (!sec.clusterComments) sec.clusterComments = {};
-            sec.clusterComments[cluster.id] = e.target.value.trim();
-            debouncedSaveCellSec();
-          });
-          cmtInput.addEventListener('blur', async () => {
+          // Commit = save + audit-log. Registered as a pending flush while dirty, so a tab switch / re-render
+          // (flushAllPendingSaves) logs it even if the textarea never receives a blur event.
+          const commitCellComment = async () => {
+            pendingSaveCleanups.delete(commitCellComment);
             const newVal = cmtInput.value.trim();
             if (!sec.clusterComments) sec.clusterComments = {};
             sec.clusterComments[cluster.id] = newVal;
-            cmtInput.classList.add('hidden');
-            cmtView.classList.remove('hidden');
-            refreshCmtView();
             if (newVal === initialCellComment) return;
             const oldVal = initialCellComment;
             initialCellComment = newVal;
@@ -1287,6 +1282,18 @@ function renderMatrixTable() {
               fromVal: oldVal || '(Empty)',
               toVal: newVal || '(Empty)'
             });
+          };
+          cmtInput.addEventListener('input', e => {
+            if (!sec.clusterComments) sec.clusterComments = {};
+            sec.clusterComments[cluster.id] = e.target.value.trim();
+            pendingSaveCleanups.add(commitCellComment);
+            debouncedSaveCellSec();
+          });
+          cmtInput.addEventListener('blur', async () => {
+            cmtInput.classList.add('hidden');
+            cmtView.classList.remove('hidden');
+            refreshCmtView();
+            await commitCellComment();
           });
 
           card.querySelector('.unassign-btn').onclick = async () => {
