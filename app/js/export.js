@@ -1063,6 +1063,10 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
               new TextRun({ text: getLoaLinks().map(l => `${clusterLabel(state.clusters.find(c => c.id === l.from))} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${clusterLabel(state.clusters.find(c => c.id === l.to))}${l.note ? ' (' + l.note + ')' : ''}`).join('; '), font: "Times New Roman", size: 22 })
             ],
             spacing: { before: 220, after: 140 }
+          }),
+          new Paragraph({
+            children: [new TextRun({ text: "[Note: Export the visual Concept Relationship Map (.svg) from the Line of Argument drawer to insert as Figure 1 here]", italics: true, color: "2563EB", font: "Times New Roman", size: 20 })],
+            spacing: { after: 140 }
           })
         ] : []),
         ...(state.loa.title || state.loa.flow || state.loa.narrative ? [

@@ -36,6 +36,14 @@ document.getElementById('peerJsonFileInput').addEventListener('change', async e 
   e.target.value = '';
 });
 
+// A reviewer-wrapped 1st-order quote stores '[Concept derived from 1st Order Quote, p.N]: "quote"'.
+// Compare on the quote body only, so it can match another reviewer's direct 2nd-order extraction of the same passage.
+function stripWrapPrefix(anno) {
+  const t = String(anno.text || '');
+  if (anno.origin !== 'wrapped_first_order') return t;
+  return t.replace(/^\[Concept derived from 1st Order Quote[^\]]*\]:\s*/, '').replace(/^["“”]+|["“”]+$/g, '');
+}
+
 function computeTextSimilarity(strA, strB) {
   const clean = s => String(s || '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const a = clean(strA);
@@ -151,7 +159,7 @@ async function processPeerJsonFile(file) {
           return;
         }
         const pageBonus = (cand.page === pAnno.page) ? 0.1 : 0;
-        const sim = computeTextSimilarity(cand.text, pAnno.text) + pageBonus;
+        const sim = computeTextSimilarity(stripWrapPrefix(cand), stripWrapPrefix(pAnno)) + pageBonus;
         if (sim > bestScore) {
           bestScore = sim;
           bestMatch = cand;
