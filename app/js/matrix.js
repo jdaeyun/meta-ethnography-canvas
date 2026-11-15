@@ -1120,8 +1120,7 @@ function renderMatrixTable() {
                 <button class="unassign-btn text-slate-400 hover:text-rose-500 text-xs cursor-pointer" title="Remove from this row"><i class="ph ph-x-circle"></i></button>
               </div>
             </div>
-            <input type="text" class="sec-label-input w-full text-xs font-bold text-slate-800 border-b border-transparent hover:border-slate-300 focus:border-emerald-600 bg-transparent py-0.5 mb-0.5 focus:outline-none" placeholder="${escapeHtml(sec.text.slice(0, 42))}..." value="${escapeHtml(sec.note)}" title="${escapeHtml(sec.text)}">
-            <div class="matrix-card-detail cell-quote-display text-[13px] font-serif italic text-slate-700 bg-white p-1.5 rounded border ${relMeta.quoteBorderCls} leading-snug cursor-pointer" title="Double-click to edit quote text">"${escapeHtml(sec.text)}"</div>
+            <div class="cell-quote-display text-[13px] font-serif italic text-slate-700 bg-white p-1.5 rounded border ${relMeta.quoteBorderCls} leading-snug cursor-pointer" title="Double-click to edit quote text">"${escapeHtml(sec.text)}"</div>
             <div class="matrix-card-detail cell-quote-editor hidden space-y-1 bg-amber-50/70 p-1.5 rounded border border-amber-200 mt-1">
               <textarea class="cell-quote-textarea w-full text-xs border border-amber-300 rounded p-1 bg-white focus:outline-none focus:border-indigo-500 resize-y h-16">${escapeHtml(sec.text)}</textarea>
               <div class="flex justify-end space-x-1">
@@ -1129,6 +1128,7 @@ function renderMatrixTable() {
                 <button type="button" class="cell-quote-save px-2 py-0.5 text-[11px] bg-emerald-600 text-white font-bold rounded cursor-pointer">Save</button>
               </div>
             </div>
+            <input type="text" class="matrix-card-detail sec-label-input w-full text-xs font-bold text-slate-800 border-b border-transparent hover:border-slate-300 focus:border-emerald-600 bg-transparent py-0.5 mt-1 focus:outline-none" placeholder="Memo / short label for this 2nd order..." value="${escapeHtml(sec.note)}" title="${escapeHtml(sec.text)}">
             ${nuanceHtml}
             ${quotesHtml}
             <div class="matrix-card-detail mt-2 pt-1.5 border-t ${relMeta.dividerCls}">
@@ -1155,6 +1155,7 @@ function renderMatrixTable() {
           };
           cellQuoteDisp.ondblclick = (e) => {
             e.stopPropagation();
+            if (cellQuoteDisp.closest('.matrix-compact')) return;
             toggleCellQuoteEdit(true);
           };
           card.querySelector('.cell-quote-cancel').onclick = () => toggleCellQuoteEdit(false);
