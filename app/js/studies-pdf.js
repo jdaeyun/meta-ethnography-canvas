@@ -756,6 +756,32 @@ async function renderPageContent(container, num) {
   }
 }
 
+// Text of a selection in the PDF text layer. Range.toString() joins the last word of one line to the first word
+// of the next ("againstthe") because PDF.js text items usually have no trailing space at a line end.
+// Here a space is added whenever the next text item starts on a new line or column (hyphen at line end: no space).
+function selectionTextWithSpaces(range) {
+  const spans = [...document.querySelectorAll('#pdfPagesWrapper .textLayer span')].filter(sp => sp.firstChild && sp.firstChild.nodeType === 3 && range.intersectsNode(sp));
+  if (!spans.length) return range.toString();
+  let out = '';
+  let prev = null;
+  for (const sp of spans) {
+    const tn = sp.firstChild;
+    let piece = tn.data;
+    if (range.startContainer === tn && range.endContainer === tn) piece = piece.slice(range.startOffset, range.endOffset);
+    else if (range.startContainer === tn) piece = piece.slice(range.startOffset);
+    else if (range.endContainer === tn) piece = piece.slice(0, range.endOffset);
+    if (!piece) continue;
+    const r = sp.getBoundingClientRect();
+    if (prev && out && !/\s$/.test(out) && !/^\s/.test(piece)) {
+      const newLine = r.top > prev.top + prev.height * 0.6 || r.left + 1 < prev.left;
+      if (newLine && !/[-\u2010\u2011]$/.test(out)) out += ' ';
+    }
+    out += piece;
+    prev = r;
+  }
+  return out.replace(/\s+/g, ' ');
+}
+
 document.addEventListener('mouseup', (e) => {
   const tt = document.getElementById('selectionTooltip');
   if (tt.contains(e.target)) return;
@@ -763,7 +789,7 @@ document.addEventListener('mouseup', (e) => {
   if (!sel || sel.isCollapsed || !state.activeDocId) return tt.classList.add('hidden');
 
   const range = sel.getRangeAt(0);
-  const txt = range.toString().normalize('NFC').trim();
+  const txt = selectionTextWithSpaces(range).normalize('NFC').trim();
   if (!txt) return tt.classList.add('hidden');
 
   const rects = Array.from(range.getClientRects()).filter(r => r.width > 1 && r.height > 1);

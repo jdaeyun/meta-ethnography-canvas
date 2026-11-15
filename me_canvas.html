@@ -62,6 +62,15 @@
   </div>
 
   <!-- Header -->
+  <!-- Demo banner: shown only with ?demo -->
+  <div id="demoBanner" class="hidden shrink-0 bg-red-50 border-b border-red-300 text-red-900 text-xs px-4 py-1.5 items-center justify-between gap-3">
+    <span><b>AI-GENERATED DEMO.</b> The four papers, the participants and every note in this project are fictional and were written by an AI. Your own projects are not touched: the demo has its own storage.</span>
+    <span class="shrink-0 flex items-center gap-2">
+      <button type="button" id="demoResetBtn" class="px-2 py-0.5 rounded border border-red-300 bg-white hover:bg-red-100 font-semibold cursor-pointer">Reset demo</button>
+      <a href="me_canvas.html" class="px-2 py-0.5 rounded border border-red-300 bg-white hover:bg-red-100 font-semibold">Exit demo</a>
+    </span>
+  </div>
+
   <header class="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shrink-0 shadow-sm z-20">
     <!-- Left: Logo + Project ID -->
     <div class="flex items-center space-x-2.5 w-1/3">
@@ -270,15 +279,15 @@
               <div class="grid grid-cols-2 gap-2">
                 <div>
                   <label class="block text-xs font-semibold text-slate-600 mb-0.5">Setting / Country</label>
-                  <input type="text" id="metaSetting" placeholder="e.g. UK, Community Pharmacy" class="meta-drop-target w-full border border-slate-300 bg-white rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500">
+                  <input type="text" id="metaSetting" placeholder="e.g. UK, Medical Ward" class="meta-drop-target w-full border border-slate-300 bg-white rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500">
                 </div>
                 <div>
                   <label class="block text-xs font-semibold text-slate-600 mb-0.5">Participants / Sample</label>
-                  <input type="text" id="metaParticipants" placeholder="e.g. 15 Palliative Pharmacists" class="meta-drop-target w-full border border-slate-300 bg-white rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500">
+                  <input type="text" id="metaParticipants" placeholder="e.g. 15 Registered Nurses" class="meta-drop-target w-full border border-slate-300 bg-white rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500">
                 </div>
                 <div class="col-span-2">
                   <label class="block text-xs font-semibold text-slate-600 mb-0.5">Subgroup (optional)</label>
-                  <input type="text" id="metaGroup" placeholder="e.g. Patient views / Clinician views (for subgroup translation, eMERGe 11)" class="w-full border border-slate-300 bg-white rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500">
+                  <input type="text" id="metaGroup" placeholder="e.g. Nurses' views / Patients' views (for subgroup translation)" class="w-full border border-slate-300 bg-white rounded px-2 py-1 text-xs focus:outline-none focus:border-indigo-500">
                 </div>
               </div>
               <div>
@@ -452,9 +461,9 @@
           </div>
           <div class="mb-2.5">
             <label class="block text-xs font-semibold text-purple-900 mb-0.5">Phase 1: Research Aim / Review Question</label>
-            <input type="text" id="loaAimInput" class="w-full text-xs border border-purple-200 rounded px-2.5 py-1.5 bg-white focus:outline-none focus:border-purple-600" placeholder="e.g., To synthesize qualitative evidence on community pharmacists' lived experiences and role navigation in palliative care...">
+            <input type="text" id="loaAimInput" class="w-full text-xs border border-purple-200 rounded px-2.5 py-1.5 bg-white focus:outline-none focus:border-purple-600" placeholder="e.g., To synthesize qualitative evidence on nurses' lived experiences of caring for older patients on hospital wards...">
             <label class="block text-xs font-semibold text-purple-900 mb-0.5 mt-1.5">Item 3 — Review Question(s) / Objectives (state the question explicitly; note any refinements made later)</label>
-            <textarea id="loaQuestionInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed h-12" placeholder="e.g., How do community pharmacists experience and negotiate their role in palliative care? (Refined after Phase 2 to focus on community settings.)"></textarea>
+            <textarea id="loaQuestionInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed h-12" placeholder="e.g., How do ward nurses experience and negotiate their role when caring for older patients? (Refined after Phase 2 to focus on hospital settings.)"></textarea>
           </div>
           <div class="mb-2.5 rounded-lg border border-purple-200 bg-white/70 p-2.5">
             <div class="flex items-center space-x-2 mb-1.5">
@@ -535,7 +544,7 @@
               </div>
               <div>
                 <label class="block text-xs font-semibold text-purple-900 mb-0.5">Alternative interpretations / explanations considered (items 13 &amp; 15)</label>
-                <textarea id="loaAltInterpInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., We considered whether 'isolation' reflected setting rather than role; discussed with a clinician advisor..."></textarea>
+                <textarea id="loaAltInterpInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., We considered whether 'isolation' reflected the ward setting rather than the nursing role; discussed with a senior nurse advisor..."></textarea>
               </div>
             </div>
           </div>
@@ -605,7 +614,7 @@
                   </div>
                 </div>
                 <div id="loaClusterChips" class="flex flex-wrap gap-1 mb-1.5"></div>
-                <textarea id="loaFlowInput" class="w-full text-[13px] font-mono border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600" placeholder="e.g., [Systemic Isolation] + [Emotional Labour] ➔ triggers [Informal Workarounds] ➔ sustains [Patient-Centred Continuity]"></textarea>
+                <textarea id="loaFlowInput" class="w-full text-[13px] font-mono border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600" placeholder="e.g., [Staffing Pressure] + [Emotional Labour] ➔ triggers [Informal Workarounds] ➔ sustains [Continuity of Care]"></textarea>
               </div>
             </div>
             <div class="col-span-8 flex flex-col">
@@ -753,7 +762,7 @@
             </div>
             <div>
               <label class="block text-xs font-semibold text-slate-600 mb-0.5">Memo Content</label>
-              <textarea id="memoContentInput" class="w-full text-xs border border-slate-300 rounded p-2 h-32 resize-y focus:outline-none focus:border-indigo-600" placeholder="e.g., As a practicing pharmacist, I initially grouped 'workload' under operational barriers, but comparing Study A and Study B suggests it functions more as moral distress..."></textarea>
+              <textarea id="memoContentInput" class="w-full text-xs border border-slate-300 rounded p-2 h-32 resize-y focus:outline-none focus:border-indigo-600" placeholder="e.g., As a practising nurse, I initially grouped 'workload' under operational barriers, but comparing Study A and Study B suggests it functions more as moral distress..."></textarea>
             </div>
             <button id="addMemoBtn" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer transition">
               + Record in Audit Trail
@@ -913,7 +922,7 @@
           <label for="initialProjectCodeInput" class="block text-xs font-bold text-slate-700 mb-1">
             Project Code <span class="text-rose-600">*</span>
           </label>
-          <input type="text" id="initialProjectCodeInput" maxlength="32" placeholder="e.g., PALLIATIVE-2026" class="w-full text-sm font-mono font-bold text-indigo-900 bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 uppercase focus:outline-none focus:border-indigo-600 focus:bg-white">
+          <input type="text" id="initialProjectCodeInput" maxlength="32" placeholder="e.g., NURSING-2026" class="w-full text-sm font-mono font-bold text-indigo-900 bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 uppercase focus:outline-none focus:border-indigo-600 focus:bg-white">
           <p class="text-[11px] text-slate-400 mt-0.5">Guards against merging wrong JSON files.</p>
         </div>
       </div>
@@ -926,9 +935,9 @@
           </label>
           <span class="text-[11px] text-purple-700 font-medium">Optional (can edit anytime)</span>
         </div>
-        <textarea id="initialPhase1AimInput" rows="3" placeholder="e.g., To synthesize qualitative evidence on community pharmacists' lived experiences, role navigation, and interprofessional tensions in palliative care..." class="w-full text-xs text-slate-800 bg-white border border-purple-200 rounded-lg p-2.5 focus:outline-none focus:border-purple-600 leading-relaxed resize-y"></textarea>
+        <textarea id="initialPhase1AimInput" rows="3" placeholder="e.g., To synthesize qualitative evidence on nurses' lived experiences, role navigation, and team tensions in hospital ward care..." class="w-full text-xs text-slate-800 bg-white border border-purple-200 rounded-lg p-2.5 focus:outline-none focus:border-purple-600 leading-relaxed resize-y"></textarea>
         <label for="initialReviewQuestionInput" class="block text-xs font-bold text-purple-950 mt-1">Review Question(s) <span class="text-[11px] font-medium text-purple-700">(eMERGe Item 3 · optional)</span></label>
-        <textarea id="initialReviewQuestionInput" rows="2" placeholder="e.g., How do community pharmacists experience their role in palliative care?" class="w-full text-xs text-slate-800 bg-white border border-purple-200 rounded-lg p-2.5 focus:outline-none focus:border-purple-600 leading-relaxed resize-y"></textarea>
+        <textarea id="initialReviewQuestionInput" rows="2" placeholder="e.g., How do ward nurses experience their role when caring for older patients?" class="w-full text-xs text-slate-800 bg-white border border-purple-200 rounded-lg p-2.5 focus:outline-none focus:border-purple-600 leading-relaxed resize-y"></textarea>
         <p class="text-[11px] text-slate-500 leading-snug">
           Following Noblit & Hare (Phase 1) and eMERGe (Items 1–4), defining your aim and review question upfront anchors your extraction (Tab 1) and cross-study translation (Tab 2).
         </p>
@@ -942,6 +951,7 @@
         <button id="confirmReviewerLoginBtn" type="button" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow cursor-pointer transition">
           Save & Start Working
         </button>
+        <a href="me_canvas.html?demo" class="block text-center text-xs text-indigo-700 underline mt-2">Or look around first: open the AI-generated demo project</a>
       </div>
     </div>
   </div>
@@ -978,5 +988,6 @@
   <script src="app/js/compare.js"></script>
   <script src="app/js/export.js"></script>
   <script src="app/js/backup.js"></script>
+  <script src="app/js/demo.js"></script>
 </body>
 </html>

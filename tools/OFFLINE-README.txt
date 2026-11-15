@@ -7,6 +7,7 @@ How to start
   1. Extract the whole ZIP file to a folder (do not open the files from inside the ZIP).
   2. Double-click  me_canvas.html  (Chrome, Edge or Firefox recommended).
   Keep me_canvas.html next to the  app/  folder; the app needs both.
+  To try the AI-generated demo project first, double-click  demo.html  instead.
 
 Your data
   - Your work is saved inside the browser on this computer (IndexedDB), exactly as in the online version.

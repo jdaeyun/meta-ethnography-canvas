@@ -95,8 +95,8 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
 
     state.reviewerId = revVal;
     state.projectCode = projVal;
-    localStorage.setItem('me_reviewer_id', revVal);
-    localStorage.setItem('me_project_code', projVal);
+    lsSet('me_reviewer_id', revVal);
+    lsSet('me_project_code', projVal);
     if (revInput) revInput.value = revVal;
 
     state.loa = {
@@ -137,8 +137,8 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
 }
 
 function ensureInitialReviewerLogin() {
-  const savedRev = (localStorage.getItem('me_reviewer_id') || '').trim();
-  const savedProj = sanitizeProjectCode(localStorage.getItem('me_project_code') || '');
+  const savedRev = (lsGet('me_reviewer_id') || '').trim();
+  const savedProj = sanitizeProjectCode(lsGet('me_project_code') || '');
   const revInput = document.getElementById('reviewerIdInput');
 
   if (savedRev) {
@@ -170,13 +170,14 @@ window.addEventListener('DOMContentLoaded', async () => {
       }
     }
   } catch (e) { console.warn('storage.persist() unavailable:', e); }
+  if (DEMO_MODE) await seedDemoIfEmpty();
   ensureInitialReviewerLogin();
 
   const teamToggle = document.getElementById('teamModeToggle');
   teamToggle.checked = state.teamMode;
   teamToggle.addEventListener('change', () => {
     state.teamMode = teamToggle.checked;
-    localStorage.setItem('me_team_mode', String(state.teamMode));
+    lsSet('me_team_mode', String(state.teamMode));
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   });
@@ -185,7 +186,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   minorOpsToggle.checked = state.logMinorOps;
   minorOpsToggle.addEventListener('change', () => {
     state.logMinorOps = minorOpsToggle.checked;
-    localStorage.setItem('me_log_minor_ops', String(state.logMinorOps));
+    lsSet('me_log_minor_ops', String(state.logMinorOps));
   });
 
   // Smart Reviewer ID change: if changed on blur/change, offer to bulk-reassign previous reviewer's items
@@ -196,7 +197,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (nextRev === oldRev) return;
 
     state.reviewerId = nextRev;
-    localStorage.setItem('me_reviewer_id', nextRev);
+    lsSet('me_reviewer_id', nextRev);
 
     const existingCount = state.annotations.filter(a => a.by === oldRev).length +
                           state.clusters.filter(c => c.by === oldRev).length;
@@ -238,7 +239,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     state.loa = { projectCode: '', aim: '', ...savedLoa };
     if (savedLoa.projectCode && !state.projectCode) {
       state.projectCode = sanitizeProjectCode(savedLoa.projectCode);
-      localStorage.setItem('me_project_code', state.projectCode);
+      lsSet('me_project_code', state.projectCode);
     }
   }
   populateLoaInputs();

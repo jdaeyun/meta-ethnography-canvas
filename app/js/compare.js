@@ -55,7 +55,7 @@ function computeTextSimilarity(strA, strB) {
     const maxLen = Math.max(a.length, b.length);
     if (minLen > 12) return Math.max(0.78, minLen / maxLen);
   }
-  // Word token overlap (including 2-char clinical/regional abbreviations like GP, UK, IV, ED)
+  // Word token overlap (including 2-char clinical/regional abbreviations like RN, UK, IV, ED)
   const wordsA = new Set(a.split(/\s+/).filter(w => w.length >= 2));
   const wordsB = new Set(b.split(/\s+/).filter(w => w.length >= 2));
   let wordScore = 0;
@@ -198,7 +198,7 @@ async function processPeerJsonFile(file) {
     };
 
     state.teamMode = true;
-    localStorage.setItem('me_team_mode', 'true');
+    lsSet('me_team_mode', 'true');
     const teamToggle = document.getElementById('teamModeToggle');
     if (teamToggle) teamToggle.checked = true;
     updateSidebar();

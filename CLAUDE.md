@@ -22,6 +22,9 @@ app/js/audit-view.js   Tab 3: memos, timeline, per-row history
 app/js/compare.js      compare & merge another reviewer's JSON
 app/js/export.js       Tab 4: Methods summary, eMERGe checklist, Tables 1/2/2b/3, Appendix; Markdown/.docx/CSV
 app/js/backup.js       JSON backup/restore, reset
+app/js/demo.js         ?demo mode: seeds the AI-generated demo project into a separate database (DEMO_MODE in core.js)
+app/demo/              AI-GENERATED sample PDFs, project JSON and demo-data.js (rebuild with tools/demo/, see below)
+demo.html              redirects to me_canvas.html?demo (so the offline edition can open the demo by double-click)
 site/                  website (GitHub Pages): index.html (overview), manual.html, meta-ethnography-101.html,
                        css/site.css, js/site.js. Plain HTML (Tailwind from CDN, separate from the app build), no build step
 ```
@@ -34,6 +37,14 @@ Node.js LTS required. `npm install` (exact versions from package.json / package-
 Re-run `npm run css` after using a Tailwind class that appears nowhere else. Write class names in full
 (no string concatenation such as 'bg-' + color) so the Tailwind scanner can see them.
 `npm run serve` serves the folder at http://localhost:8080 for testing. node_modules/ is not committed.
+
+## Demo (?demo)
+
+`me_canvas.html?demo` uses its own IndexedDB (`MetaEthnoCanvasDB_demo`) and prefixed localStorage keys (`lsGet/lsSet/lsRemove` in core.js,
+never call `localStorage` directly). All demo content is AI-generated and fictional and must stay labelled as such.
+To rebuild: `node tools/demo/make-pdfs.mjs app/demo` + `python3 tools/demo/set-pdf-metadata.py app/demo`, then drive the app with
+`tools/demo/build-reviewer-b.mjs` and `build-reviewer-a.mjs` (Playwright; they make the merged backup), then
+`node tools/demo/build-demo-data.mjs <backup.json>`.
 
 ## Offline edition (file://)
 
