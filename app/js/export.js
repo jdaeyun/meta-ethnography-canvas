@@ -108,7 +108,7 @@ function buildTable2Html() {
       });
     });
 
-    const transLabel = c.translationType === 'refutational' ? 'Refutational' : 'Reciprocal';
+    const transLabel = clusterTranslationLabel(c);
 
     rowsHtml += `
       <tr>
@@ -321,7 +321,7 @@ function buildTable2GridHtml() {
       return `<td style="text-align:center; font-weight:bold; color:${hasRefut ? '#be123c' : '#0f172a'};">${symbol}<div style="font-size:9.5px; font-weight:normal; color:#64748b;">${escapeHtml(pages)}</div></td>`;
     }).join('');
 
-    const transLabel = c.translationType === 'refutational' ? 'Refutational' : 'Reciprocal';
+    const transLabel = clusterTranslationLabel(c);
 
     rowsHtml += `
       <tr>
@@ -682,7 +682,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
         const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
         firsts.forEach(f => quotes.push(`"${f.text}"${f.note ? ' [' + f.note + ']' : ''} (p.${f.page})`));
       });
-      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cleanMd(c.translationType)} | ${cleanMd(c.concordanceStatus)} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
+      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cleanMd(clusterTranslationLabel(c))} | ${cleanMd(c.concordanceStatus)} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
     });
     // Line of Argument block (same content as the HTML preview and the Word export)
     const L = state.loa || {};
@@ -875,7 +875,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
         quoteParagraphs.push(new Paragraph({ children: [new TextRun({ text: '-', font: "Times New Roman", size: 20 })] }));
       }
 
-      const transLabel = c.translationType === 'refutational' ? 'Refutational' : 'Reciprocal';
+      const transLabel = clusterTranslationLabel(c);
 
       t2Rows.push(new TableRow({
         children: [
@@ -1143,7 +1143,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', () => {
       const cellComment = cid && sec.clusterComments ? `[${cellRelation}] ` + (sec.clusterComments[cid] || '') : (cellRelation ? `[${cellRelation}]` : '');
       rows.push([
         cluster ? cluster.thirdOrderTitle : '(Unassigned)',
-        cluster ? cluster.translationType : '',
+        cluster ? clusterTranslationLabel(cluster) : '',
         cluster ? `${cluster.concordanceStatus}${cluster.concordanceNote ? ': ' + cluster.concordanceNote : ''}` : '',
         cluster ? cluster.cerqualConfidence : '',
         cluster ? cluster.cerqualExplanation : '',
