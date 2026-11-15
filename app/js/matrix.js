@@ -169,6 +169,7 @@ function computeClusterEvidenceStats(clusterId) {
 }
 
 function renderMatrixView() {
+  flushAllPendingSaves();
   renderStudyVisibilityBar();
   renderSecondOrderPool();
   renderMatrixTable();
@@ -689,6 +690,7 @@ function renderMatrixTable() {
             <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">3rd Order</span>
             <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order Cluster">@${escapeHtml(cluster.by || 'Unknown')}</button>
             <span class="cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
+            ${(() => { const n = state.logs.filter(l => (l.clusterIds || []).includes(cluster.id)).length; return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
             ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from the Index Paper's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
             <span class="cl-cerqual-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
           </div>
@@ -830,6 +832,15 @@ function renderMatrixTable() {
       };
     });
 
+    const historyBtn = tdMeta.querySelector('.cl-history-btn');
+    if (historyBtn) historyBtn.onclick = () => {
+      setActiveTab('audit');
+      const rowSel = document.getElementById('auditFilterRow');
+      const catSel = document.getElementById('auditFilterCategory');
+      if (catSel) catSel.value = 'all';
+      if (rowSel) { rowSel.value = cluster.id; renderAuditTimeline(); }
+    };
+
     let initialClusterTitle = cluster.thirdOrderTitle || '';
     const debouncedSaveCluster = createDebouncedSaver(async () => {
       await dbPut('clusters', cluster);
@@ -841,7 +852,8 @@ function renderMatrixTable() {
       debouncedSaveCluster();
     });
 
-    tdMeta.querySelector('.cluster-title').onchange = async e => {
+    bindPendingCommit(tdMeta.querySelector('.cluster-title'), async () => {
+      const e = { target: tdMeta.querySelector('.cluster-title') };
       const oldTitle = initialClusterTitle || '(Untitled)';
       const newTitle = e.target.value.trim();
       if (initialClusterTitle !== newTitle) {
@@ -857,7 +869,7 @@ function renderMatrixTable() {
           toVal: newTitle || '(Untitled)'
         });
       }
-    };
+    });
 
     tdMeta.querySelector('.cluster-type').onchange = async e => {
       const oldType = cluster.translationType;
@@ -893,7 +905,8 @@ function renderMatrixTable() {
       refreshStepBWarn();
       debouncedSaveCluster();
     });
-    tdMeta.querySelector('.cluster-trans').onchange = async e => {
+    bindPendingCommit(tdMeta.querySelector('.cluster-trans'), async () => {
+      const e = { target: tdMeta.querySelector('.cluster-trans') };
       const oldVal = initialTransSummary;
       const newVal = e.target.value.trim();
       if (oldVal !== newVal) {
@@ -908,7 +921,7 @@ function renderMatrixTable() {
           toVal: newVal || '(Empty)'
         });
       }
-    };
+    });
 
     let initialClusterNote = cluster.synthesisNote || '';
     tdMeta.querySelector('.cluster-note').addEventListener('input', e => {
@@ -917,7 +930,8 @@ function renderMatrixTable() {
       debouncedSaveCluster();
     });
 
-    tdMeta.querySelector('.cluster-note').onchange = async e => {
+    bindPendingCommit(tdMeta.querySelector('.cluster-note'), async () => {
+      const e = { target: tdMeta.querySelector('.cluster-note') };
       const oldNote = initialClusterNote;
       const newNote = e.target.value.trim();
       if (oldNote !== newNote) {
@@ -932,7 +946,7 @@ function renderMatrixTable() {
           toVal: newNote
         });
       }
-    };
+    });
 
     const updateClusterConcordance = async () => {
       const oldStatus = cluster.concordanceStatus;
@@ -973,7 +987,7 @@ function renderMatrixTable() {
       });
       seedBtn.remove();
     };
-    tdMeta.querySelector('.cl-conc-note').onchange = updateClusterConcordance;
+    bindPendingCommit(tdMeta.querySelector('.cl-conc-note'), updateClusterConcordance);
 
     // GRADE-CERQual Handlers
     const saveCerqualChanges = async () => {
@@ -1020,8 +1034,11 @@ function renderMatrixTable() {
       }
     };
 
-    ['.cq-lim', '.cq-coh', '.cq-adeq', '.cq-rel', '.cq-conf', '.cq-exp', '.cq-lim-note', '.cq-coh-note', '.cq-adeq-note', '.cq-rel-note'].forEach(sel => {
+    ['.cq-lim', '.cq-coh', '.cq-adeq', '.cq-rel', '.cq-conf'].forEach(sel => {
       tdMeta.querySelector(sel).onchange = saveCerqualChanges;
+    });
+    ['.cq-exp', '.cq-lim-note', '.cq-coh-note', '.cq-adeq-note', '.cq-rel-note'].forEach(sel => {
+      bindPendingCommit(tdMeta.querySelector(sel), saveCerqualChanges);
     });
 
     tdMeta.querySelector('.del-cluster').onclick = async () => {
@@ -1075,6 +1092,8 @@ function renderMatrixTable() {
           const secBadge = getConcordanceBadgeMeta(sec.concordanceStatus);
           const showConcUI = state.teamMode || sec.concordanceStatus !== 'pending' || Boolean(sec.concordanceNote);
 
+          const cellPlaceholder = cellRelation === 'refutational' ? 'Explain how this study contrasts or disagrees in this row...' : 'Note on how this concept fits into this theme...';
+
           const card = document.createElement('div');
           card.className = `matrix-cell-card ${relMeta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
           card.draggable = true;
@@ -1120,8 +1139,7 @@ function renderMatrixTable() {
                 <button class="unassign-btn text-slate-400 hover:text-rose-500 text-xs cursor-pointer" title="Remove from this row"><i class="ph ph-x-circle"></i></button>
               </div>
             </div>
-            <input type="text" class="sec-label-input w-full text-xs font-bold text-slate-800 border-b border-transparent hover:border-slate-300 focus:border-emerald-600 bg-transparent py-0.5 mb-0.5 focus:outline-none" placeholder="${escapeHtml(sec.text.slice(0, 42))}..." value="${escapeHtml(sec.note)}" title="${escapeHtml(sec.text)}">
-            <div class="matrix-card-detail cell-quote-display text-[13px] font-serif italic text-slate-700 bg-white p-1.5 rounded border ${relMeta.quoteBorderCls} leading-snug cursor-pointer" title="Double-click to edit quote text">"${escapeHtml(sec.text)}"</div>
+            <div class="cell-quote-display text-[13px] font-serif italic text-slate-700 bg-white p-1.5 rounded border ${relMeta.quoteBorderCls} leading-snug cursor-pointer" title="Double-click to edit quote text">"${escapeHtml(sec.text)}"</div>
             <div class="matrix-card-detail cell-quote-editor hidden space-y-1 bg-amber-50/70 p-1.5 rounded border border-amber-200 mt-1">
               <textarea class="cell-quote-textarea w-full text-xs border border-amber-300 rounded p-1 bg-white focus:outline-none focus:border-indigo-500 resize-y h-16">${escapeHtml(sec.text)}</textarea>
               <div class="flex justify-end space-x-1">
@@ -1129,10 +1147,12 @@ function renderMatrixTable() {
                 <button type="button" class="cell-quote-save px-2 py-0.5 text-[11px] bg-emerald-600 text-white font-bold rounded cursor-pointer">Save</button>
               </div>
             </div>
+            <input type="text" class="matrix-card-detail sec-label-input w-full text-xs font-bold text-slate-800 border-b border-transparent hover:border-slate-300 focus:border-emerald-600 bg-transparent py-0.5 mt-1 focus:outline-none" placeholder="Label: authors' own term (optional)" value="${escapeHtml(sec.note)}" title="${escapeHtml(sec.text)}">
             ${nuanceHtml}
             ${quotesHtml}
             <div class="matrix-card-detail mt-2 pt-1.5 border-t ${relMeta.dividerCls}">
-              <input type="text" class="sec-comment-input w-full text-xs border border-slate-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-indigo-500" placeholder="${cellRelation === 'refutational' ? 'Explain how this study contrasts or disagrees in this row...' : 'Note on how this concept fits into this theme...'}" value="${escapeHtml(cellComment)}">
+              <div class="sec-comment-view text-xs border border-slate-200 rounded px-1.5 py-1 bg-white cursor-text whitespace-pre-wrap break-words ${cellComment ? 'text-slate-700' : 'text-slate-400'}" title="${escapeHtml(cellComment || 'Click to write a note')}">${escapeHtml(cellComment || cellPlaceholder)}</div>
+              <textarea rows="3" class="sec-comment-input hidden w-full text-xs border border-indigo-400 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-indigo-500 resize-y" placeholder="${cellPlaceholder}">${escapeHtml(cellComment)}</textarea>
             </div>
           `;
 
@@ -1155,6 +1175,7 @@ function renderMatrixTable() {
           };
           cellQuoteDisp.ondblclick = (e) => {
             e.stopPropagation();
+            if (cellQuoteDisp.closest('.matrix-compact')) return;
             toggleCellQuoteEdit(true);
           };
           card.querySelector('.cell-quote-cancel').onclick = () => toggleCellQuoteEdit(false);
@@ -1183,10 +1204,13 @@ function renderMatrixTable() {
             btnEl.className = `rel-toggle-btn text-[11px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition ${nextMeta.badgeCls}`;
             btnEl.textContent = nextMeta.label;
             const cmtInput = card.querySelector('.sec-comment-input');
+            const nextPlaceholder = nextRel === 'refutational'
+              ? 'Explain how this study contrasts or disagrees in this row...'
+              : 'Note on how this concept fits into this theme...';
             if (cmtInput) {
-              cmtInput.placeholder = nextRel === 'refutational'
-                ? 'Explain how this study contrasts or disagrees in this row...'
-                : 'Note on how this concept fits into this theme...';
+              cmtInput.placeholder = nextPlaceholder;
+              const cmtView = card.querySelector('.sec-comment-view');
+              if (cmtView && !cmtInput.value.trim()) cmtView.textContent = nextPlaceholder;
             }
 
             await recordAuditLog({
@@ -1214,7 +1238,8 @@ function renderMatrixTable() {
             debouncedSaveCellSec();
           });
 
-          card.querySelector('.sec-label-input').onchange = async e => {
+          bindPendingCommit(card.querySelector('.sec-label-input'), async () => {
+            const e = { target: card.querySelector('.sec-label-input') };
             const oldLabel = initialSecLabel;
             const newLabel = e.target.value.trim();
             sec.note = newLabel;
@@ -1222,18 +1247,61 @@ function renderMatrixTable() {
             if (oldLabel !== newLabel) {
               initialSecLabel = newLabel;
               await recordAuditLog({
+                clusterIds: sec.clusterIds,
                 category: 'matrix_mapping',
                 action: `Updated 2nd Order Summary Label (${getDisplayName(doc)})`,
                 fromVal: oldLabel || '(None)',
                 toVal: newLabel
               });
             }
-          };
+          });
 
-          card.querySelector('.sec-comment-input').addEventListener('input', e => {
+          // "Note on how this concept fits": 3-line preview, click to edit (full text), logged to the Audit Trail on blur
+          const cmtView = card.querySelector('.sec-comment-view');
+          const cmtInput = card.querySelector('.sec-comment-input');
+          let initialCellComment = cellComment;
+          const refreshCmtView = () => {
+            const v = (sec.clusterComments && sec.clusterComments[cluster.id]) || '';
+            cmtView.textContent = v || (cmtInput.placeholder || '');
+            cmtView.classList.toggle('text-slate-700', Boolean(v));
+            cmtView.classList.toggle('text-slate-400', !v);
+            cmtView.title = v || 'Click to write a note';
+          };
+          cmtView.onclick = () => {
+            cmtView.classList.add('hidden');
+            cmtInput.classList.remove('hidden');
+            cmtInput.focus();
+          };
+          // Commit = save + audit-log. Registered as a pending flush while dirty, so a tab switch / re-render
+          // (flushAllPendingSaves) logs it even if the textarea never receives a blur event.
+          const commitCellComment = async () => {
+            pendingSaveCleanups.delete(commitCellComment);
+            const newVal = cmtInput.value.trim();
+            if (!sec.clusterComments) sec.clusterComments = {};
+            sec.clusterComments[cluster.id] = newVal;
+            if (newVal === initialCellComment) return;
+            const oldVal = initialCellComment;
+            initialCellComment = newVal;
+            await dbPut('annotations', sec);
+            await recordAuditLog({
+              clusterIds: [cluster.id],
+              category: 'third_order',
+              action: `Updated note on how a concept fits "${cluster.thirdOrderTitle || 'Untitled Row'}" (${getDisplayName(doc)}, p.${sec.page})`,
+              fromVal: oldVal || '(Empty)',
+              toVal: newVal || '(Empty)'
+            });
+          };
+          cmtInput.addEventListener('input', e => {
             if (!sec.clusterComments) sec.clusterComments = {};
             sec.clusterComments[cluster.id] = e.target.value.trim();
+            pendingSaveCleanups.add(commitCellComment);
             debouncedSaveCellSec();
+          });
+          cmtInput.addEventListener('blur', async () => {
+            cmtInput.classList.add('hidden');
+            cmtView.classList.remove('hidden');
+            refreshCmtView();
+            await commitCellComment();
           });
 
           card.querySelector('.unassign-btn').onclick = async () => {

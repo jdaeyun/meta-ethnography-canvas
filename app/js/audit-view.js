@@ -154,10 +154,11 @@ function renderAuditTimeline() {
 
     card.querySelector('.log-rev-btn').onclick = () => promptReassignItemReviewer(log, 'logs', renderAuditTimeline);
 
-    card.querySelector('.rationale-input').onchange = async e => {
-      log.rationale = e.target.value.trim();
+    const rationaleEl = card.querySelector('.rationale-input');
+    bindPendingCommit(rationaleEl, async () => {
+      log.rationale = rationaleEl.value.trim();
       await dbPut('logs', log);
-    };
+    });
 
     card.querySelector('.del-log').onclick = async () => {
       if (!confirm('Delete this audit trail entry? (You can Undo with Ctrl+Z)')) return;

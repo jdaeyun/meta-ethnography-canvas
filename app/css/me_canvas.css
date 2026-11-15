@@ -35,8 +35,12 @@
 /* PDF zoom select: compact look without the native dropdown chrome */
 #zoomPercentInput { -moz-appearance: textfield; appearance: textfield; }
 
+/* Matrix cell note ("how this concept fits"): 3-line preview, click to edit the full text */
+.sec-comment-view { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
 /* Compact Matrix Mode (Bird's-eye Overview) */
 .matrix-compact .matrix-card-detail { display: none !important; }
+.matrix-compact .cell-quote-display { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: default; }
 .matrix-compact .matrix-cell-card { padding: 0.45rem 0.6rem !important; }
 .matrix-compact .subpanel-synthesis,
 .matrix-compact .subpanel-cerqual,

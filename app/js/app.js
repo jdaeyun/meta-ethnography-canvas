@@ -254,6 +254,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   updateAuditBadge();
+  updateBackupReminder();
   renderStudyList();
   if (state.docs.length > 0) {
     switchStudy(state.docs[0].id);

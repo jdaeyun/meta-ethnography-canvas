@@ -27,6 +27,7 @@ document.getElementById('backupJsonBtn').addEventListener('click', () => {
   a.download = `meta_ethnography_${projSlug}${state.reviewerId || 'Reviewer'}_${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  markBackupDone();
 });
 
 document.getElementById('restoreJsonBtn').addEventListener('click', () => document.getElementById('jsonFileInput').click());
@@ -225,6 +226,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       updateSidebar();
     }
     renderMatrixView();
+    if (replaceCleanly) markBackupDone();
     alert(replaceCleanly ? 'Backup cleanly restored!' : 'Backup merged successfully!');
   } catch (err) {
     alert('Failed to restore JSON: ' + err.message);
@@ -270,6 +272,8 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
   state.peerComparison = null;
 
   populateLoaInputs();
+  lsRemove('unbackedSince');
+  updateBackupReminder();
   updateHeaderProjectUI();
   updateAuditBadge();
   renderStudyList();
