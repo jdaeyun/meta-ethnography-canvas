@@ -46,7 +46,6 @@
 .matrix-compact .subpanel-cerqual,
 .matrix-compact .subpanel-concordance,
 .matrix-compact .cl-subtab-bar { display: none !important; }
-.matrix-compact .matrix-compact-expand-note { display: block !important; }
 
 /* Publication Preview Table (Academic / APA-like formatting) */
 .pub-table { width: 100%; border-collapse: collapse; font-family: Georgia, 'Times New Roman', serif; font-size: 13.5px; color: #1e293b; background: white; }

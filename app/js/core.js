@@ -393,6 +393,18 @@ function isBaselineDocId(docId) { return state.docs.length > 0 && state.docs[0].
 function isSecRefutational(sec, cid) {
   return !isBaselineDocId(sec.docId) && !!(sec.clusterRelations && sec.clusterRelations[cid] === 'refutational');
 }
+// A row's reciprocal / refutational character is derived from its cells (each study's relation is set per cell),
+// not stored per row: 'reciprocal', 'refutational' (all translated studies refute) or 'mixed'.
+function clusterTranslationType(c) {
+  const secs = state.annotations.filter(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && (a.clusterIds || []).includes(c.id));
+  const refut = secs.filter(a => isSecRefutational(a, c.id)).length;
+  if (refut === 0) return 'reciprocal';
+  return refut === secs.length ? 'refutational' : 'mixed';
+}
+function clusterTranslationLabel(c) {
+  const t = clusterTranslationType(c);
+  return t === 'refutational' ? 'Refutational' : t === 'mixed' ? 'Reciprocal + Refutational' : 'Reciprocal';
+}
 // Symbol for a study's contribution to a row (Table 2b, grid exports)
 function contribSymbol(docSecs, cid) {
   if (docSecs.length && isBaselineDocId(docSecs[0].docId)) return '◆';

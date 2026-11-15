@@ -6,6 +6,12 @@
 // ========================================================
 // JSON BACKUP & RESTORE + CSV EXPORT
 // ========================================================
+// Local time down to the second, safe for file names: 2026-11-15_143207
+function backupTimestamp(d = new Date()) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
 document.getElementById('backupJsonBtn').addEventListener('click', () => {
   const payload = {
     version: DB_VERSION,
@@ -24,7 +30,7 @@ document.getElementById('backupJsonBtn').addEventListener('click', () => {
   const a = document.createElement('a');
   a.href = url;
   const projSlug = state.projectCode ? `${state.projectCode}_` : '';
-  a.download = `meta_ethnography_${projSlug}${state.reviewerId || 'Reviewer'}_${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `meta_ethnography_${projSlug}${state.reviewerId || 'Reviewer'}_${backupTimestamp()}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   markBackupDone();
