@@ -6,7 +6,8 @@
     "vendor": "node tools/copy-vendor.mjs",
     "css": "tailwindcss -c tailwind.config.js -i tools/tailwind.input.css -o app/vendor/tailwind/tailwind.css --minify",
     "build": "npm run vendor && npm run css",
-    "serve": "http-server . -p 8080 -c-1"
+    "serve": "http-server . -p 8080 -c-1",
+    "sync-version": "node tools/sync-version.mjs"
   },
   "devDependencies": {
     "@phosphor-icons/web": "2.1.1",

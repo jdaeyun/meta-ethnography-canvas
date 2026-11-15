@@ -63,8 +63,10 @@ Test both ways after changes: `npm run serve` (http) and double-clicking me_canv
 (https://jdaeyun.github.io/meta-ethnography-canvas/) on every push to main that touches them. The pages sit next to
 the app, link to it as `me_canvas.html` and read `app/version.js` for version / DOI (js/site.js). When a change is
 visible in the UI or changes how something works, update the manual (and the 101 if relevant) in site/.
-Release checklist: update `app/version.js` and `CITATION.cff` (same version and date), commit, then publish a
-release tagged `vX.Y.Z`.
+Release checklist: edit ONLY `app/version.js` (version, released) and push to main. `tools/sync-version.mjs` (run by the
+`Sync version` workflow, or locally with `npm run sync-version`; `--check` only reports) copies it into CITATION.cff, README.md,
+me_canvas.html and the site pages (the fallback text of `<span data-mec="version">`). Wait for that workflow to finish, then publish
+a release tagged `vX.Y.Z` (use `vX.Y.Z-beta.N` and "pre-release" for beta versions).
 
 ## Rules
 
