@@ -137,8 +137,8 @@
             Because browser storage stays on your current computer and browser, clearing your browser data or switching computers will not carry your project over automatically.
           </p>
           <ul class="list-disc pl-6 space-y-1">
-            <li>Click <strong>Backup</strong> in the top bar at the end of each work session to download a lightweight <code>.json</code> project file.</li>
-<li>Use the <strong>Settings Menu (⚙️) ➔ Restore Project</strong> to load your <code>.json</code> backup on any computer. To respect publisher copyright and keep the backup file lightweight, PDF files themselves are not saved inside the <code>.json</code> file—simply drag and drop the original PDFs (with the same filenames) back onto the screen and they will reconnect to your highlights automatically!</li>
+            <li>Click <strong>Backup</strong> in the top bar at the end of each work session to download a small <code>.json</code> project file.</li>
+<li>Use the <strong>Settings Menu (⚙️) ➔ Restore Project</strong> to load your <code>.json</code> backup on any computer. To respect publisher copyright and keep the backup file small, PDF files themselves are not saved inside the <code>.json</code> file—simply drag and drop the original PDFs (with the same filenames) back onto the screen and they will reconnect to your highlights automatically!</li>
           </ul>
         </div>
       </div>
@@ -183,10 +183,14 @@
           Click the study header at the top of the right sidebar (<strong>✏️ Edit Study Info</strong>) to open the study information drawer:
         </p>
         <ul class="list-disc pl-6 space-y-2">
-          <li><strong>✨ Auto-fill (Page 1):</strong> Click the purple <strong>✨ Auto-fill (Page 1)</strong> button at the top of the drawer to automatically detect the First Author, Publication Year, and Full Title using the PDF's internal metadata and Page 1 layout heuristics.</li>
+          <li><strong>✨ Auto-fill (Page 1):</strong> Click the purple <strong>✨ Auto-fill (Page 1)</strong> button at the top of the drawer to automatically detect the First Author, Publication Year, and Full Title using the PDF's internal metadata and the layout of Page 1.</li>
           <li><strong>Quick Fill from Selection:</strong> While the Edit Study Info drawer is open, select any text in the PDF and click the quick buttons (<code>➔ Author</code>, <code>➔ Year</code>, <code>➔ Title</code>, <code>➔ Setting</code>, <code>➔ Sample</code>, <code>➔ Method</code>) in the popup menu—or drag selected text directly into the input boxes.</li>
           <li><strong>Quality Appraisal & Conceptual Depth:</strong> Choose your appraisal tool (<em>CASP</em>, <em>JBI</em>, <em>MMAT</em>, <em>ETQS</em>, <em>Dixon-Woods</em>, or <em>Custom</em>), select an overall quality rating (High / Moderate / Low / Not appraised), and rate the paper's <strong>Conceptual Depth (Richness)</strong> as <em>Rich (Detailed)</em>, <em>Moderate</em>, or <em>Thin (Basic / Descriptive)</em>.</li>
         </ul>
+        <figure class="my-4">
+          <img src="img/02-study-info.png" alt="The Edit Study Info drawer with author, year, subgroup, setting and sample filled in" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <figcaption class="text-xs text-slate-500 mt-1.5">The Edit Study Info drawer. The optional <strong>Subgroup</strong> field is used for subgroup translation (see 3.5).</figcaption>
+        </figure>
       </div>
 
       <hr class="border-slate-100">
@@ -196,6 +200,10 @@
         <p>
           Select any passage in the PDF with your mouse (multi-page selections across page breaks, such as <code>p.2-3</code>, are supported automatically). A dark popup bar will appear:
         </p>
+        <figure class="my-4">
+          <img src="img/01-extract.png" alt="Tab 1 with text selected in the PDF and the dark popup bar showing 1st Order and 2nd Order buttons" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <figcaption class="text-xs text-slate-500 mt-1.5">Tab 1: select text in the PDF, then choose 1st Order or 2nd Order from the popup bar. Extracted cards appear in the right sidebar.</figcaption>
+        </figure>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-3">
           <div class="p-4 rounded-xl bg-blue-50/70 border border-blue-200 space-y-1">
             <div class="font-bold text-blue-900">🟦 1st Order (Shortcut: Press <kbd class="px-1.5 py-0.5 bg-white border rounded text-xs shadow-2xs">1</kbd>)</div>
@@ -207,10 +215,10 @@
           </div>
         </div>
         <ul class="list-disc pl-6 space-y-2">
-          <li><strong>Manual Entry for Scanned / Non-OCR PDFs:</strong> If you are working with an older scanned PDF where text cannot be highlighted, use the <strong>Manual Entry (No-OCR)</strong> bar above the construct list (`+ 🟦 1st Order` / `+ 🟩 2nd Order`) to type or paste quotes and page numbers manually.</li>
+          <li><strong>Manual Entry for Scanned PDFs:</strong> If you are working with an older scanned PDF where text cannot be highlighted, use the <strong>Manual Entry (scanned PDFs)</strong> bar above the construct list (`+ 🟦 1st Order` / `+ 🟩 2nd Order`) to type or paste quotes and page numbers manually.</li>
           <li><strong>Switching Between 1st and 2nd Order:</strong> Tagged a quote as 1st Order when it should be 2nd Order (or vice versa)? Click the <strong>⇄ To 2nd</strong> or <strong>⇄ To 1st</strong> button on the card header to convert it in one click.</li>
           <li><strong>Linking Quotes to Concepts:</strong> Use the <strong>🔗 Link to 2nd Order...</strong> dropdown on a blue quote card, or drag the blue quote card and drop it directly onto a green 2nd Order card.</li>
-          <li><strong>Fixing Two-Column PDF Line Breaks:</strong> Click <strong>✏️ Edit Quote</strong> (or double-click the quote text) to clean up hyphenations, line breaks, or page headers.</li>
+          <li><strong>Fixing Two-Column PDF Line Breaks:</strong> Click <strong>✏️ Edit Quote</strong> (or double-click the quote text) to fix split words, line breaks, or page headers.</li>
           <li><strong>Private Reading Notes:</strong> Each card has a collapsible <strong>🌐 Reading & Nuance Notes (Private)</strong> box for personal reading memos or translation nuances—these auto-save quietly without cluttering your formal Audit Trail.</li>
         </ul>
       </div>
@@ -230,6 +238,10 @@
 
       <div class="space-y-4 text-slate-700">
         <h3 class="text-lg font-bold text-slate-900">3.1 Creating 3rd Order Theme Rows & Mapping Concepts</h3>
+        <figure class="my-4">
+          <img src="img/03-matrix.png" alt="Tab 2 matrix with two theme rows, a concept pool on the left and one column per study" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <figcaption class="text-xs text-slate-500 mt-1.5">Tab 2: the concept pool is on the left, and each study has its own column. Here the first theme row is marked Refutational.</figcaption>
+        </figure>
         <ul class="list-disc pl-6 space-y-2">
           <li><strong>Adding a Theme Row:</strong> Click <strong>+ Add Theme Row (3rd Order)</strong> at either the top-right toolbar or the <strong>bottom of the matrix table</strong>. You can also drag a 2nd Order card from the left pool onto the dashed drop zone to create a new row automatically.</li>
           <li><strong>Placing Concepts into the Matrix:</strong> Drag any 2nd Order concept from the left pool and drop it into a theme row. It will automatically snap into the column for its study! A single 2nd Order concept can be placed into multiple rows if it relates to more than one theme.</li>
@@ -249,7 +261,12 @@
         <ul class="list-disc pl-6 space-y-2">
           <li><strong>Inside Each Cell:</strong> Every concept card placed in the matrix has a toggle button at the top-left: <span class="text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded">🤝 Reciprocal</span>. Click it to switch the card to <span class="text-[11px] font-bold bg-rose-600 text-white px-1.5 py-0.5 rounded">⚡ Refutational</span> (the card turns rose-red) and add a note explaining why this study's finding contrasts with the others in that row.</li>
           <li><strong>Filter for Contradictions:</strong> Check the <strong>⚡ Contradictions Only</strong> toggle in the top toolbar to filter the matrix to rows containing refutational findings.</li>
+          <li><strong>Row type and cell type work together:</strong> Setting a whole row to <strong>⚡ Refutational</strong> does not change the cards inside it. If no study card in that row is marked ⚡ yet, a short tip appears. Click the badge on the card(s) that contrast or disagree. The comment box under a ⚡ card then asks you to explain <em>why</em> the study differs (for example country, setting, participants, or time period).</li>
         </ul>
+        <figure class="my-4">
+          <img src="img/03b-refutational.png" alt="A study card marked Refutational with a comment explaining the difference" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <figcaption class="text-xs text-slate-500 mt-1.5">A card marked ⚡ Refutational, with the reason for the difference written in the comment box.</figcaption>
+        </figure>
       </div>
 
       <hr class="border-slate-100">
@@ -275,6 +292,26 @@
           <li><strong>🔗 Research Aim & Overall Model Drawer:</strong> Click the purple <strong>🔗 Research Aim & Overall Model</strong> button in the top bar to open a drawer where you can keep your Phase 1 research question visible and write your overarching <strong>Line of Argument</strong> model. Click your 3rd Order theme chips (`+ [Theme Name]`) and arrow buttons (`➔`, `⇄`, `⚡`) to build a text diagram showing how your themes connect. Under <strong>Concept relationship map</strong>, add relations between themes to draw a circular or left-to-right map, and use <strong>Download .svg</strong> to save it.</li>
         </ul>
       </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">3.5 Translating Subgroup by Subgroup (Large or Mixed Reviews)</h3>
+        <p>
+          If your studies come from very different contexts (for example patient views and clinician views), you can translate within each subgroup first, then bring the subgroups together (eMERGe item 11).
+        </p>
+        <ol class="list-decimal pl-6 space-y-2">
+          <li>In Tab 1, open <strong>Edit Study Info</strong> for each study and type a label in <strong>Subgroup</strong> (for example <em>Patient views</em>). Studies with the same label belong to the same subgroup.</li>
+          <li>In Tab 2, the <strong>Papers on view</strong> bar shows one button per subgroup, such as <code>Subgroup: Patient views (2)</code>. Click one to show only those studies.</li>
+          <li>Build and translate your theme rows for that subgroup. Then click another subgroup button and repeat.</li>
+          <li>Click <strong>Show all</strong> to bring every study back and translate across the subgroups.</li>
+        </ol>
+        <p class="text-sm text-slate-600">Hiding studies only changes what you see. Nothing is deleted, and exports always include every study.</p>
+        <figure class="my-4">
+          <img src="img/04-subgroup-bar.png" alt="The Papers on view bar with one button for each subgroup" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <figcaption class="text-xs text-slate-500 mt-1.5">The Papers on view bar with the subgroup buttons.</figcaption>
+        </figure>
+      </div>
     </section>
 
     <!-- ========================================== -->
@@ -289,7 +326,7 @@
         The <em>eMERGe</em> guideline asks researchers to explain how interpretive decisions were made and how the researchers' own backgrounds influenced the synthesis (reflexivity).
       </p>
       <ul class="list-disc pl-6 space-y-2 text-slate-700">
-        <li><strong>Automatic Logging of Key Decisions:</strong> Whenever you create or rename a 3rd Order theme, change a study's order/Index Paper, mark a construct as Refutational, update CERQual ratings, or save your Line of Argument model, the app automatically logs a timestamped entry showing the <em>Before ➔ After</em> change.</li>
+        <li><strong>Automatic Logging of Key Decisions:</strong> Whenever you create or rename a 3rd Order theme, change a study's order/Index Paper, mark a construct as Refutational, update CERQual ratings, or save your Line of Argument model, the app automatically logs a dated entry showing the <em>Before ➔ After</em> change.</li>
         <li><strong>Adding Reflexive & Analytic Memos:</strong> Use the form on the left side of Tab 3 to record your personal clinical or academic lens (<em>Reflexivity</em>), notes from supervisor/team meetings, or reasons for grouping themes in a certain way.</li>
         <li><strong>Adding Reasons to Any Log Entry:</strong> Every item in the chronological timeline has a <code>+ Add reason for this decision...</code> box where you can type a quick rationale.</li>
         <li><strong>Filtering & Controlling Log Detail:</strong> Use the category dropdown in the top-right corner to filter logs by phase (e.g., <em>3rd Order Evolution</em>, <em>GRADE-CERQual</em>, <em>Team Concordance</em>). By default, routine drag-and-drop actions are hidden so your log stays focused on interpretive decisions; check <strong>Also log minor drag-and-drop actions</strong> if you want every quote link and card placement recorded.</li>
@@ -310,12 +347,16 @@
       <ol class="list-decimal pl-6 space-y-2 text-slate-700">
         <li><strong>Table 1 — Study Characteristics & Appraisal:</strong> Lists all included studies in your chosen translation order (#1 Index Paper first), along with setting, sample, methods, quality appraisal ratings, and conceptual depth.</li>
         <li><strong>Table 2 — Synthesis & Line of Argument:</strong> Shows each 3rd Order Theme, its translation type, your translation summary (Step A) and 3rd order interpretation (Step B), supporting 2nd Order concepts, illustrating 1st Order quotes (with page numbers), contributing studies, and CERQual confidence.</li>
-        <li><strong>Table 2b — Concept × Study Contribution Grid:</strong> A compact cross-tabulation matrix showing which primary studies contributed to each 3rd Order theme (<span class="font-bold">◆</span> = study #1, which establishes the rows; <span class="font-bold">●</span> = Reciprocal contribution; <span class="font-bold text-rose-700">⚡</span> = Refutational contribution; <code>—</code> = Not present), along with page numbers.</li>
+        <li><strong>Table 2b — Concept × Study Contribution Grid:</strong> A compact grid showing which primary studies contributed to each 3rd Order theme (<span class="font-bold">◆</span> = study #1, which establishes the rows; <span class="font-bold">●</span> = Reciprocal contribution; <span class="font-bold text-rose-700">⚡</span> = Refutational contribution; <code>—</code> = Not present), along with page numbers.</li>
         <li><strong>Table 3 — GRADE-CERQual SoQF Table:</strong> A Summary of Qualitative Findings (SoQF) and/or Evidence Profile showing all four CERQual domains and your explanation for each finding. Choose a combined table, SoQF only, Evidence Profile only, or two separate tables (3a / 3b) from the dropdown above the preview.</li>
         <li><strong>Appendix — Audit Trail:</strong> A chronological table of your interpretive decisions, team concordance records, and reflexive memos.</li>
       </ol>
+        <figure class="my-4">
+          <img src="img/05-export.png" alt="Tab 4 showing the Synthesis and Line of Argument table ready to export" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <figcaption class="text-xs text-slate-500 mt-1.5">Tab 4: choose a table, then copy it or download it.</figcaption>
+        </figure>
       <p class="text-slate-700 pt-2">
-        <strong>Export Options:</strong> Click <strong>Copy Rich Table</strong> to paste the currently viewed table directly into Microsoft Word or Google Docs with borders and formatting intact. You can also <strong>Copy Markdown</strong>, download the Methods Summary and all five tables together in a single landscape <strong>Word (.docx)</strong> document, or download a <strong>Raw CSV</strong> of your entire synthesis matrix.
+        <strong>Export Options:</strong> Click <strong>Copy Rich Table</strong> to paste the currently viewed table directly into Microsoft Word or Google Docs with borders and formatting intact. You can also <strong>Copy Markdown</strong>, download the Methods Summary and all five tables together in a single landscape <strong>Word (.docx)</strong> document, or download a <strong>Raw CSV</strong> of your entire synthesis matrix. In the Word file, a blue note under <em>Concept relationships</em> reminds you to add the concept map picture: download it as .svg from the Line of Argument drawer and insert it as a figure.
       </p>
     </section>
 
@@ -329,9 +370,9 @@
       </div>
 
       <div class="space-y-4 text-slate-700">
-        <h3 class="text-lg font-bold text-slate-900">6.1 Asynchronous Team Workflow & Comparison (Compare Button)</h3>
+        <h3 class="text-lg font-bold text-slate-900">6.1 Working Separately, Then Comparing (Compare Button)</h3>
         <p>
-          To respect publisher copyright and keep backup files lightweight, <strong>PDF files themselves are not saved inside <code>.json</code> backups</strong>. Because the app reconnects PDFs by matching their <strong>filenames</strong>, we strongly recommend the following workflow when working with co-reviewers across institutions:
+          To respect publisher copyright and keep backup files small, <strong>PDF files themselves are not saved inside <code>.json</code> backups</strong>. Because the app reconnects PDFs by matching their <strong>filenames</strong>, we strongly recommend the following workflow when working with co-reviewers across institutions:
         </p>
 
         <!-- Recommended Team Setup Box -->
@@ -351,7 +392,7 @@
               <strong>Co-Reviewers Restore & Reconnect PDFs:</strong> Co-reviewers open the app, set their own <strong>Reviewer ID</strong>, and load the starter <code>.json</code> via <strong>Settings (⚙️) ➔ Restore Project</strong>. They then drag and drop the PDFs from the shared folder into the window—the app will automatically link every PDF to its study entry by filename.
             </li>
             <li>
-              <strong>Extract Independently, Then Compare & Merge:</strong> After each reviewer extracts quotes and concepts on their own computer, have your co-reviewer click <strong>Backup</strong> and send you their <code>.json</code> file. Click the teal <strong>Compare</strong> button in the top bar and drop their file in to review <strong>Divergent Interpretations</strong> and <strong>Unique Extractions</strong>, then <strong>Import & Agree</strong>, <strong>Import as Discuss</strong>, or <strong>Interleave Audit Logs</strong> in one click.
+              <strong>Extract Independently, Then Compare & Merge:</strong> After each reviewer extracts quotes and concepts on their own computer, have your co-reviewer click <strong>Backup</strong> and send you their <code>.json</code> file. Click the teal <strong>Compare</strong> button in the top bar and drop their file in to review <strong>Divergent Interpretations</strong> and <strong>Unique Extractions</strong>, then <strong>Import & Agree</strong>, <strong>Import as Discuss</strong>, or <strong>Merge Audit Logs</strong> in one click.
             </li>
           </ol>
         </div>

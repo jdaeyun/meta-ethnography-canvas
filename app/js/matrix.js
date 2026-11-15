@@ -291,6 +291,15 @@ function renderStudyVisibilityBar() {
     state.hiddenStudyIds = new Set(state.docs.slice(1).map(d => d.id));
     refreshAfterVisibilityChange();
   }));
+  const groups = [...new Set(state.docs.map(d => (d.group || '').trim()).filter(Boolean))];
+  groups.forEach(g => {
+    const members = state.docs.filter(d => (d.group || '').trim() === g);
+    bar.appendChild(mk(`Subgroup: ${g} (${members.length})`, 'Show only this subgroup (subgroup-first translation, eMERGe 11). Click "Show all" afterwards to synthesise across subgroups.', () => {
+      const keep = new Set(members.map(d => d.id));
+      state.hiddenStudyIds = new Set(state.docs.filter(d => !keep.has(d.id)).map(d => d.id));
+      refreshAfterVisibilityChange();
+    }));
+  });
   if (hiddenCount > 0) {
     const note = document.createElement('span');
     note.className = 'text-slate-400 ml-1';
@@ -863,6 +872,13 @@ function renderMatrixTable() {
           fromVal: oldType,
           toVal: newType
         });
+        if (newType === 'refutational') {
+          const hasRefutCell = state.annotations.some(a => a.type === 'second_order' && isSecRefutational(a, cluster.id) && (a.clusterIds || []).includes(cluster.id));
+          const hasOtherCell = state.annotations.some(a => a.type === 'second_order' && (a.clusterIds || []).includes(cluster.id) && !isBaselineDocId(a.docId));
+          if (!hasRefutCell && hasOtherCell) {
+            showSnackbar('Tip: click the 🤝 badge on the study card(s) that contrast or refute to mark them as ⚡ Refutational.');
+          }
+        }
       }
     };
 

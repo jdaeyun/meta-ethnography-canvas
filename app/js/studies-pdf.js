@@ -513,6 +513,7 @@ function populateMetaEditInputs() {
   document.getElementById('metaTitle').value = doc.title || '';
   document.getElementById('metaSetting').value = doc.setting || '';
   document.getElementById('metaParticipants').value = doc.participants || '';
+  document.getElementById('metaGroup').value = doc.group || '';
   document.getElementById('metaMethodology').value = doc.methodology || '';
   document.getElementById('metaFunder').value = doc.funder || '';
   const compSel = document.getElementById('metaCompanionOf');
@@ -541,6 +542,8 @@ async function saveCurrentMeta() {
   doc.title = document.getElementById('metaTitle').value.trim();
   doc.setting = document.getElementById('metaSetting').value.trim();
   doc.participants = document.getElementById('metaParticipants').value.trim();
+  const prevGroup = doc.group || '';
+  doc.group = document.getElementById('metaGroup').value.trim();
   doc.methodology = document.getElementById('metaMethodology').value.trim();
   doc.appraisalTool = document.getElementById('metaAppraisalTool').value || 'CASP';
   doc.quality = document.getElementById('metaQuality').value;
@@ -553,6 +556,16 @@ async function saveCurrentMeta() {
   const newSummary = `${doc.appraisalTool}:${doc.quality || 'None'}| Richness:${doc.richness || 'None'}`;
 
   await dbPut('docs', doc);
+
+  if (prevGroup !== doc.group) {
+    await recordAuditLog({
+      category: 'context_appraisal',
+      action: `Set subgroup for ${getDisplayName(doc)}`,
+      fromVal: prevGroup || '(none)',
+      toVal: doc.group || '(none)'
+    });
+    if (typeof renderStudyVisibilityBar === 'function') renderStudyVisibilityBar();
+  }
 
   if (prevSummary !== newSummary) {
     await recordAuditLog({

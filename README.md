@@ -6,17 +6,17 @@
 [![Documentation](https://img.shields.io/badge/Docs_&_Manual-Read_Online-0d9488?style=for-the-badge&logo=readthedocs&logoColor=white)](https://jdaeyun.github.io/meta-ethnography-canvas/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-slate.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-**Meta-Ethnography Canvas** is an open-source, zero-backend, single-window browser workspace for conducting **Meta-Ethnography** qualitative evidence synthesis (QES), with reporting outputs structured around the **eMERGe reporting guidance** (France et al., 2019).
+**Meta-Ethnography Canvas** is a free, open-source workspace for doing a **meta-ethnography** (a type of qualitative evidence synthesis). It runs in one browser window, with no server and no account. Its reports follow the **eMERGe reporting guidance** (France et al., 2019).
 
-It bridges the methodological gap between full-text PDF coding and cross-study spreadsheet matrices—keeping 1st, 2nd, and 3rd order constructs, contextual appraisals, GRADE-CERQual assessments, and bidirectional PDF page links in a single local-first environment.
+It puts two jobs in one place: coding full-text PDFs, and comparing studies in a synthesis matrix. It keeps 1st, 2nd and 3rd order constructs, quality appraisals, GRADE-CERQual ratings and links back to the exact PDF page together on your own computer.
 
-> 📌 **Scope Note:** This tool is designed for the **post-screening synthesis phases** (*eMERGe* Phases 1 and 3–7; Phase 1 aim/review question is recorded in Project Setup). Complete your database searching, deduplication, and title/abstract screening in your preferred SR tool (e.g., Rayyan, Covidence, Zotero) first, then import your final included full-text PDFs into this workspace.
+> 📌 **Scope note:** This tool is for the **synthesis steps after screening** (eMERGe Phases 1 and 3–7; the Phase 1 aim and review question are saved in Project Setup). Do your database searching, duplicate removal and title/abstract screening in another tool first (for example Rayyan, Covidence or Zotero). Then bring your final included full-text PDFs here.
 
 ---
 
 ## 🚀 Live Application & Documentation
 
-No installation, build step, or user account required. Run directly in your desktop browser:
+Nothing to install and no account needed. Open it in a desktop browser:
 
 * **👉 [Launch Meta-Ethnography Canvas (`me_canvas.html`)](https://jdaeyun.github.io/meta-ethnography-canvas/me_canvas.html)**
 * **📘 [1. Overview & Motivation](https://jdaeyun.github.io/meta-ethnography-canvas/index.html)**
@@ -25,39 +25,40 @@ No installation, build step, or user account required. Run directly in your desk
 
 ---
 
-## ✨ Core Workflow Summary (4-Tab Architecture)
+## ✨ How It Works (4 Tabs)
 
 1. **Tab 1 — Extract & Context (Phases 2–3):**
-   Read primary study PDFs, auto-extract Page 1 citation metadata, record multi-framework critical appraisal (`CASP`, `JBI`, `MMAT`, `ETQS`, `Dixon-Woods`, or a custom tool) and conceptual richness, and extract **1st Order** (participant quotes) and **2nd Order** (author concepts) constructs with multi-page highlight support (plus manual entry for non-OCR scans).
+   Read the PDFs and fill in each study's details. Page 1 can be read automatically for author, year and title. Record quality appraisal (`CASP`, `JBI`, `MMAT`, `ETQS`, `Dixon-Woods`, or your own tool) and how rich each study is. Highlight **1st Order** constructs (participant quotes) and **2nd Order** constructs (the authors' concepts), including across page breaks. You can also type them in by hand for scanned PDFs without text. Add an optional **Subgroup** label to each study if you want to translate group by group.
 2. **Tab 2 — Synthesis Matrix, Line of Argument & CERQual (Phases 4–6):**
-   Order studies chronologically or by conceptual richness to designate the **Index Paper (#1)**. Map 2nd Order constructs into **3rd Order Theme** rows, toggle cell-level **Reciprocal (🤝)** vs. **Refutational (⚡)** translations, jump back to exact PDF highlights in one click, build an overarching **Line of Argument** model (with a concept relationship map exportable as `.svg`), and evaluate **GRADE-CERQual** confidence (all domains default to *Not assessed*).
-3. **Tab 3 — Audit Trail & Team Concordance (Transparency & Reflexivity):**
-   Automatically log interpretive milestones (study re-ordering, construct evolution, CERQual rationales), record reflexive positionality memos, and asynchronously compare/merge `.json` project files across multiple reviewers.
-4. **Tab 4 — Manuscript Table Export (Phase 7):**
-   Generate an auto-compiled **eMERGe Methods Summary** with the 19-item eMERGe checklist mapping, **Table 1** (Study Characteristics), **Table 2** (1st/2nd/3rd Order Synthesis), **Table 2b** (Concept × Study Contribution Grid `● / ⚡`), **Table 3** (GRADE-CERQual SoQF and/or Evidence Profile, selectable layout), and **Appendix A** (Audit Trail). Export via Rich Clipboard Copy, Markdown, CSV, or native landscape **Word (`.docx`)**.
+   Order the studies (by year or by richness) and choose the **Index Paper (#1)**. Drag 2nd Order constructs into **3rd Order Theme** rows. Mark each study's card as **Reciprocal (🤝)** or **Refutational (⚡)**, and explain why a study differs. Jump back to the exact PDF page in one click. Show one subgroup at a time, then all studies together. Build your **Line of Argument** (the concept map can be saved as `.svg`) and rate confidence with **GRADE-CERQual** (every domain starts as *Not assessed*).
+3. **Tab 3 — Audit Trail & Team Comparison (Transparency & Reflexivity):**
+   Your main decisions are logged automatically (changing study order, changing a theme, CERQual reasons). Add reflexive memos about your own position. Compare and merge the `.json` project files of several reviewers, each working on their own.
+4. **Tab 4 — Export Tables for Your Manuscript (Phase 7):**
+   Create an **eMERGe Methods Summary** with the 19-item checklist, **Table 1** (study characteristics), **Table 2** (synthesis), **Table 2b** (which study contributes to which theme, `● / ⚡`), **Table 3** (GRADE-CERQual summary and/or evidence profile) and **Appendix A** (audit trail). Copy a table, or download Markdown, CSV or a landscape **Word (`.docx`)** file.
 
 ---
 
-## 🏗️ Software Architecture & Technical Highlights
+## 🏗️ How It Is Built
 
-Meta-Ethnography Canvas (`me_canvas.html`) is intentionally architected as a **dependency-light, zero-build, single-file Vanilla JavaScript application** to guarantee long-term academic reproducibility, data privacy, and zero hosting maintenance.
+Meta-Ethnography Canvas is a **plain HTML and JavaScript** app with **no build step needed to run it**. This keeps it easy to reproduce years later, keeps your data private, and costs nothing to host.
 
-### 1. 100% Client-Side & Privacy-First Persistence (`IndexedDB` Store Separation)
-* **Zero Server Uploads:** All unpublished manuscripts, copyrighted full-text PDFs, and synthesis notes remain strictly inside the user's browser (`MetaEthnoCanvasDB`, Schema v6).
-* **Binary / Metadata Decoupling:** Raw PDF `ArrayBuffer` payloads are isolated in a dedicated `pdf_binaries` object store, separate from lightweight metadata stores (`docs`, `annotations`, `clusters`, `logs`, `meta`).
-* **Lightweight `.json` Snapshots & Auto-Relinking:** Exporting a project backup serializes only the analytical state (excluding heavy PDF binaries). When restoring or sharing a `.json` file with a co-reviewer, dropping the matching PDFs onto the window automatically relinks binaries to existing coordinate highlights by filename.
-* **Cross-Project Contamination Guard:** Each workspace enforces a sanitized `projectCode` identifier to prevent accidental `.json` merges across different systematic review projects.
+### 1. Your data stays on your computer
+* **No uploads:** Your PDFs and notes never leave your browser. They are saved in the browser's built-in database (IndexedDB).
+* **PDFs are stored separately:** The PDF files are kept apart from the notes, highlights and themes.
+* **Small backup files:** A `.json` backup holds your analysis but not the PDFs. To restore a backup or share it with a co-reviewer, drop the same PDFs onto the window. They are matched by file name and the highlights reappear.
+* **Project code:** Each project has a project code. If you try to load a backup with a different code, the app warns you, so two reviews are not mixed by mistake.
 
-### 2. Memory-Safe PDF Virtualization & Coordinate Normalization
-* **Lazy Rendering & Canvas Eviction:** Built on `PDF.js` (`v3.11.174`) with full CMap/UTF-8 font support. An `IntersectionObserver` renders only pages near the active viewport (`±600px`) and actively evicts rendered `<canvas>` and `.textLayer` DOM nodes more than 10 pages away, preventing browser out-of-memory crashes even with 30+ full-text qualitative papers loaded.
-* **Resolution-Independent Highlights:** Multi-page text selections are converted into viewport-normalized bounding boxes (`[0..1]` relative coordinates) and merged via a custom line-coalescing algorithm (`mergeHighlightRects`), ensuring highlights remain pixel-accurate across any zoom level (`50%`–`300%`).
-* **Hybrid Page-1 Citation Parser:** Combines PDF Info/XMP metadata inspection with spatial Y-coordinate line bucketing and font-height heuristics on Page 1 to auto-detect First Author, Publication Year, and Full Title.
+### 2. PDF reading
+* **Fast with many papers:** PDFs are shown with `PDF.js` (`v3.11.174`). Only the pages near your screen are drawn, and pages far away are removed from memory. This keeps the browser stable with 30 or more papers.
+* **Highlights at any zoom:** Highlights are saved as positions relative to the page, so they stay in the right place at any zoom (50%–300%).
+* **Automatic citation details:** The app reads the PDF's own metadata and the layout of page 1 to guess the first author, year and title. You can always correct them.
 
-### 3. Serverless Multi-Reviewer Diff & Merge Engine
-* **Unicode-Aware Fuzzy Matching:** Co-reviewers working independently can compare `.json` backups in-browser. The concordance engine (`computeTextSimilarity`) combines NFC Unicode normalization, token-set overlap, and character bigram similarity (supporting both Latin and non-spaced CJK scripts) plus page-proximity weighting to pair up independently extracted constructs, sort them into aligned, divergent, and single-reviewer items for team discussion (no agreement statistic is computed), and interleave audit logs chronologically.
+### 3. Comparing reviewers (no server)
+* **Fuzzy matching:** Co-reviewers can compare their `.json` backups in the browser. The app scores how similar two extracted passages are by looking at shared words, shared letter pairs (this also works for Japanese and Chinese text) and whether they are on the same page. A concept that one reviewer wrapped around a 1st Order quote is compared by the quote itself, so it can match a 2nd Order concept the other reviewer took from the same passage. Items are sorted into matched, different and single-reviewer lists for your team to discuss. No agreement statistic is calculated.
 
-### 4. Client-Side OpenXML (`.docx`) Generation
-* Uses `docx.js` (`v8.5.0`) to compile the Methods Summary, eMERGe checklist mapping, and all synthesis and GRADE-CERQual tables into a single landscape OpenXML Word document directly in memory, alongside `ClipboardItem` rich HTML/plain-text dual-MIME copying for one-click pasting into Word or Google Docs.
+### 4. Word export in the browser
+* **Word file:** `docx.js` (`v8.5.0`) builds the Word file on your computer. It holds the Methods Summary, the checklist and all tables.
+* **Copy to Word or Google Docs:** The copy button puts both a formatted table and plain text on the clipboard, so you can paste straight in.
 
 ---
 
@@ -65,25 +66,31 @@ Meta-Ethnography Canvas (`me_canvas.html`) is intentionally architected as a **d
 
 ```text
 meta-ethnography-canvas/
-├── me_canvas.html              # Core single-file web application (HTML5 + Vanilla JS + IndexedDB)
-├── index.html                  # Documentation Part 1: Overview & Motivation
-├── manual.html                 # Documentation Part 2: Step-by-Step User Manual
-├── meta-ethnography-101.html   # Documentation Part 3: Methodology Primer & eMERGe Mapping
-├── CITATION.cff                # GitHub academic citation metadata
-├── LICENSE                     # MIT License
-└── README.md                   # Technical overview & repository guide
+├── me_canvas.html        # The app page (the screens)
+├── app/                  # App code (js/), styles (css/), version.js, and bundled libraries (vendor/)
+├── site/                 # Website pages: index, manual (with screenshots in img/), Meta-Ethnography 101
+├── tools/                # Build helpers and the offline-edition readme
+├── CITATION.cff          # How to cite this software
+├── LICENSE               # MIT License
+└── README.md             # This file
 ```
 
 ### Running Locally
 
-Because the application uses standard browser APIs and CDN-hosted libraries, you can run it locally simply by cloning the repository and opening `me_canvas.html` in any modern desktop browser (or serving the directory via `npx serve` . or `python3 -m http.server`).
+You do not need to install anything. Download or clone the repository and double-click `me_canvas.html`. It works offline in any modern desktop browser. To serve it from a local web address instead, run `npm install` once and then `npm run serve`, or use `python3 -m http.server`.
 
-### Third-Party Libraries (Loaded via CDN)
+### Offline Edition
 
-* [PDF.js](https://mozilla.github.io/pdf.js/) (`v3.11.174`, Apache-2.0) — PDF rendering, text layer extraction, and CMap support
-* [docx](https://docx.js.org/) (`v8.5.0`, MIT) — Client-side `.docx` manuscript table generation
-* [Tailwind CSS](https://tailwindcss.com/) (`v3.4.17`, MIT) — UI styling
-* [Phosphor Icons](https://phosphoricons.com/) (`v2.1.1`, MIT) — Interface iconography
+Each release includes a ZIP file (`meta-ethnography-canvas-offline.zip`) that runs fully offline. This is useful on hospital or university networks that block websites.
+
+### Third-Party Libraries (Bundled in `app/vendor/`)
+
+No internet connection is needed. The libraries are included in the repository.
+
+* [PDF.js](https://mozilla.github.io/pdf.js/) (`v3.11.174`, Apache-2.0) — shows PDFs and reads their text
+* [docx](https://docx.js.org/) (`v8.5.0`, MIT) — builds the Word file
+* [Tailwind CSS](https://tailwindcss.com/) (`v3.4.17`, MIT) — page styling
+* [Phosphor Icons](https://phosphoricons.com/) (`v2.1.1`, MIT) — icons
 
 ## 🎓 How to Cite
 
