@@ -1,5 +1,5 @@
 // Builds the merged demo project: Reviewer A extracts, merges Reviewer B's file (Compare), then does the synthesis.
-import { chromium, openApp, loadPdfs, selectStudy, fillMeta, extractPaper, downloadBackup } from './extract-lib.mjs';
+import { chromium, openApp, loadPdfs, selectStudy, fillMeta, extractPaper, downloadBackup, verifyHighlights } from './extract-lib.mjs';
 import { DOCS, ITEMS } from './project-spec.mjs';
 import { ROWS, LOA, MEMOS } from './synthesis-spec.mjs';
 const [,, url, pdfDir, peerJson, out, shotDir] = process.argv;
@@ -27,6 +27,7 @@ while (await p.locator('#compareTabContent .imp-agree').count() > 0) {
   if (/Exhaustion is part of nursing/.test(txt)) await card.locator('.imp-discuss').click(); else await btn.click();
   await p.waitForTimeout(500);
 }
+// (Reviewer B's audit trail is merged automatically when the first construct is adopted.)
 if (shotDir) await p.screenshot({ path: shotDir + '/cmp2.png' });
 await p.click('#closeCompareModalBtn'); await p.waitForTimeout(400);
 console.log('annotations after merge:', await p.evaluate(() => state.annotations.length));
@@ -98,6 +99,8 @@ for (const m of MEMOS) {
   await p.fill('#memoContentInput', m.text); await p.click('#addMemoBtn'); await p.waitForTimeout(400);
 }
 await p.click('#viewExtractBtn'); await p.waitForTimeout(300);
+const bad = await verifyHighlights(p, DOCS.length);
+if (bad.length) { console.log('MISPLACED HIGHLIGHTS:', JSON.stringify(bad)); process.exit(1); }
 await downloadBackup(p, out);
 console.log('A done; errors:', p.errs.length ? p.errs : 'none');
 await b.close();

@@ -878,15 +878,21 @@ function mergeHighlightRects(normRects) {
     }
   }
 
-  // Step 2: Clamp vertical overlap between consecutive lines so bands never double-darken
+  // Step 2: Make consecutive lines of one passage meet (no overlap, no gap), like a highlighter pen.
+  // Each line is joined to the nearest earlier line above it that overlaps it horizontally.
   for (let i = 1; i < lines.length; i++) {
-    const prev = lines[i - 1];
     const curr = lines[i];
-    const horizOverlap = Math.min(prev.right, curr.right) - Math.max(prev.left, curr.left);
-    if (horizOverlap > 0 && curr.top < prev.bottom) {
-      const mid = (prev.bottom + curr.top) / 2;
-      prev.bottom = mid;
-      curr.top = mid;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = lines[j];
+      const horizOverlap = Math.min(prev.right, curr.right) - Math.max(prev.left, curr.left);
+      if (horizOverlap <= 0) continue;
+      const lineH = prev.bottom - prev.top;
+      if (curr.top - prev.bottom < lineH) {
+        const mid = (prev.bottom + curr.top) / 2;
+        prev.bottom = mid;
+        curr.top = mid;
+      }
+      break;
     }
   }
 
