@@ -3,7 +3,7 @@
 // (index.html, manual.html, meta-ethnography-101.html) after it is synced to jdaeyun.github.io.
 // Keep `version` and `released` identical to CITATION.cff; the sync workflow checks this.
 window.ME_CANVAS = {
-  version: '1.3.2-beta.1',
+  version: '1.3.4-beta.3',
   released: '2026-11-15',
   conceptDoi: '10.5281/zenodo.24200375' // "Cite all versions" DOI: never changes between releases
 };
