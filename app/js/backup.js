@@ -90,28 +90,20 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
           (data.clusters && !Array.isArray(data.clusters)) || (data.logs && !Array.isArray(data.logs))) {
         throw new Error('Backup file structure is invalid (docs / annotations / clusters / logs must be arrays). Nothing was changed.');
       }
-      // Snapshot every store so a failed restore can be rolled back
+      // Snapshot the project data (NOT the PDFs) so a failed restore can be rolled back.
+      // PDFs stay untouched in IndexedDB during the restore and are matched by id / file name below,
+      // so memory use does not depend on how many PDFs are stored.
       const rollbackSnapshot = {};
-      for (const st of ['docs', 'pdf_binaries', 'annotations', 'clusters', 'logs', 'meta']) {
+      for (const st of ['docs', 'annotations', 'clusters', 'logs', 'meta']) {
         rollbackSnapshot[st] = await dbGetAll(st);
       }
       const rollbackState = { docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: state.logs, loa: state.loa };
+      const oldDocs = state.docs.slice();
+      const oldBinKeys = new Set(await dbGetAllKeys('pdf_binaries'));
+      const addedBinKeys = [];
       try {
-      // Preserve existing PDF ArrayBuffers from pdf_binaries by id or filename
-      const allBins = rollbackSnapshot['pdf_binaries'];
-      const binaryCacheById = {};
-      const binaryCacheByName = {};
-      state.docs.forEach(oldDoc => {
-        const foundBin = allBins.find(b => b.id === oldDoc.id);
-        if (foundBin && foundBin.data && foundBin.data.byteLength > 0) {
-          binaryCacheById[oldDoc.id] = foundBin.data;
-          if (oldDoc.name) binaryCacheByName[oldDoc.name.toLowerCase()] = foundBin.data;
-        }
-      });
-
       await Promise.all([
         dbClear('docs'),
-        dbClear('pdf_binaries'),
         dbClear('annotations'),
         dbClear('clusters'),
         dbClear('logs'),
@@ -126,12 +118,18 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
 
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);
-        const cachedBin = binaryCacheById[d.id] || (d.name ? binaryCacheByName[d.name.toLowerCase()] : null);
-        if (cachedBin) {
+        // Same id: the stored PDF is already attached. Otherwise match by file name and copy ONE PDF at a time under the new id.
+        d.hasBinary = false;
+        if (oldBinKeys.has(d.id)) {
           d.hasBinary = true;
-          await dbPut('pdf_binaries', { id: d.id, data: cachedBin });
-        } else {
-          d.hasBinary = false;
+        } else if (d.name) {
+          const oldMatch = oldDocs.find(o => o.name && o.name.toLowerCase() === d.name.toLowerCase() && oldBinKeys.has(o.id));
+          const rec = oldMatch ? await dbGet('pdf_binaries', oldMatch.id) : null;
+          if (rec && rec.data && rec.data.byteLength > 0) {
+            await dbPut('pdf_binaries', { id: d.id, data: rec.data });
+            addedBinKeys.push(d.id);
+            d.hasBinary = true;
+          }
         }
         await dbPut('docs', d);
         state.docs.push(d);
@@ -154,6 +152,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         // Roll back to the workspace as it was before the restore started
         console.error('Restore failed, rolling back:', restoreErr);
         try {
+          for (const id of addedBinKeys) await dbDelete('pdf_binaries', id);
           for (const st of Object.keys(rollbackSnapshot)) {
             await dbClear(st);
             for (const item of rollbackSnapshot[st]) await dbPut(st, item);
@@ -165,6 +164,11 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         }
         throw new Error(`${restoreErr.message}\n\nYour previous workspace has been restored unchanged.`);
       }
+      // Success: drop PDFs that no restored study refers to (id-based; one key at a time)
+      try {
+        const keep = new Set(state.docs.map(d => d.id));
+        for (const key of await dbGetAllKeys('pdf_binaries')) if (!keep.has(key)) await dbDelete('pdf_binaries', key);
+      } catch (cleanupErr) { console.warn('Could not remove unreferenced PDFs:', cleanupErr); }
     } else {
       // Map backup doc IDs -> local doc IDs (a filename match keeps the LOCAL id, so PDF binaries and local constructs stay attached)
       const mergeDocIdMap = {};

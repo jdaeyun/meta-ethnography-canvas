@@ -188,6 +188,16 @@ async function dbGetAll(store) {
     req.onerror = () => reject(tx.error);
   });
 }
+// Keys only (no values): lets us compare stored PDFs without loading any PDF bytes into memory
+async function dbGetAllKeys(store) {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAllKeys();
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = () => reject(tx.error);
+  });
+}
 async function dbDelete(store, key) {
   const db = await initDB();
   return new Promise((resolve, reject) => {
