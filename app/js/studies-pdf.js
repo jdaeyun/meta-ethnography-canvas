@@ -52,6 +52,7 @@ async function handleFiles(files) {
     lastAffectedId = doc.id;
   }
   renderStudyList();
+  if (typeof refreshMissingPdfModal === 'function') refreshMissingPdfModal();
   if (lastAffectedId) switchStudy(lastAffectedId);
 }
 

@@ -237,7 +237,8 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     }
     renderMatrixView();
     if (replaceCleanly) markBackupDone();
-    alert(replaceCleanly ? 'Backup cleanly restored!' : 'Backup merged successfully!');
+    if (state.docs.some(d => !d.hasBinary)) showMissingPdfModal();
+    else alert(replaceCleanly ? 'Backup cleanly restored!' : 'Backup merged successfully!');
   } catch (err) {
     alert('Failed to restore JSON: ' + err.message);
   }
@@ -299,3 +300,27 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
     titleText: 'New Project Setup & Phase 1 (Getting Started)'
   });
 });
+
+// ---- After a restore: list the studies whose PDF is not stored in this browser and offer to import them ----
+function refreshMissingPdfModal() {
+  const modal = document.getElementById('missingPdfModal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  const missing = state.docs.filter(d => !d.hasBinary);
+  if (missing.length === 0) { closeMissingPdfModal(); showSnackbar('All PDFs reconnected.'); return; }
+  document.getElementById('missingPdfList').innerHTML = missing
+    .map(d => `<li class="truncate" title="${escapeHtml(d.name || '')}">• ${escapeHtml(d.name || getDisplayName(d))}</li>`).join('');
+}
+function showMissingPdfModal() {
+  const modal = document.getElementById('missingPdfModal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  refreshMissingPdfModal();
+}
+function closeMissingPdfModal() {
+  const modal = document.getElementById('missingPdfModal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+document.getElementById('missingPdfCloseBtn').addEventListener('click', closeMissingPdfModal);
+document.getElementById('missingPdfLaterBtn').addEventListener('click', closeMissingPdfModal);
+document.getElementById('missingPdfSelectBtn').addEventListener('click', () => document.getElementById('pdfFileInput').click());
