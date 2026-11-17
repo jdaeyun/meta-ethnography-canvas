@@ -1347,15 +1347,15 @@ async function sortStudiesByMode(mode) {
     state.docs.sort((a, b) => {
       const rDiff = (richScore[b.richness] || 0) - (richScore[a.richness] || 0);
       if (rDiff !== 0) return rDiff;
-      const qDiff = (qualScore[b.quality] || 0) - (qualScore[a.quality] || 0);
-      if (qDiff !== 0) return qDiff;
-      return (parseInt(a.year, 10) || 9999) - (parseInt(b.year, 10) || 9999);
+      return (qualScore[b.quality] || 0) - (qualScore[a.quality] || 0);
+      // Ties keep their current order (stable sort), so an order you set by hand survives the next sort.
     });
   }
 
   const newOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
   if (oldOrderStr === newOrderStr) {
     showSnackbar('Studies are already in this order.');
+    if (mode === 'richness') await offerRichnessTieOrdering();
     return;
   }
 
@@ -1381,7 +1381,98 @@ async function sortStudiesByMode(mode) {
   renderStudyList();
   if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   showSnackbar(mode === 'year' ? 'Sorted studies chronologically (Year ▲)' : 'Sorted studies by Richness & Quality (★)');
+  if (mode === 'richness') await offerRichnessTieOrdering();
 }
+
+// ---- Studies tied on Richness + Quality: let the reviewer decide their order (and so the Index Paper if the top group is tied) ----
+function richnessTieGroups() {
+  const groups = [];
+  let i = 0;
+  while (i < state.docs.length) {
+    const key = d => (d.richness || '') + '|' + (d.quality || '');
+    let j = i + 1;
+    while (j < state.docs.length && key(state.docs[j]) === key(state.docs[i])) j++;
+    if (j - i > 1) groups.push({ start: i, docs: state.docs.slice(i, j) });
+    i = j;
+  }
+  return groups;
+}
+
+let richTieWork = null;
+function renderRichnessTieModal() {
+  const box = document.getElementById('richTieGroups');
+  box.innerHTML = '';
+  richTieWork.forEach((g, gi) => {
+    const first = g.docs[0];
+    const wrap = document.createElement('div');
+    wrap.className = 'border border-slate-200 rounded-lg p-2 bg-slate-50 space-y-1';
+    wrap.innerHTML = `<div class="font-bold text-slate-700">${escapeHtml(first.richness || 'Richness not rated')} · ${escapeHtml(first.quality || 'quality not rated')} <span class="font-normal text-slate-400">(${g.docs.length} tied, positions #${g.start + 1}–#${g.start + g.docs.length})</span>${g.start === 0 ? ' <span class="text-amber-700">· the first one becomes the Index Paper</span>' : ''}</div>`;
+    g.docs.forEach((d, di) => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center justify-between gap-2 bg-white border border-slate-200 rounded px-2 py-1';
+      row.innerHTML = `<span class="truncate" title="${escapeHtml(getDisplayName(d))}"><span class="text-slate-400 font-mono">#${g.start + di + 1}</span> ${escapeHtml(getDisplayName(d))}</span>
+        <span class="flex items-center space-x-1 shrink-0">
+          <button type="button" class="tie-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${di === 0 ? 'disabled' : ''}>▲</button>
+          <button type="button" class="tie-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${di === g.docs.length - 1 ? 'disabled' : ''}>▼</button>
+        </span>`;
+      const swap = (a, b) => { [g.docs[a], g.docs[b]] = [g.docs[b], g.docs[a]]; renderRichnessTieModal(); };
+      row.querySelector('.tie-up').onclick = () => swap(di, di - 1);
+      row.querySelector('.tie-down').onclick = () => swap(di, di + 1);
+      wrap.appendChild(row);
+    });
+    box.appendChild(wrap);
+  });
+  document.getElementById('richTieReasonWrap').classList.toggle('hidden', !richTieWork.some(g => g.start === 0));
+}
+
+function closeRichnessTieModal() {
+  const modal = document.getElementById('richTieModal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  richTieWork = null;
+}
+
+async function offerRichnessTieOrdering() {
+  const groups = richnessTieGroups();
+  if (groups.length === 0) return;
+  richTieWork = groups.map(g => ({ start: g.start, docs: g.docs.slice() }));
+  document.getElementById('richTieReason').value = '';
+  const modal = document.getElementById('richTieModal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  renderRichnessTieModal();
+}
+
+document.getElementById('richTieKeepBtn').addEventListener('click', closeRichnessTieModal);
+document.getElementById('richTieCloseBtn').addEventListener('click', closeRichnessTieModal);
+document.getElementById('richTieByYearBtn').addEventListener('click', () => {
+  if (!richTieWork) return;
+  richTieWork.forEach(g => g.docs.sort((a, b) => (parseInt(a.year, 10) || 9999) - (parseInt(b.year, 10) || 9999)));
+  renderRichnessTieModal();
+});
+document.getElementById('richTieApplyBtn').addEventListener('click', async () => {
+  if (!richTieWork) return;
+  const oldOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
+  const oldIndexPaper = getDisplayName(state.docs[0]);
+  richTieWork.forEach(g => state.docs.splice(g.start, g.docs.length, ...g.docs));
+  const newOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
+  const reason = document.getElementById('richTieReason').value.trim();
+  closeRichnessTieModal();
+  if (oldOrderStr === newOrderStr) return;
+  await persistDocOrder();
+  const newIndexPaper = getDisplayName(state.docs[0]);
+  await recordAuditLog({
+    category: 'study_order',
+    action: 'Ordered studies tied on Conceptual Richness & Quality by reviewer judgement',
+    detail: `New Translation Sequence: ${newOrderStr}${reason ? '\nReason: ' + reason : ''}`,
+    fromVal: `#1: ${oldIndexPaper}`,
+    toVal: `#1: ${newIndexPaper}`,
+    rationale: reason
+  });
+  renderStudyList();
+  if (!divMatrix.classList.contains('hidden')) renderMatrixView();
+  showSnackbar('Order of tied studies saved.');
+});
 
 document.getElementById('sortStudiesYearBtn')?.addEventListener('click', () => sortStudiesByMode('year'));
 document.getElementById('sortStudiesRichBtn')?.addEventListener('click', () => sortStudiesByMode('richness'));
