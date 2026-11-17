@@ -243,6 +243,12 @@
             <div id="docDisplayContextSummary" class="text-xs text-slate-400 mt-1 truncate hidden"></div>
           </div>
 
+          <!-- Study storyline (Phase 3 overview): visible while the edit dock is closed -->
+          <details id="docOverviewBox" class="hidden mt-1 bg-violet-50/70 border border-violet-200 rounded p-1.5">
+            <summary id="docOverviewSummary" class="text-xs font-semibold text-violet-900 cursor-pointer select-none truncate"></summary>
+            <div id="docOverviewText" class="mt-1 text-xs text-slate-700 whitespace-pre-wrap leading-snug"></div>
+          </details>
+
           <!-- Inline Edit Mode Drawer -->
           <div id="metaEditDock" class="hidden mt-2 pt-2.5 border-t border-slate-200 space-y-3 bg-indigo-50/40 p-2.5 rounded-lg border border-indigo-100">
             <div class="flex items-center justify-between gap-1">
@@ -450,7 +456,7 @@
       <div id="studyVisibilityBar" class="px-4 py-1.5 border-b border-slate-200 bg-white flex items-center flex-wrap gap-1.5 shrink-0 text-xs"></div>
 
       <!-- Collapsible Line of Argument (Phase 1 Review Question + Phase 4 + Phase 6 Overarching Synthesis) Canvas -->
-      <div id="loaDrawer" class="hidden border-b-2 border-purple-200 bg-purple-50/40 px-5 py-3.5 shrink-0 transition">
+      <div id="loaDrawer" class="hidden border-b-2 border-purple-200 bg-purple-50/40 px-5 py-3.5 shrink-0 transition max-h-[60vh] overflow-y-auto">
         <div class="max-w-7xl mx-auto">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center space-x-2">
@@ -878,6 +884,7 @@
         <div class="bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
           <div class="text-xs text-amber-800 font-semibold uppercase">For discussion</div>
           <div id="cmpDiscussStat" class="text-sm font-extrabold text-amber-900">—</div>
+          <div class="text-[11px] text-amber-800 mt-0.5">Differences between reviewers are treated as interpretive lenses that enrich the translation, not as coding errors.</div>
         </div>
 
         <!-- Comparison Tabs -->
@@ -951,9 +958,9 @@
         <p>Backup files do not contain the PDFs themselves. Select or drop the original PDF files to reconnect them to your highlights. They are matched by <strong>file name</strong>, so keep the original names.</p>
         <ul id="missingPdfList" class="space-y-1 max-h-64 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50 font-mono text-[13px]"></ul>
         <div id="missingPdfUnmatched" class="hidden rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-800">
-          <div class="font-bold mb-1">Not matched (skipped): no missing study has this file name</div>
-          <ul id="missingPdfUnmatchedList" class="space-y-1 max-h-32 overflow-y-auto font-mono text-[13px]"></ul>
-          <div class="mt-1 text-[11px] text-amber-700">Rename the file to exactly match a name in the list above, then select it again.</div>
+          <div class="font-bold mb-1">Not matched by file name: choose the study each file belongs to</div>
+          <ul id="missingPdfUnmatchedList" class="space-y-1 max-h-40 overflow-y-auto text-[13px]"></ul>
+          <div class="mt-1 text-[11px] text-amber-700">Pick a study in the list next to a file to connect it (the likeliest match is listed first). Or rename the file to match and select it again.</div>
         </div>
         <div class="flex items-center justify-end space-x-2 pt-1">
           <button id="missingPdfLaterBtn" class="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md cursor-pointer">Later</button>

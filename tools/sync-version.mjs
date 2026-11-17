@@ -1,6 +1,6 @@
 // Copies the release info from app/version.js (the ONE place to edit) into the files that show it as plain text:
 //   CITATION.cff (version, date-released), README.md (headline, APA and BibTeX citation),
-//   site/*.html and me_canvas.html (the fallback text inside <span data-mec="version"> / <span data-mec="year">).
+//   site/*.html and me_canvas.html (the fallback text inside an element marked data-mec="version" / data-mec="year").
 // The pages also fill these spans at run time from app/version.js; the fallback only shows when that file cannot load.
 // Usage: node tools/sync-version.mjs          update the files
 //        node tools/sync-version.mjs --check  only report (exit 1 if something is out of date)
@@ -22,8 +22,9 @@ const rules = {
     [new RegExp('(version\\s*=\\s*\\{)' + V + '(\\})'), `$1${version}$2`]]
 };
 const spanRules = [
-  [new RegExp('(<span data-mec="version">)' + V + '(</span>)', 'g'), `$1${version}$2`],
-  [/(<span data-mec="year">)\d{4}(<\/span>)/g, `$1${year}$2`]];
+  // any tag (<span>, <strong>, ...) may carry the data-mec marker; the closing tag must match the opening one
+  [new RegExp('(<(\\w+) data-mec="version">)' + V + '(</\\2>)', 'g'), `$1${version}$3`],
+  [/(<(\w+) data-mec="year">)\d{4}(<\/\2>)/g, `$1${year}$3`]];
 for (const f of ['me_canvas.html', 'site/index.html', 'site/manual.html', 'site/meta-ethnography-101.html']) rules[f] = spanRules;
 let stale = 0;
 for (const [file, list] of Object.entries(rules)) {

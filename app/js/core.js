@@ -248,6 +248,7 @@ const state = {
   poolRefutationalOnly: false,
   matrixRefutationalOnly: false,
   matrixCompactMode: false,
+  matrixThemeFolded: false, // Tab 2: the 3rd Order Theme column folded to a narrow strip (kept in localStorage)
   undoStack: []
 };
 

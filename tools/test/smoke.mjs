@@ -112,7 +112,13 @@ await group('Missing-PDF dialog after restore; unmatched files are reported', as
   check('unmatched file is listed', (await p.locator('#missingPdfUnmatchedList li').allInnerTexts()).join().includes('wrong-name.pdf'));
   check('unmatched file is not added as a study', (await p.evaluate(() => state.docs.length)) === docsBefore);
   check('one PDF reconnected', (await p.locator('#missingPdfList li').count()) === 3);
-  await p.setInputFiles('#pdfFileInput', pdfs.filter(f => f !== pdfs[1])); await p.waitForTimeout(2500);
+  const targetId = await p.evaluate(n => state.docs.find(d => d.name === n).id, path.basename(pdfs[0]));
+  const options = await p.locator('.unmatched-assign option').allInnerTexts();
+  check('picker lists the missing studies', options.length === 4, options.join('|'));
+  await p.locator('.unmatched-assign').first().selectOption(targetId); await p.waitForTimeout(1500);
+  check('file connected by hand to the chosen study', await p.evaluate(id => state.docs.find(d => d.id === id).hasBinary, targetId));
+  check('connected file leaves the unmatched list', (await p.locator('#missingPdfUnmatchedList li').count()) === 0 && (await p.locator('#missingPdfList li').count()) === 2);
+  await p.setInputFiles('#pdfFileInput', pdfs.filter(f => f !== pdfs[0] && f !== pdfs[1])); await p.waitForTimeout(2500);
   check('dialog closes when all are reconnected', await p.evaluate(() => document.getElementById('missingPdfModal').classList.contains('hidden')));
   await p.context().close();
 });
@@ -212,6 +218,87 @@ await group('Line of Argument map supports encompasses / metaphor relations', as
   check('flow layout draws both', r.flow.drawn);
   check('directed relations have a single arrow head', !r.circle.bothEnds && !r.flow.bothEnds);
   check('team comparison keeps the direction', r.key);
+  await p.context().close();
+});
+
+await group('Long-text boxes grow while typing', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const h = sel => p.locator(sel).first().evaluate(el => el.offsetHeight);
+  const long = n => Array.from({ length: n }, (_, i) => 'line ' + i + ' of a long interpretation').join('\n');
+  const stepB = '.cluster-note';
+  const h0 = await h(stepB);
+  await p.locator(stepB).first().fill(long(25)); await p.waitForTimeout(300);
+  const h1 = await h(stepB);
+  check('Step B grows with its text', h1 > h0 * 2, `from ${h0} to ${h1}`);
+  await p.locator(stepB).first().fill(''); await p.waitForTimeout(300);
+  check('Step B shrinks back when emptied', (await h(stepB)) <= h0 + 2);
+  await p.locator(stepB).first().fill(long(400)); await p.waitForTimeout(300);
+  const capped = await p.locator(stepB).first().evaluate(el => ({ h: el.offsetHeight, max: window.innerHeight * 0.6, scrolls: el.scrollHeight > el.clientHeight }));
+  check('growth stops at 60% of the window, then scrolls', capped.h <= capped.max + 2 && capped.scrolls, JSON.stringify(capped));
+  await p.locator('.sec-comment-view').first().click();
+  const c0 = await h('.sec-comment-input:visible');
+  await p.locator('.sec-comment-input:visible').fill(long(12)); await p.waitForTimeout(300);
+  check('cell note editor grows', (await h('.sec-comment-input:visible')) > c0 + 40);
+  // a box that was hidden while its text was set is sized when it becomes visible
+  await p.evaluate(() => { const t = document.querySelector('.cq-exp'); if (t && t.tagName === 'TEXTAREA') t.value = Array(15).fill('hidden text').join('\n'); });
+  await p.locator('.cl-subtab-btn[data-subtab=cerqual]').first().click(); await p.waitForTimeout(500);
+  const hidden = await p.evaluate(() => { const t = document.querySelector('.cq-exp'); return t && t.tagName === 'TEXTAREA' ? t.scrollHeight <= t.clientHeight + 2 : true; });
+  check('a box filled while hidden shows all its text once visible', hidden);
+  await tab(p, 'audit'); await p.waitForTimeout(500);
+  const r0 = await h('.rationale-input');
+  await p.locator('.rationale-input').first().fill(long(6)); await p.waitForTimeout(300);
+  check('audit-trail reason box grows', (await h('.rationale-input')) > r0 + 30);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Research Aim drawer scrolls; study storyline is visible; site version markers', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(500);
+  const d = await p.evaluate(() => { const e = document.getElementById('loaDrawer'); return { h: e.clientHeight, sh: e.scrollHeight, win: window.innerHeight, overflowY: getComputedStyle(e).overflowY }; });
+  check('drawer is capped at 60% of the window', d.h <= d.win * 0.6 + 2, JSON.stringify(d));
+  check('drawer scrolls when its content is taller', d.overflowY === 'auto' && d.sh > d.h, JSON.stringify(d));
+  const reachable = await p.evaluate(() => { const e = document.getElementById('loaDrawer'); e.scrollTop = e.scrollHeight; const last = Array.from(e.querySelectorAll('textarea')).pop(); const r = last.getBoundingClientRect(), er = e.getBoundingClientRect(); return r.bottom <= er.bottom + 1 && r.top >= er.top - 1; });
+  check('the last field can be reached', reachable);
+  check('matrix stays visible below the drawer', await p.evaluate(() => document.getElementById('matrixTable').getBoundingClientRect().height > 0));
+  await tab(p, 'extract'); await p.waitForTimeout(500);
+  await p.evaluate(() => { state.docs[0].studyOverview = 'A story of nights spent alone; key metaphor: the lone watch.'; updateDocHeaderUI(); });
+  check('storyline box shows under the study header', await p.evaluate(() => !document.getElementById('docOverviewBox').classList.contains('hidden')) && (await p.locator('#docOverviewSummary').innerText()).includes('lone watch'));
+  await p.click('#activeDocHeader'); await p.waitForTimeout(300);
+  check('it steps aside while the edit dock is open', await p.evaluate(() => document.getElementById('docOverviewBox').classList.contains('hidden')));
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'sync-version.mjs'), '--check'], { cwd: ROOT, encoding: 'utf8' });
+  check('every version marker on the site matches version.js', r.status === 0, (r.stdout || '') + (r.stderr || ''));
+  await p.context().close();
+});
+
+await group('Theme column folds to a strip', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const width = () => p.evaluate(() => document.querySelector('#matrixTable tbody tr[data-cluster-id] td:first-child').getBoundingClientRect().width);
+  const wide = await width();
+  await p.click('.theme-fold-btn'); await p.waitForTimeout(500);
+  const narrow = await width();
+  check('folded column is a narrow strip', wide >= 380 && narrow <= 60, `wide=${Math.round(wide)} narrow=${Math.round(narrow)}`);
+  check('strip shows the row number and title', (await p.locator('.theme-strip-num').first().innerText()) === '#1' && (await p.locator('.theme-strip-title').first().innerText()).length > 0);
+  check('full panel is hidden while folded', await p.evaluate(() => document.querySelector('#matrixTable .theme-full').offsetParent === null));
+  const dropped = await p.evaluate(async () => {
+    const target = state.clusters[state.clusters.length - 1];
+    const sec = state.annotations.find(a => a.type === 'second_order' && !(a.clusterIds || []).includes(target.id));
+    const tr = document.querySelector(`#matrixTable tr[data-cluster-id="${target.id}"]`);
+    const dt = new DataTransfer(); dt.setData('text/sec-id', sec.id);
+    tr.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    tr.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 800));
+    return state.annotations.find(a => a.id === sec.id).clusterIds.includes(target.id);
+  });
+  check('cards can still be dropped on a folded row', dropped);
+  check('folded state survives a re-render and is remembered', await p.evaluate(() => { renderMatrixView(); return document.getElementById('matrixTable').classList.contains('matrix-theme-folded') && lsGet('me_theme_folded') === 'true'; }));
+  await p.click('.theme-unfold-btn'); await p.waitForTimeout(500);
+  check('expands again', (await width()) >= 380);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });
 
