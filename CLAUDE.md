@@ -65,10 +65,12 @@ Test both ways after changes: `npm run serve` (http) and double-clicking me_canv
 (https://jdaeyun.github.io/meta-ethnography-canvas/) on every push to main that touches them. The pages sit next to
 the app, link to it as `me_canvas.html` and read `app/version.js` for version / DOI (js/site.js). When a change is
 visible in the UI or changes how something works, update the manual (and the 101 if relevant) in site/.
-Release checklist: edit ONLY `app/version.js` (version, released) and push to main. `tools/sync-version.mjs` (run by the
-`Sync version` workflow, or locally with `npm run sync-version`; `--check` only reports) copies it into CITATION.cff, README.md,
-me_canvas.html and the site pages (the fallback text of `<span data-mec="version">`). Wait for that workflow to finish, then publish
-a release whose tag is exactly `v` + the version in `app/version.js` (e.g. `v1.3.2-beta.1`; tick "pre-release" for beta versions).
+Release checklist: edit ONLY `app/version.js` (version, released) and push to main (usually by merging a pull request). The
+`Sync version and publish release` workflow then (1) runs `tools/sync-version.mjs` (also `npm run sync-version`; `--check` only reports), which copies
+the version into CITATION.cff, README.md, me_canvas.html and the site pages (the fallback text of `<span data-mec="version">`), (2) creates the GitHub
+release with tag exactly `v` + version (a hyphen, e.g. `1.4.0-beta.1`, makes it a pre-release; notes are generated), and (3) runs `offline-zip.yml` to attach the ZIP.
+Nothing happens if that release already exists, so bump the version only when you want a release: one version per group of merged pull requests,
+not one per merge (patch = fixes, minor = new features; use a -beta.N suffix only for trial versions).
 The website's offline-ZIP link is built from that tag (`site/js/site.js`), because `releases/latest/download/...` ignores pre-releases.
 
 ## Rules
