@@ -81,6 +81,174 @@ function computeTextSimilarity(strA, strB) {
   return Math.max(wordScore, bigramScore);
 }
 
+// ---- Which of the peer's studies is which of mine ----
+// Certain: same id, identical file (sha256), same DOI, same file name, same title. Same first author + year is only a
+// SUGGESTION (two papers by one author in one year are common) and is confirmed by hand in the Studies & Order tab.
+function normTitle(t) { return String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
+const DOC_MATCH_LABEL = { id: 'same study record', sha256: 'identical PDF file', doi: 'same DOI', name: 'same file name', title: 'same title', manual: 'connected by hand', added: "added from the peer's file" };
+function matchPeerDocs(peerData) {
+  const docMapPeerToLocal = {}, matchedStudies = [], unmatchedPeerDocs = [];
+  const used = new Set();
+  const peerDocs = peerData.docs.slice();
+  const rules = [
+    ['id', (l, p) => l.id === p.id],
+    ['sha256', (l, p) => !!(l.sha256 && p.sha256 && l.sha256 === p.sha256)],
+    ['doi', (l, p) => !!(l.doi && p.doi && normalizeDoi(l.doi) === normalizeDoi(p.doi))],
+    ['name', (l, p) => !!(l.name && p.name && l.name.toLowerCase() === p.name.toLowerCase())],
+    ['title', (l, p) => normTitle(l.title).length > 10 && normTitle(l.title) === normTitle(p.title)]
+  ];
+  // Rule by rule over ALL studies, so a strong match is never taken away by a weaker one found earlier
+  const howOf = {};
+  rules.forEach(([how, test]) => {
+    peerDocs.forEach(pDoc => {
+      if (docMapPeerToLocal[pDoc.id]) return;
+      const l = state.docs.find(x => !used.has(x.id) && test(x, pDoc));
+      if (l) { docMapPeerToLocal[pDoc.id] = l.id; used.add(l.id); howOf[pDoc.id] = how; }
+    });
+  });
+  peerDocs.forEach(pDoc => {
+    const lid = docMapPeerToLocal[pDoc.id];
+    if (lid) matchedStudies.push({ localDoc: state.docs.find(d => d.id === lid), peerDoc: pDoc, how: howOf[pDoc.id] });
+    else unmatchedPeerDocs.push(pDoc);
+  });
+  return { docMapPeerToLocal, matchedStudies, unmatchedPeerDocs };
+}
+function peerDocSuggestions(pDoc, cmp) {
+  const taken = new Set(Object.values(cmp.docMapPeerToLocal));
+  const sameAuthYear = l => l.author && pDoc.author && l.year && pDoc.year && l.author.toLowerCase() === pDoc.author.toLowerCase() && String(l.year) === String(pDoc.year);
+  return state.docs.filter(l => !taken.has(l.id)).map(l => ({ l, score: (sameAuthYear(l) ? 2 : 0) + (pdfNameScore(pDoc.name, l.name) > 0 ? 1 : 0) }))
+    .sort((a, b) => b.score - a.score);
+}
+
+// ---- Which of the peer's constructs is which of mine: best pairs first, over the whole file ----
+// (Taking the peer's items one by one would let an early item claim a local construct that fits a later one better,
+// so the result would depend on the order of the peer's file.)
+function computePeerAnnotationMatches(cmp) {
+  const { peerData, docMapPeerToLocal } = cmp;
+  const localBy = new Map();
+  state.annotations.forEach(a => { const k = a.docId + '|' + a.type; if (!localBy.has(k)) localBy.set(k, []); localBy.get(k).push(a); });
+  const cands = [];
+  peerData.annotations.forEach((pAnno, pi) => {
+    const ld = docMapPeerToLocal[pAnno.docId];
+    if (!ld) return;
+    (localBy.get(ld + '|' + pAnno.type) || []).forEach((cand, li) => {
+      const score = cand.id === pAnno.id ? 2 : computeTextSimilarity(stripWrapPrefix(cand), stripWrapPrefix(pAnno)) + (cand.page === pAnno.page ? 0.1 : 0);
+      if (score >= 0.55) cands.push({ pi, li, cand, score });
+    });
+  });
+  cands.sort((a, b) => (b.score - a.score) || (a.pi - b.pi) || (a.li - b.li));
+  const peerTaken = new Map(), localTaken = new Set();
+  cands.forEach(c => {
+    if (peerTaken.has(c.pi) || localTaken.has(c.cand.id)) return;
+    peerTaken.set(c.pi, c); localTaken.add(c.cand.id);
+  });
+  cmp.matchedPairs = [];
+  cmp.peerOnlyAnnos = [];
+  peerData.annotations.forEach((pAnno, pi) => {
+    const ld = docMapPeerToLocal[pAnno.docId];
+    const m = peerTaken.get(pi);
+    if (m) {
+      cmp.matchedPairs.push({ localAnno: m.cand, peerAnno: pAnno, similarity: Math.min(100, Math.round(m.score * 100)), doc: state.docs.find(d => d.id === ld) });
+    } else {
+      cmp.peerOnlyAnnos.push({ peerAnno: pAnno, localDocId: ld || null, doc: ld ? state.docs.find(d => d.id === ld) : undefined, peerDoc: peerData.docs.find(d => d.id === pAnno.docId) });
+    }
+  });
+  cmp.localOnlyAnnos = state.annotations.filter(a => !localTaken.has(a.id));
+  cmp.peerToLocalAnnoId = null; // rebuilt from the new pairs on the next import
+}
+
+// ---- Translation order of both reviewers: a different #1 or order can lead to a different reading (to discuss, not an error) ----
+function peerOrderInfo(cmp) {
+  const peerDocs = cmp.peerData.docs.slice().sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  const peerLoa = cmp.peerData.loa || {};
+  const mine = state.docs.map(d => d.id);
+  const theirs = peerDocs.map(p => cmp.docMapPeerToLocal[p.id] || null);
+  const firstDiffers = !!(mine[0] && theirs[0] !== undefined && theirs[0] !== mine[0]);
+  // Same order for the studies both reviewers have?
+  const shared = mine.filter(id => theirs.includes(id));
+  const sameOrder = shared.join('|') === theirs.filter(id => id && shared.includes(id)).join('|');
+  return { peerDocs, peerLoa, firstDiffers, sameOrder };
+}
+
+function renderCompareStudiesTab(container, cmp) {
+  const info = peerOrderInfo(cmp);
+  const stratLabel = v => (ORDER_STRATEGIES[v] || ORDER_STRATEGIES.index).label;
+  const nameOfPeer = p => { const lid = cmp.docMapPeerToLocal[p.id]; const l = lid && state.docs.find(d => d.id === lid); return l ? getDisplayName(l) : getDisplayName(p) + ' (not matched)'; };
+  const orderBox = document.createElement('div');
+  orderBox.className = `bg-white p-4 rounded-xl border ${info.firstDiffers || !info.sameOrder ? 'border-amber-300' : 'border-slate-200'} space-y-2`;
+  orderBox.innerHTML = `
+    <h4 class="text-xs font-bold text-slate-800">⭐ Translation order — mine vs @${escapeHtml(cmp.peerReviewer)}</h4>
+    <p class="text-[13px] text-slate-500">${info.firstDiffers
+      ? 'You started from different #1 studies. Each reviewer translated the others into a different starting point, so some differences in your readings may come from this. Worth discussing, not correcting.'
+      : info.sameOrder ? 'Same #1 study and the same order for the studies you both have.' : 'Same #1 study, but the later studies were translated in a different order. Worth noting when you discuss differences.'}</p>
+    <div class="grid grid-cols-2 gap-3 text-xs">
+      <div class="rounded border border-slate-200 p-2 space-y-1">
+        <div class="font-bold text-slate-700">Mine · ${escapeHtml(stratLabel(state.loa.orderStrategy))}</div>
+        <ol class="list-decimal pl-5 text-slate-700">${state.docs.map(d => `<li>${escapeHtml(getDisplayName(d))}</li>`).join('')}</ol>
+        ${state.loa.orderRationale ? `<div class="text-slate-500"><b>Why:</b> ${escapeHtml(state.loa.orderRationale)}</div>` : ''}
+      </div>
+      <div class="rounded border border-teal-200 p-2 space-y-1">
+        <div class="font-bold text-teal-800">@${escapeHtml(cmp.peerReviewer)} · ${escapeHtml(stratLabel(info.peerLoa.orderStrategy))}</div>
+        <ol class="list-decimal pl-5 text-slate-700">${info.peerDocs.map(p => `<li>${escapeHtml(nameOfPeer(p))}</li>`).join('')}</ol>
+        ${info.peerLoa.orderRationale ? `<div class="text-slate-500"><b>Why:</b> ${escapeHtml(info.peerLoa.orderRationale)}</div>` : ''}
+      </div>
+    </div>
+    ${info.firstDiffers || !info.sameOrder ? `<button type="button" class="cmp-order-memo px-2.5 py-1 text-xs font-semibold rounded border border-amber-400 bg-amber-50 text-amber-900 cursor-pointer hover:bg-amber-100">Record this difference in the Audit Trail…</button>` : ''}`;
+  const memoBtn = orderBox.querySelector('.cmp-order-memo');
+  if (memoBtn) memoBtn.onclick = async () => {
+    const note = (prompt('What does the different starting point / order mean for your readings? (optional)') || '').trim();
+    await recordAuditLog({
+      category: 'concordance',
+      action: `Noted a different translation order from @${cmp.peerReviewer}`,
+      detail: `Mine: ${state.docs.map(d => getDisplayName(d)).join(' ➔ ')}\n@${cmp.peerReviewer}: ${info.peerDocs.map(nameOfPeer).join(' ➔ ')}${note ? '\n' + note : ''}`,
+      fromVal: `#1: ${state.docs[0] ? getDisplayName(state.docs[0]) : '-'}`,
+      toVal: `@${cmp.peerReviewer} #1: ${info.peerDocs[0] ? nameOfPeer(info.peerDocs[0]) : '-'}`
+    });
+    showSnackbar('Recorded in the Audit Trail.');
+  };
+  container.appendChild(orderBox);
+
+  const matchBox = document.createElement('div');
+  matchBox.className = 'bg-white p-4 rounded-xl border border-slate-200 space-y-2';
+  matchBox.innerHTML = `
+    <h4 class="text-xs font-bold text-slate-800">📚 Which study is which</h4>
+    <p class="text-[13px] text-slate-500">Matched automatically by identical PDF file, DOI, file name or title. Same first author and year is only offered as a suggestion (★), because one author often publishes two papers in a year.</p>
+    <ul class="text-xs space-y-1">${cmp.matchedStudies.map(m => `<li>✓ ${escapeHtml(getDisplayName(m.localDoc))} <span class="text-slate-400">— ${escapeHtml(DOC_MATCH_LABEL[m.how] || m.how)}</span></li>`).join('')}</ul>
+    <div class="cmp-unmatched space-y-1.5"></div>`;
+  const um = matchBox.querySelector('.cmp-unmatched');
+  if (cmp.unmatchedPeerDocs.length) um.insertAdjacentHTML('beforeend', `<div class="text-xs font-bold text-amber-800 pt-1">Not matched yet (${cmp.unmatchedPeerDocs.length})</div>`);
+  cmp.unmatchedPeerDocs.forEach(pDoc => {
+    const sugg = peerDocSuggestions(pDoc, cmp);
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2 text-xs';
+    row.innerHTML = `<span class="flex-1 truncate" title="${escapeHtml(pDoc.name || '')}">• ${escapeHtml(getDisplayName(pDoc))}${pDoc.title ? ` <span class="text-slate-400">${escapeHtml(pDoc.title.slice(0, 60))}</span>` : ''}</span>
+      <select class="cmp-doc-pick max-w-[50%] text-xs border border-amber-300 rounded px-1 py-0.5 bg-white text-slate-700">
+        <option value="">Not in my project</option>
+        ${sugg.map((x, i) => `<option value="${escapeHtml(x.l.id)}">${i === 0 && x.score >= 2 ? '★ ' : ''}Same as: ${escapeHtml(getDisplayName(x.l))}</option>`).join('')}
+      </select>`;
+    row.querySelector('select').onchange = e => {
+      const lid = e.target.value;
+      if (!lid) return;
+      cmp.docMapPeerToLocal[pDoc.id] = lid;
+      cmp.unmatchedPeerDocs = cmp.unmatchedPeerDocs.filter(x => x !== pDoc);
+      cmp.matchedStudies.push({ localDoc: state.docs.find(d => d.id === lid), peerDoc: pDoc, how: 'manual' });
+      computePeerAnnotationMatches(cmp);
+      renderComparisonDashboard();
+    };
+    um.appendChild(row);
+  });
+  container.appendChild(matchBox);
+}
+
+function setCompareTab(tab) {
+  state.activeCompareTab = tab;
+  document.querySelectorAll('.cmp-tab-btn').forEach(b => {
+    b.className = b.dataset.cmptab === tab
+      ? "cmp-tab-btn px-3 py-1 text-xs font-bold rounded bg-white text-teal-800 shadow-sm cursor-pointer"
+      : "cmp-tab-btn px-3 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer";
+  });
+}
+
 async function processPeerJsonFile(file) {
   try {
     const text = await file.text();
@@ -110,92 +278,12 @@ async function processPeerJsonFile(file) {
       (peerData.annotations.find(a => a.by)?.by) ||
       (peerData.logs?.find(l => l.reviewer)?.reviewer) || 'Peer';
 
-    // 1. Match Documents
-    const docMapPeerToLocal = {};
-    const matchedStudies = [];
-    const unmatchedPeerDocs = [];
-
-    peerData.docs.forEach(pDoc => {
-      const localMatch = state.docs.find(lDoc =>
-        lDoc.id === pDoc.id ||
-        (lDoc.name && pDoc.name && lDoc.name.toLowerCase() === pDoc.name.toLowerCase()) ||
-        (lDoc.title && pDoc.title && lDoc.title.toLowerCase().trim() === pDoc.title.toLowerCase().trim()) ||
-        (lDoc.author && pDoc.author && lDoc.year && pDoc.year &&
-         lDoc.author.toLowerCase() === pDoc.author.toLowerCase() && lDoc.year === pDoc.year)
-      );
-      if (localMatch) {
-        docMapPeerToLocal[pDoc.id] = localMatch.id;
-        matchedStudies.push({ localDoc: localMatch, peerDoc: pDoc });
-      } else {
-        unmatchedPeerDocs.push(pDoc);
-      }
-    });
-
-    // 2. Match Annotations (1st & 2nd order)
-    const matchedPairs = [];
-    const peerOnlyAnnos = [];
-    const usedLocalIds = new Set();
-
-    peerData.annotations.forEach(pAnno => {
-      const mappedLocalDocId = docMapPeerToLocal[pAnno.docId];
-      if (!mappedLocalDocId) {
-        peerOnlyAnnos.push({ peerAnno: pAnno, localDocId: null, peerDoc: peerData.docs.find(d => d.id === pAnno.docId) });
-        return;
-      }
-
-      const candidates = state.annotations.filter(lAnno =>
-        lAnno.docId === mappedLocalDocId &&
-        lAnno.type === pAnno.type &&
-        !usedLocalIds.has(lAnno.id)
-      );
-
-      let bestMatch = null;
-      let bestScore = 0;
-
-      candidates.forEach(cand => {
-        if (cand.id === pAnno.id) {
-          bestScore = 1.0;
-          bestMatch = cand;
-          return;
-        }
-        const pageBonus = (cand.page === pAnno.page) ? 0.1 : 0;
-        const sim = computeTextSimilarity(stripWrapPrefix(cand), stripWrapPrefix(pAnno)) + pageBonus;
-        if (sim > bestScore) {
-          bestScore = sim;
-          bestMatch = cand;
-        }
-      });
-
-      if (bestMatch && bestScore >= 0.55) {
-        usedLocalIds.add(bestMatch.id);
-        matchedPairs.push({
-          localAnno: bestMatch,
-          peerAnno: pAnno,
-          similarity: Math.min(100, Math.round(bestScore * 100)),
-          doc: state.docs.find(d => d.id === mappedLocalDocId)
-        });
-      } else {
-        peerOnlyAnnos.push({
-          peerAnno: pAnno,
-          localDocId: mappedLocalDocId,
-          doc: state.docs.find(d => d.id === mappedLocalDocId),
-          peerDoc: peerData.docs.find(d => d.id === pAnno.docId)
-        });
-      }
-    });
-
-    const localOnlyAnnos = state.annotations.filter(lAnno => !usedLocalIds.has(lAnno.id));
-
-    state.peerComparison = {
-      peerReviewer,
-      peerData,
-      docMapPeerToLocal,
-      matchedStudies,
-      unmatchedPeerDocs,
-      matchedPairs,
-      peerOnlyAnnos,
-      localOnlyAnnos
-    };
+    const { docMapPeerToLocal, matchedStudies, unmatchedPeerDocs } = matchPeerDocs(peerData);
+    state.peerComparison = { peerReviewer, peerData, docMapPeerToLocal, matchedStudies, unmatchedPeerDocs };
+    computePeerAnnotationMatches(state.peerComparison);
+    // Start on the Studies & Order tab when there is something to settle or discuss there
+    const firstDiffers = (peerData.docs[0] && state.docs[0]) && docMapPeerToLocal[(peerData.docs.slice().sort((a, b) => (a.order ?? 999) - (b.order ?? 999))[0] || {}).id] !== state.docs[0].id;
+    if (unmatchedPeerDocs.length || firstDiffers) setCompareTab('studies');
 
     state.teamMode = true;
     lsSet('me_team_mode', 'true');
@@ -214,12 +302,7 @@ async function processPeerJsonFile(file) {
 
 document.querySelectorAll('.cmp-tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    state.activeCompareTab = btn.dataset.cmptab;
-    document.querySelectorAll('.cmp-tab-btn').forEach(b => {
-      b.className = b.dataset.cmptab === state.activeCompareTab
-        ? "cmp-tab-btn px-3 py-1 text-xs font-bold rounded bg-white text-teal-800 shadow-sm cursor-pointer"
-        : "cmp-tab-btn px-3 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer";
-    });
+    setCompareTab(btn.dataset.cmptab);
     renderComparisonTabContent();
   });
 });
@@ -251,6 +334,7 @@ function renderComparisonDashboard() {
   setCmpText('cmpDiscussStat', (bk.divergent.length + bk.uniqueCount) > 0 ? 'Yes — see the marked tabs' : 'None');
   setDot('cntDivergent', bk.divergent.length > 0);
   setDot('cntUnique', bk.uniqueCount > 0);
+  setDot('cntStudies', cmp.unmatchedPeerDocs.length > 0 || peerOrderInfo(cmp).firstDiffers);
   renderComparisonTabContent();
 }
 
@@ -259,6 +343,8 @@ function renderComparisonTabContent() {
   container.innerHTML = '';
   const cmp = state.peerComparison;
   if (!cmp) return;
+
+  if (state.activeCompareTab === 'studies') { renderCompareStudiesTab(container, cmp); return; }
 
   const renderPeerOnly = () => {
     if (cmp.peerOnlyAnnos.length === 0) {
@@ -604,13 +690,16 @@ async function mergePeerAuditLogs() {
 async function importPeerConstruct(item, status) {
   await mergePeerAuditLogs();
   const cmp = state.peerComparison;
-  let targetDocId = item.localDocId;
+  // A study connected earlier in this session (by hand, or as a stub for an earlier import) is reused, never added twice
+  let targetDocId = item.localDocId || (item.peerDoc && cmp.docMapPeerToLocal[item.peerDoc.id]) || null;
   if (!targetDocId && item.peerDoc) {
-    const stub = normalizeDoc({ ...item.peerDoc, hasBinary: false, order: state.docs.length });
+    const stub = normalizeDoc({ ...item.peerDoc, hasBinary: false, fpDone: !!item.peerDoc.sha256, order: state.docs.length });
     await dbPut('docs', stub);
     state.docs.push(stub);
     targetDocId = stub.id;
     cmp.docMapPeerToLocal[item.peerDoc.id] = stub.id;
+    cmp.unmatchedPeerDocs = cmp.unmatchedPeerDocs.filter(x => x.id !== item.peerDoc.id);
+    cmp.matchedStudies.push({ localDoc: stub, peerDoc: item.peerDoc, how: 'added' });
     renderStudyList();
   }
   if (!targetDocId) return;

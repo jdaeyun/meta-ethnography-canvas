@@ -260,6 +260,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   populateLoaInputs();
   updateHeaderProjectUI();
   if (state.docs.length && !state.loa.baselineDocId) await checkBaselineChange(); // remember study #1 (projects made before it was stored)
+  setTimeout(() => ensureDocFingerprints(), 4000); // projects made before fingerprints were stored: one PDF at a time, after start-up
 
   document.getElementById('projectSetupBadgeBtn')?.addEventListener('click', () => {
     openProjectSetupModal({
@@ -457,8 +458,8 @@ window.ondrop = async e => {
 
 // ---- Modals: Esc closes (except the required Reviewer ID dialog), focus moves in and returns, Tab stays inside ----
 (function modalAccessibility() {
-  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn' };
-  const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'reviewerLoginModal'];
+  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn', refutMapModal: 'refutMapCloseBtn' };
+  const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'refutMapModal', 'reviewerLoginModal'];
   const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   const returnTo = {};
   const visible = id => { const m = document.getElementById(id); return m && !m.classList.contains('hidden') ? m : null; };

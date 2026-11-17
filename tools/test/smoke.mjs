@@ -424,6 +424,63 @@ await group('Constructs not translated: reason in the pool, Appendix B, Methods;
   await p.context().close();
 });
 
+await group('Comparing reviewers: studies by file / DOI, order-independent pairs, translation order', async () => {
+  const p = await openDemo();
+  await p.waitForFunction(() => state.docs.filter(d => d.hasBinary).every(d => d.fpDone && /^[0-9a-f]{64}$/.test(d.sha256 || '')), null, { timeout: 30000 });
+  check('every stored PDF gets a fingerprint (in the background)', true);
+  await p.click('#compareJsonModalBtn');
+  check('DOI is read from text and tidied', await p.evaluate(() => normalizeDoi('https://doi.org/10.1177/1049732318ABC.') === '10.1177/1049732318abc'));
+  const run = (opts) => p.evaluate(async o => {
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode, reviewerId: 'Peer' }));
+    const idMap = {};
+    peer.docs.forEach((d, i) => { idMap[d.id] = 'peer_doc_' + i; d.id = idMap[d.id]; d.name = 'renamed_' + i + '.pdf'; d.title = 'x'; });
+    peer.annotations.forEach((a, i) => { a.docId = idMap[a.docId]; a.id = 'peer_a_' + i; });
+    if (o.noHash) peer.docs[1].sha256 = '';
+    if (o.reverse) peer.annotations.reverse();
+    if (o.swapFirst) peer.docs.reverse().forEach((d, i) => { d.order = i; });
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    const cmp = state.peerComparison;
+    return {
+      hows: cmp.matchedStudies.map(m => m.how), unmatched: cmp.unmatchedPeerDocs.length,
+      pairs: cmp.matchedPairs.map(x => x.peerAnno.id + '>' + x.localAnno.id).sort().join(','),
+      tab: state.activeCompareTab, firstDiffers: peerOrderInfo(cmp).firstDiffers
+    };
+  }, opts);
+  const a = await run({});
+  check('renamed files are matched as the identical PDF', a.unmatched === 0 && a.hows.every(h => h === 'sha256'));
+  const b = await run({ reverse: true });
+  check('pairs do not depend on the order of the peer file', a.pairs === b.pairs && a.pairs.length > 0);
+  const c = await run({ noHash: true });
+  check('same author + year is only a suggestion, not a match', c.unmatched === 1);
+  check('unmatched studies open the Studies & Order tab', c.tab === 'studies' && (await p.locator('.cmp-doc-pick').count()) === 1);
+  const before = await p.evaluate(() => state.peerComparison.matchedPairs.length);
+  await p.locator('.cmp-doc-pick').selectOption({ index: 1 }); await p.waitForTimeout(300);
+  check('connecting it by hand re-matches its constructs', await p.evaluate(() => state.peerComparison.unmatchedPeerDocs.length === 0 && state.peerComparison.matchedStudies.some(m => m.how === 'manual')) && (await p.evaluate(() => state.peerComparison.matchedPairs.length)) > before);
+  const d = await run({ swapFirst: true });
+  check('a different #1 is shown as something to discuss', d.firstDiffers && d.tab === 'studies' && (await p.locator('.cmp-order-memo').count()) === 1);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Refutation map gathers the ⚡ cards by study', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  // Make sure there is one refutational card outside study #1
+  await p.evaluate(async () => {
+    const s = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && a.clusterIds.length);
+    s.clusterRelations[s.clusterIds[0]] = 'refutational'; await dbPut('annotations', s);
+  });
+  const m = await p.evaluate(() => { const r = buildRefutationMap(); return { studies: r.studies.length, pairs: r.pairList.length, okPairs: r.pairList.every(x => x.r !== x.h) }; });
+  check('studies and pairs are derived from the cells', m.studies > 0 && m.pairs > 0 && m.okPairs);
+  await p.click('#refutMapBtn'); await p.waitForTimeout(300);
+  const txt = await p.locator('#refutMapBody').innerText();
+  check('the map opens and lists pairs and studies', txt.includes('Studies in tension') && txt.includes('By study') && txt.includes('contrasts with'));
+  await p.locator('.refut-row-link').first().click(); await p.waitForTimeout(500);
+  check('a row link closes the map and goes to the row', await p.evaluate(() => document.getElementById('refutMapModal').classList.contains('hidden')));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Offline edition (file://) starts without errors and renders PDFs', async () => {
   const p = await openDemo('file://' + path.join(ROOT, 'me_canvas.html') + '?demo');
   await p.waitForTimeout(2500);

@@ -16,8 +16,64 @@ document.getElementById('pdfFileInput').addEventListener('change', async (e) => 
 async function attachPdfFileToDoc(doc, file) {
   const buffer = await file.arrayBuffer();
   doc.hasBinary = true;
+  doc.fpDone = false; // fingerprint the newly attached file
   await dbPut('pdf_binaries', { id: doc.id, data: buffer });
   await dbPut('docs', doc);
+  ensureDocFingerprints();
+}
+
+// ---- Study fingerprints: recognise the same paper in a co-reviewer's file, whatever it is called ----
+// sha256 = identical file; doi = same article even if downloaded from another source. Computed once per PDF, in the background.
+function normalizeDoi(s) {
+  const m = String(s || '').match(/10\.\d{4,9}\/[^\s"'<>]+/i);
+  return m ? m[0].replace(/[.,;:)\]}]+$/, '').toLowerCase() : '';
+}
+async function sha256Hex(buffer) {
+  try {
+    if (!(window.crypto && crypto.subtle)) return '';
+    const h = await crypto.subtle.digest('SHA-256', buffer);
+    return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) { return ''; }
+}
+// The article's own DOI: PDF metadata first, then page 1 only (later pages hold the DOIs of cited works)
+async function findDoiInPdf(buffer) {
+  if (typeof pdfjsLib === 'undefined') return '';
+  let pdf = null;
+  try {
+    pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)), ...pdfjsDocumentOptions() }).promise;
+    try {
+      const meta = await pdf.getMetadata();
+      const xmp = meta && meta.metadata;
+      const cands = [xmp && xmp.get('prism:doi'), xmp && xmp.get('dc:identifier'), meta && meta.info && meta.info.doi, meta && meta.info && meta.info.Subject];
+      for (const c of cands) { const d = normalizeDoi(Array.isArray(c) ? c.join(' ') : c); if (d) return d; }
+    } catch (e) { /* no metadata */ }
+    const page = await pdf.getPage(1);
+    const tc = await page.getTextContent();
+    return normalizeDoi(tc.items.map(i => i.str).join(' ').replace(/doi\s*:\s*/gi, ' ').replace(/(10\.\d{4,9})\s*\/\s*/g, '$1/'));
+  } catch (e) {
+    return '';
+  } finally {
+    if (pdf) { try { await pdf.destroy(); } catch (e) { /* ignore */ } }
+  }
+}
+let fingerprintBusy = false;
+async function ensureDocFingerprints() {
+  if (fingerprintBusy) return;
+  fingerprintBusy = true;
+  try {
+    for (const d of state.docs.filter(x => x.hasBinary && !x.fpDone)) {
+      const rec = await dbGet('pdf_binaries', d.id); // one PDF in memory at a time
+      if (!rec || !rec.data || !rec.data.byteLength) continue;
+      d.sha256 = await sha256Hex(rec.data);
+      if (!d.doi) d.doi = await findDoiInPdf(rec.data);
+      d.fpDone = true;
+      if (state.docs.includes(d)) await dbPut('docs', d, { quiet: true });
+    }
+  } catch (e) {
+    console.warn('Fingerprinting skipped:', e);
+  } finally {
+    fingerprintBusy = false;
+  }
 }
 
 async function handleFiles(files) {
@@ -63,6 +119,7 @@ async function handleFiles(files) {
     lastAffectedId = doc.id;
   }
   if (!state.loa.baselineDocId) await checkBaselineChange(); // the first study added becomes #1
+  ensureDocFingerprints();
   renderStudyList();
   if (typeof refreshMissingPdfModal === 'function') refreshMissingPdfModal(unmatched);
   if (lastAffectedId) switchStudy(lastAffectedId);
@@ -583,6 +640,7 @@ function populateMetaEditInputs() {
   document.getElementById('metaEtAl').checked = doc.etAl !== false;
   document.getElementById('metaYear').value = doc.year || '';
   document.getElementById('metaTitle').value = doc.title || '';
+  document.getElementById('metaDoi').value = doc.doi || '';
   document.getElementById('metaSetting').value = doc.setting || '';
   document.getElementById('metaParticipants').value = doc.participants || '';
   document.getElementById('metaGroup').value = doc.group || '';
@@ -612,6 +670,7 @@ async function saveCurrentMeta() {
   doc.etAl = document.getElementById('metaEtAl').checked;
   doc.year = document.getElementById('metaYear').value.trim();
   doc.title = document.getElementById('metaTitle').value.trim();
+  doc.doi = normalizeDoi(document.getElementById('metaDoi').value) || '';
   doc.setting = document.getElementById('metaSetting').value.trim();
   doc.participants = document.getElementById('metaParticipants').value.trim();
   const prevGroup = doc.group || '';

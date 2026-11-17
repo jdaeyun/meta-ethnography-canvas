@@ -163,6 +163,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
             await dbPut('pdf_binaries', { id: d.id, data: rec.data });
             addedBinKeys.push(d.id);
             d.hasBinary = true;
+            d.fpDone = false; // another file under this id: fingerprint it again
           }
         }
         await dbPut('docs', d);
@@ -276,6 +277,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
 
     state.docs.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
     if (!state.loa.baselineDocId) await checkBaselineChange();
+    ensureDocFingerprints();
 
     state.docs.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
     state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));

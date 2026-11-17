@@ -1563,3 +1563,98 @@ if (matrixPoolResizer && matrixLeftSidebar) {
     }
   });
 }
+
+// ========================================================
+// REFUTATION MAP: the ⚡ cards gathered by study (nothing new to enter)
+// ========================================================
+// In a row, a study whose construct is marked Refutational contrasts with the reading the row holds: the reading of
+// study #1 (which establishes the row) and of the studies translated into it as Reciprocal. Studies that are also
+// Refutational in that row are listed separately: they may share a counter-reading.
+function buildRefutationMap() {
+  const live = state.clusters.filter(Boolean);
+  const secs = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
+  const byStudy = new Map();   // refuting docId -> [{ cluster, refSecs, holders, alsoRefuting }]
+  const pairs = new Map();     // 'refId|otherId' -> Set(clusterId)
+  live.forEach(c => {
+    const inRow = secs.filter(s => s.clusterIds.includes(c.id));
+    const docIds = [...new Set(inRow.map(s => s.docId))];
+    const refuting = docIds.filter(id => inRow.some(s => s.docId === id && isSecRefutational(s, c.id)));
+    if (!refuting.length) return;
+    const holders = docIds.filter(id => !refuting.includes(id)); // #1 and the reciprocal studies
+    refuting.forEach(rid => {
+      if (!byStudy.has(rid)) byStudy.set(rid, []);
+      byStudy.get(rid).push({
+        cluster: c,
+        refSecs: inRow.filter(s => s.docId === rid && isSecRefutational(s, c.id)),
+        holders,
+        alsoRefuting: refuting.filter(x => x !== rid)
+      });
+      holders.forEach(hid => {
+        const k = rid + '|' + hid;
+        if (!pairs.has(k)) pairs.set(k, new Set());
+        pairs.get(k).add(c.id);
+      });
+    });
+  });
+  const docIdx = id => state.docs.findIndex(d => d.id === id);
+  const studies = [...byStudy.entries()].sort((a, b) => docIdx(a[0]) - docIdx(b[0]));
+  const pairList = [...pairs.entries()].map(([k, set]) => { const [r, h] = k.split('|'); return { r, h, clusterIds: [...set] }; })
+    .sort((a, b) => (b.clusterIds.length - a.clusterIds.length) || (docIdx(a.r) - docIdx(b.r)) || (docIdx(a.h) - docIdx(b.h)));
+  return { studies, pairList };
+}
+
+function renderRefutationMap() {
+  const body = document.getElementById('refutMapBody');
+  const { studies, pairList } = buildRefutationMap();
+  const nameOf = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) + (isBaselineDocId(id) ? ' [#1]' : '') : 'Study'; };
+  const rowLink = c => `<button type="button" class="refut-row-link font-semibold text-indigo-700 hover:underline cursor-pointer" data-cid="${escapeHtml(c.id)}">${escapeHtml(clusterLabel(c))}</button>`;
+  if (!studies.length) {
+    body.innerHTML = `<p class="text-slate-500">No card is marked ⚡ Refutational yet. When you mark a study's card as Refutational in a row, it appears here, gathered by study.</p>
+      <p class="text-slate-500">Finding no refutation is also a result worth reporting, together with how you looked for it.</p>`;
+    return;
+  }
+  body.innerHTML = `
+    <p class="text-slate-500">Built from the ⚡ cards in the matrix; nothing here is entered separately. A Refutational card contrasts with the reading the row holds: the reading of study #1 and of the studies translated into the row as Reciprocal. Studies that are also ⚡ in the same row are listed apart, because they may share a counter-reading. Hidden papers are included.</p>
+    <section class="space-y-1.5">
+      <h3 class="text-xs font-bold text-slate-800">Studies in tension (pairs)</h3>
+      <table class="w-full border-collapse text-xs">
+        <thead><tr class="text-left text-slate-500"><th class="py-1 pr-2">⚡ Study</th><th class="py-1 pr-2">contrasts with</th><th class="py-1 pr-2">in rows</th></tr></thead>
+        <tbody>${pairList.map(p => `<tr class="border-t border-slate-100 align-top">
+          <td class="py-1 pr-2 font-semibold text-rose-800">${escapeHtml(nameOf(p.r))}</td>
+          <td class="py-1 pr-2">${escapeHtml(nameOf(p.h))}</td>
+          <td class="py-1 pr-2">${p.clusterIds.length} — ${p.clusterIds.map(id => rowLink(state.clusters.find(c => c.id === id))).join(', ')}</td></tr>`).join('')}</tbody>
+      </table>
+    </section>
+    <section class="space-y-3">
+      <h3 class="text-xs font-bold text-slate-800">By study</h3>
+      ${studies.map(([rid, items]) => `
+        <div class="rounded-lg border border-rose-200 bg-rose-50/40 p-3 space-y-2">
+          <div class="font-bold text-rose-900">⚡ ${escapeHtml(nameOf(rid))} <span class="font-normal text-rose-700">— refutational in ${items.length} row${items.length === 1 ? '' : 's'}</span></div>
+          ${items.map(it => `
+            <div class="bg-white rounded border border-rose-100 p-2 space-y-1">
+              <div>${rowLink(it.cluster)}</div>
+              ${it.refSecs.map(s => `<div class="text-slate-700">• ${s.note ? `<b>${escapeHtml(s.note)}</b> — ` : ''}<i>"${escapeHtml(String(s.text || '').slice(0, 160))}${String(s.text || '').length > 160 ? '…' : ''}"</i> <span class="text-slate-400">(p.${escapeHtml(secPagesLabel(s))})</span>
+                ${(s.clusterComments && s.clusterComments[it.cluster.id]) ? `<div class="text-rose-800 pl-3">Why it differs: ${escapeHtml(s.clusterComments[it.cluster.id])}</div>` : `<div class="text-blue-600 pl-3">Why it differs: not written yet (comment box under the card)</div>`}</div>`).join('')}
+              <div class="text-slate-500">Contrasts with: ${it.holders.length ? it.holders.map(id => escapeHtml(nameOf(id))).join('; ') : '<i>no other study in this row</i>'}</div>
+              ${it.alsoRefuting.length ? `<div class="text-rose-700">Also ⚡ in this row: ${it.alsoRefuting.map(id => escapeHtml(nameOf(id))).join('; ')}</div>` : ''}
+            </div>`).join('')}
+        </div>`).join('')}
+    </section>`;
+  body.querySelectorAll('.refut-row-link').forEach(btn => btn.onclick = () => {
+    closeRefutationMap();
+    const tr = document.querySelector(`#matrixTable tr[data-cluster-id="${CSS.escape(btn.dataset.cid)}"]`);
+    if (tr) { tr.scrollIntoView({ block: 'start', behavior: 'smooth' }); tr.classList.add('drag-over'); setTimeout(() => tr.classList.remove('drag-over'), 1500); }
+  });
+}
+function openRefutationMap() {
+  flushAllPendingSaves();
+  renderRefutationMap();
+  const m = document.getElementById('refutMapModal');
+  m.classList.remove('hidden'); m.classList.add('flex');
+}
+function closeRefutationMap() {
+  const m = document.getElementById('refutMapModal');
+  m.classList.add('hidden'); m.classList.remove('flex');
+}
+document.getElementById('refutMapBtn').addEventListener('click', openRefutationMap);
+document.getElementById('refutMapCloseBtn').addEventListener('click', closeRefutationMap);

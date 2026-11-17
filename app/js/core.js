@@ -156,12 +156,14 @@ function updateBackupReminder() {
     + ' Click Backup to save a JSON file.';
 }
 
-async function dbPut(store, item) {
+// quiet: bookkeeping writes the user did not make (e.g. a PDF fingerprint) — no save badge, no backup reminder
+async function dbPut(store, item, { quiet = false } = {}) {
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).put(item);
     tx.oncomplete = () => {
+      if (quiet) { resolve(); return; }
       if (store !== 'pdf_binaries') flashSaveStatus('saved');
       markUnbackedChange();
       resolve();
