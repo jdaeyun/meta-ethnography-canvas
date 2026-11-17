@@ -270,7 +270,7 @@ function renderComparisonTabContent() {
     topAction.className = 'flex items-center justify-between bg-teal-50 border border-teal-200 px-4 py-2.5 rounded-xl';
     topAction.innerHTML = `
       <div class="text-xs text-teal-900">
-        <b>Resolution Mode:</b> Review constructs extracted by <b>@${escapeHtml(cmp.peerReviewer)}</b> that are not in your local project. Import & Agree, Import for Discussion, or Dismiss.
+        <b>Resolution Mode:</b> Review constructs extracted by <b>@${escapeHtml(cmp.peerReviewer)}</b> that are not in your local project. Import & Agree, Import for Discussion, or Set Aside (it stays in the other reviewer's file; nothing is deleted).
       </div>
       <button id="importAllPeerBtn" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer">
         + Import All as Agreed
@@ -309,8 +309,8 @@ function renderComparisonTabContent() {
           <button class="imp-discuss px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1">
             <i class="ph ph-chats-circle"></i><span>Import as Discuss</span>
           </button>
-          <button class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs rounded-md cursor-pointer">
-            ✕ Dismiss
+          <button class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-md cursor-pointer" title="Not imported now; the construct stays in the other reviewer's file">
+            Set Aside
           </button>
         </div>
       `;
@@ -326,7 +326,7 @@ function renderComparisonTabContent() {
         cmp.peerOnlyAnnos.splice(idx, 1);
         await recordAuditLog({
           category: 'concordance',
-          action: `Dismissed Peer-Only Construct from @${cmp.peerReviewer}`,
+          action: `Set Aside Peer-Only Construct from @${cmp.peerReviewer}`,
           detail: `${studyName} (p.${p.page}): "${p.text.slice(0, 70)}..."`
         });
         renderComparisonDashboard();

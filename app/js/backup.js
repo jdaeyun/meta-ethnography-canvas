@@ -121,7 +121,9 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         // Same id: the stored PDF is already attached. Otherwise match by file name and copy ONE PDF at a time under the new id.
         d.hasBinary = false;
         if (oldBinKeys.has(d.id)) {
-          d.hasBinary = true;
+          // Same id: keep the stored PDF unless the local study record already marked it as empty / missing
+          const localDoc = oldDocs.find(o => o.id === d.id);
+          d.hasBinary = !localDoc || localDoc.hasBinary !== false;
         } else if (d.name) {
           const oldMatch = oldDocs.find(o => o.name && o.name.toLowerCase() === d.name.toLowerCase() && oldBinKeys.has(o.id));
           const rec = oldMatch ? await dbGet('pdf_binaries', oldMatch.id) : null;

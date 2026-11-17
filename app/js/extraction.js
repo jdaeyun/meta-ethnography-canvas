@@ -129,7 +129,7 @@ function updateSidebar() {
         <!-- Team Concordance / Co-Reviewer Agreement (Shown in Team Mode or when non-pending) -->
         <details class="bg-indigo-50/40 border border-indigo-200/70 rounded p-1.5 ${showConcUI ? '' : 'hidden'}" ${(sec.concordanceStatus !== 'pending' || sec.concordanceNote) ? 'open' : ''}>
           <summary class="text-xs font-semibold text-indigo-900 cursor-pointer select-none flex items-center justify-between">
-            <span>🤝 Team Agreement</span>
+            <span>🤝 Team Perspectives</span>
             <span class="text-[11px] font-normal text-indigo-600">(Logs to Trail)</span>
           </summary>
           <div class="mt-1.5 space-y-1.5">
@@ -238,7 +238,7 @@ function updateSidebar() {
 
       await recordAuditLog({
         category: 'concordance',
-        action: `2nd Order Concordance Updated (${getDisplayName(activeDoc)}, p.${sec.page})`,
+        action: `2nd Order Team Perspective Updated (${getDisplayName(activeDoc)}, p.${sec.page})`,
         detail: `Construct: ${sec.note || '"' + sec.text.slice(0, 60) + '..."'}${newNote ? '\nConsensus Note: ' + newNote : ''}`,
         fromVal: `${oldStatus.toUpperCase()}${oldNote ? ' (' + oldNote + ')' : ''}`,
         toVal: `${newStatus.toUpperCase()}${newNote ? ' (' + newNote + ')' : ''}`

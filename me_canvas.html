@@ -113,7 +113,7 @@
           </div>
           <input type="text" id="reviewerIdInput" value="" placeholder="Rev" maxlength="20" class="w-12 text-xs font-bold text-indigo-700 bg-white border border-slate-300 rounded px-1 py-0.5 text-center focus:outline-none focus:border-indigo-500">
         </div>
-        <label class="flex flex-col items-center bg-slate-100 border border-slate-200 rounded-md px-1.5 py-0.5 cursor-pointer select-none" title="Toggle Team Concordance UI">
+        <label class="flex flex-col items-center bg-slate-100 border border-slate-200 rounded-md px-1.5 py-0.5 cursor-pointer select-none" title="Toggle Team Perspectives UI">
           <span class="text-[10px] text-slate-500 font-semibold mb-0.5">Team UI</span>
           <input type="checkbox" id="teamModeToggle" class="rounded text-teal-600 focus:ring-0 mt-0.5">
         </label>
@@ -561,6 +561,8 @@
                 <option value="leads">➔ leads to / contributes to</option>
                 <option value="mutual">⇄ mutually related</option>
                 <option value="contradicts">⚡ in tension with</option>
+                <option value="encompasses">⊃ encompasses / nests</option>
+                <option value="metaphor">≈ understood through the metaphor of</option>
               </select>
               <select id="loaLinkTo" class="text-xs border border-purple-200 rounded px-1.5 py-1 bg-white max-w-[30%]"></select>
               <input type="text" id="loaLinkNote" class="flex-1 min-w-[120px] text-xs border border-purple-200 rounded px-1.5 py-1 bg-white" placeholder="Why? (optional)">
@@ -715,7 +717,7 @@
           <select id="auditFilterCategory" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 bg-slate-50 text-slate-700">
             <option value="all">All Categories</option>
             <option value="reflexive_memo">📝 Reflexive / Analytic Memos</option>
-            <option value="concordance">🤝 Team Concordance & Peer Merge</option>
+            <option value="concordance">🤝 Team Perspectives & Peer Merge</option>
             <option value="cerqual">📊 GRADE-CERQual Assessment</option>
             <option value="reading_extraction">📖 Phase 3: Reading & Extraction</option>
             <option value="relating_studies">🧭 Phase 4: Relating Studies</option>
@@ -749,7 +751,7 @@
               <select id="memoSubType" class="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-slate-50">
                 <option value="Analytic Decision">💡 Analytic / Translation Decision</option>
                 <option value="Reflexivity (Positionality)">🪞 Reflexivity (Clinical / Personal Lens)</option>
-                <option value="Team Concordance Meeting">🤝 Team Concordance / Supervisor Meeting</option>
+                <option value="Team Concordance Meeting">🤝 Team Perspectives / Supervisor Meeting</option>
                 <option value="GRADE-CERQual Rationale">📊 GRADE-CERQual Confidence Note</option>
                 <option value="Line of Argument">🔗 Line of Argument / Overarching Model</option>
                 <option value="Refutational Tension">⚡ Refutational / Deviant Case Note</option>

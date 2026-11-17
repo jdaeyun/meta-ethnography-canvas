@@ -57,7 +57,6 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
     id: 'cl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     by: state.reviewerId || 'Reviewer',
     thirdOrderTitle: initialTitle,
-    translationType: 'reciprocal',
     translationSummary: '',
     synthesisNote: '',
     concordanceStatus: 'pending',
@@ -553,7 +552,7 @@ function renderMatrixTable() {
   htr.innerHTML = `
     <th>
       <div class="text-xs font-bold text-slate-800">3rd Order Theme (Your Synthesis)</div>
-      <div class="text-xs font-normal text-slate-500 mt-0.5">Use the tabs below each theme title to switch between Synthesis, CERQual, and Team Agreement</div>
+      <div class="text-xs font-normal text-slate-500 mt-0.5">Use the tabs below each theme title to switch between Synthesis, CERQual, and Team Perspectives</div>
     </th>
   `;
 
@@ -958,7 +957,7 @@ function renderMatrixTable() {
       await recordAuditLog({
         clusterIds: [cluster.id],
         category: 'concordance',
-        action: `3rd Order Cluster Concordance Updated ("${cluster.thirdOrderTitle || 'Untitled Row'}")`,
+        action: `3rd Order Team Perspective Updated ("${cluster.thirdOrderTitle || 'Untitled Row'}")`,
         detail: newNote ? `Reviewer Consensus / Discussion Note: ${newNote}` : 'Updated agreement status.',
         fromVal: `${oldStatus.toUpperCase()}${oldNote ? ' (' + oldNote + ')' : ''}`,
         toVal: `${newStatus.toUpperCase()}${newNote ? ' (' + newNote + ')' : ''}`
