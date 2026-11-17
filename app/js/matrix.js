@@ -1368,6 +1368,7 @@ function renderMatrixTable() {
   });
 
   t.appendChild(tbody);
+  if (window.growTextareasNow) window.growTextareasNow(tbody);
   if (lazyRows.size > 0 && 'IntersectionObserver' in window) {
     matrixRowObserver = new IntersectionObserver(entries => {
       entries.forEach(entry => {
@@ -1381,6 +1382,7 @@ function renderMatrixTable() {
         const startsAboveView = !!pRect && rect0.top < pRect.top;
         row.replaceChildren();
         build();
+        if (window.growTextareasNow) window.growTextareasNow(row); // final height before we compensate the scroll position
         if (startsAboveView) scrollParent.scrollTop += row.getBoundingClientRect().height - rect0.height;
         requestAnimationFrame(() => { if (row.isConnected && row.offsetHeight > 0) matrixRowHeights[row._rowHeightKey] = row.offsetHeight; });
       });

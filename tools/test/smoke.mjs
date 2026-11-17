@@ -215,6 +215,38 @@ await group('Line of Argument map supports encompasses / metaphor relations', as
   await p.context().close();
 });
 
+await group('Long-text boxes grow while typing', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const h = sel => p.locator(sel).first().evaluate(el => el.offsetHeight);
+  const long = n => Array.from({ length: n }, (_, i) => 'line ' + i + ' of a long interpretation').join('\n');
+  const stepB = '.cluster-note';
+  const h0 = await h(stepB);
+  await p.locator(stepB).first().fill(long(25)); await p.waitForTimeout(300);
+  const h1 = await h(stepB);
+  check('Step B grows with its text', h1 > h0 * 2, `from ${h0} to ${h1}`);
+  await p.locator(stepB).first().fill(''); await p.waitForTimeout(300);
+  check('Step B shrinks back when emptied', (await h(stepB)) <= h0 + 2);
+  await p.locator(stepB).first().fill(long(400)); await p.waitForTimeout(300);
+  const capped = await p.locator(stepB).first().evaluate(el => ({ h: el.offsetHeight, max: window.innerHeight * 0.6, scrolls: el.scrollHeight > el.clientHeight }));
+  check('growth stops at 60% of the window, then scrolls', capped.h <= capped.max + 2 && capped.scrolls, JSON.stringify(capped));
+  await p.locator('.sec-comment-view').first().click();
+  const c0 = await h('.sec-comment-input:visible');
+  await p.locator('.sec-comment-input:visible').fill(long(12)); await p.waitForTimeout(300);
+  check('cell note editor grows', (await h('.sec-comment-input:visible')) > c0 + 40);
+  // a box that was hidden while its text was set is sized when it becomes visible
+  await p.evaluate(() => { const t = document.querySelector('.cq-exp'); if (t && t.tagName === 'TEXTAREA') t.value = Array(15).fill('hidden text').join('\n'); });
+  await p.locator('.cl-subtab-btn[data-subtab=cerqual]').first().click(); await p.waitForTimeout(500);
+  const hidden = await p.evaluate(() => { const t = document.querySelector('.cq-exp'); return t && t.tagName === 'TEXTAREA' ? t.scrollHeight <= t.clientHeight + 2 : true; });
+  check('a box filled while hidden shows all its text once visible', hidden);
+  await tab(p, 'audit'); await p.waitForTimeout(500);
+  const r0 = await h('.rationale-input');
+  await p.locator('.rationale-input').first().fill(long(6)); await p.waitForTimeout(300);
+  check('audit-trail reason box grows', (await h('.rationale-input')) > r0 + 30);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Safety and accessibility', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const p = await ctx.newPage(); p.on('dialog', d => d.accept());

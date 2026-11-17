@@ -493,3 +493,44 @@ window.ondrop = async e => {
   new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) label(n); })))
     .observe(document.body, { childList: true, subtree: true });
 })();
+
+// ---- Long-text boxes grow with what is typed (up to 60% of the window height; then they scroll) ----
+(function autoGrowTextareas() {
+  const queue = new Set();
+  let scheduled = false;
+  // Sizes many boxes in 3 layout passes (read, write, read, write) instead of one pass per box
+  const growMany = els => {
+    const live = els.filter(el => el.isConnected && el.getClientRects().length > 0); // hidden boxes are measured when they become visible
+    const fresh = live.filter(el => el._minH === undefined);
+    fresh.forEach(el => { el._minH = el.offsetHeight; });                              // read
+    fresh.forEach(el => { el.style.minHeight = el._minH + 'px'; el.classList.add('auto-grow'); }); // write
+    live.forEach(el => { el.style.height = 'auto'; });                                   // write
+    const sizes = live.map(el => el.scrollHeight + el.offsetHeight - el.clientHeight);   // read
+    live.forEach((el, i) => { el.style.height = sizes[i] + 'px'; });                     // write
+  };
+  const flush = () => { scheduled = false; const els = Array.from(queue); queue.clear(); growMany(els); };
+  const schedule = el => { queue.add(el); if (!scheduled) { scheduled = true; requestAnimationFrame(flush); } };
+  const visibility = new IntersectionObserver(entries => entries.forEach(e => { if (e.isIntersecting) schedule(e.target); }));
+  const widths = new ResizeObserver(entries => entries.forEach(e => { // only a change of width re-wraps the text
+    const w = Math.round(e.contentRect.width);
+    if (e.target._lastW !== w) { e.target._lastW = w; schedule(e.target); }
+  }));
+  const init = el => {
+    if (el._autoGrow) return;
+    el._autoGrow = true;
+    visibility.observe(el);
+    widths.observe(el);
+    schedule(el);
+  };
+  const initIn = root => {
+    if (root.nodeType !== 1) return;
+    if (root.tagName === 'TEXTAREA') init(root);
+    root.querySelectorAll && root.querySelectorAll('textarea').forEach(init);
+  };
+  document.addEventListener('input', e => { if (e.target.tagName === 'TEXTAREA') schedule(e.target); });
+  document.addEventListener('focusin', e => { if (e.target.tagName === 'TEXTAREA') schedule(e.target); });
+  initIn(document.body);
+  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(initIn))).observe(document.body, { childList: true, subtree: true });
+  // Called by the matrix right after it builds rows, so row heights are final before the scroll position is fixed
+  window.growTextareasNow = root => growMany(Array.from(root.querySelectorAll('textarea')));
+})();
