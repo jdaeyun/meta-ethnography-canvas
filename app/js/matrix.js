@@ -539,6 +539,16 @@ function renderMatrixTable() {
   const scrollParent = t ? t.parentElement : null;
   const prevTop = scrollParent ? scrollParent.scrollTop : 0;
   const prevLeft = scrollParent ? scrollParent.scrollLeft : 0;
+  // Anchor = the first row visible now. After the rebuild, scroll so this same row sits at the same place on screen,
+  // however the heights of not-yet-built rows were estimated.
+  let anchorId = null, anchorOffset = 0;
+  if (scrollParent && scrollParent.clientHeight > 0) {
+    const ptop = scrollParent.getBoundingClientRect().top;
+    for (const r of t.querySelectorAll('tbody > tr[data-cluster-id]')) {
+      const rect = r.getBoundingClientRect();
+      if (rect.bottom > ptop + 1) { anchorId = r.dataset.clusterId; anchorOffset = rect.top - ptop; break; }
+    }
+  }
   t.innerHTML = '';
   t.classList.toggle('matrix-compact', Boolean(state.matrixCompactMode));
 
@@ -667,12 +677,16 @@ function renderMatrixTable() {
   const avgRowHeight = knownHeights.length ? knownHeights.reduce((x, y) => x + y, 0) / knownHeights.length : 320;
   const eagerLimit = prevTop + (scrollParent ? scrollParent.clientHeight : 900) + 1200;
   let estimatedBottom = 0;
+  const anchorIdx = anchorId ? visibleClusters.findIndex(c => c.id === anchorId) : -1;
+  const viewH = scrollParent ? scrollParent.clientHeight : 900;
+  let sinceAnchor = 0;
   const lazyRows = new Map();
 
-  visibleClusters.forEach(cluster => {
+  visibleClusters.forEach((cluster, rowIdx) => {
     normalizeCluster(cluster);
 
     const tr = document.createElement('tr');
+    tr.dataset.clusterId = cluster.id;
     tr.className = 'matrix-row-drop transition';
 
     tr.addEventListener('dragover', e => {
@@ -1307,7 +1321,14 @@ function renderMatrixTable() {
 
     const rowHeightKey = cluster.id + ':' + compactKey;
     const estHeight = matrixRowHeights[rowHeightKey] || avgRowHeight;
-    if (estimatedBottom <= eagerLimit) {
+    let buildNow;
+    if (anchorIdx >= 0) {
+      buildNow = rowIdx >= anchorIdx - 1 && sinceAnchor <= viewH + 1200;
+      if (rowIdx >= anchorIdx - 1) sinceAnchor += estHeight;
+    } else {
+      buildNow = estimatedBottom <= eagerLimit;
+    }
+    if (buildNow) {
       buildRowBody();
     } else {
       const ph = document.createElement('td');
@@ -1332,8 +1353,12 @@ function renderMatrixTable() {
         const build = lazyRows.get(row);
         lazyRows.delete(row);
         matrixRowObserver.unobserve(row);
+        const pRect = scrollParent ? scrollParent.getBoundingClientRect() : null;
+        const rect0 = row.getBoundingClientRect();
+        const startsAboveView = !!pRect && rect0.top < pRect.top;
         row.replaceChildren();
         build();
+        if (startsAboveView) scrollParent.scrollTop += row.getBoundingClientRect().height - rect0.height;
         requestAnimationFrame(() => { if (row.isConnected && row.offsetHeight > 0) matrixRowHeights[row._rowHeightKey] = row.offsetHeight; });
       });
     }, { root: scrollParent || null, rootMargin: '1200px 0px 1200px 0px' });
@@ -1342,7 +1367,14 @@ function renderMatrixTable() {
     lazyRows.forEach((build, row) => { row.replaceChildren(); build(); });
   }
   if (scrollParent) {
-    scrollParent.scrollTop = prevTop;
+    scrollParent.style.overflowAnchor = 'none'; // we compensate ourselves (Safari has no scroll anchoring; avoid double correction elsewhere)
+    const anchorRow = anchorId ? tbody.querySelector(`tr[data-cluster-id="${CSS.escape(anchorId)}"]`) : null;
+    if (anchorRow) {
+      const pos = anchorRow.getBoundingClientRect().top - scrollParent.getBoundingClientRect().top + scrollParent.scrollTop;
+      scrollParent.scrollTop = pos - anchorOffset;
+    } else {
+      scrollParent.scrollTop = prevTop;
+    }
     scrollParent.scrollLeft = prevLeft;
   }
 }
