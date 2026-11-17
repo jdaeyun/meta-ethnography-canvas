@@ -84,9 +84,22 @@ function getCategoryMeta(cat) {
     case 'reading_extraction': return { label: 'Phase 3: Reading & Extraction', cls: 'bg-sky-100 text-sky-800 border-sky-300', icon: 'ph-book-open' };
     case 'translation_process': return { label: 'Phase 5: Translation', cls: 'bg-emerald-100 text-emerald-800 border-emerald-300', icon: 'ph-translate' };
     case 'team_model': return { label: 'Team Models (independent / merged)', cls: 'bg-orange-100 text-orange-800 border-orange-300', icon: 'ph-users' };
+    case 'project_data': return { label: 'Project Data (restore / merge)', cls: 'bg-slate-100 text-slate-800 border-slate-300', icon: 'ph-database' };
     case 'audit_edit': return { label: 'Audit Trail Edit', cls: 'bg-rose-50 text-rose-800 border-rose-200', icon: 'ph-eraser' };
     default: return { label: 'Event', cls: 'bg-slate-100 text-slate-700 border-slate-200', icon: 'ph-clock' };
   }
+}
+
+// When a reason was added after the decision (and any earlier wordings): shown in the timeline and in Appendix A
+function rationaleStampText(log) {
+  if (!log.rationaleAt) return '';
+  const hist = Array.isArray(log.rationaleHistory) ? log.rationaleHistory : [];
+  return `Reason written ${new Date(log.rationaleAt).toLocaleString()}`
+    + (hist.length ? `; earlier wording${hist.length > 1 ? 's' : ''}: ${hist.map(h => `"${h.text}" (${new Date(h.at).toLocaleString()})`).join('; ')}` : '');
+}
+function rationaleExportText(log) {
+  const stamp = rationaleStampText(log);
+  return (log.rationale || '-') + (stamp ? ` [${stamp}]` : '');
 }
 
 function renderAuditTimeline() {
@@ -149,6 +162,7 @@ function renderAuditTimeline() {
       ${diffHtml}
       <div class="pt-1">
         <textarea rows="${Math.min(6, (log.rationale || '').split('\n').length)}" class="lazy-grow rationale-input w-full text-[13px] border border-dashed border-slate-300 rounded px-2 py-1 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-none text-slate-700 resize-none" placeholder="+ Add reason for this decision...">${escapeHtml(log.rationale || '')}</textarea>
+        <div class="rationale-stamp text-[11px] text-slate-400 ${rationaleStampText(log) ? '' : 'hidden'}">${escapeHtml(rationaleStampText(log))}</div>
       </div>
     `;
 
@@ -156,8 +170,19 @@ function renderAuditTimeline() {
 
     const rationaleEl = card.querySelector('.rationale-input');
     bindPendingCommit(rationaleEl, async () => {
-      log.rationale = rationaleEl.value.trim();
+      const next = rationaleEl.value.trim();
+      const prev = (log.rationale || '').trim();
+      if (next === prev) return;
+      // A reason written later is not the same as one written at the time: keep when it was written and every earlier wording
+      if (prev) {
+        if (!Array.isArray(log.rationaleHistory)) log.rationaleHistory = [];
+        log.rationaleHistory.push({ text: prev, at: log.rationaleAt || log.timestamp });
+      }
+      log.rationale = next;
+      log.rationaleAt = Date.now();
       await dbPut('logs', log);
+      const stamp = card.querySelector('.rationale-stamp');
+      if (stamp) { stamp.textContent = rationaleStampText(log); stamp.classList.remove('hidden'); }
     });
 
     card.querySelector('.del-log').onclick = async () => {

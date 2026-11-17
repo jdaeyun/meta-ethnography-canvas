@@ -180,9 +180,11 @@ function updateSidebar() {
     w.querySelector('.sec-quote-save').onclick = async () => {
       const cleaned = stripOuterQuotes(quoteTextarea.value);
       if (cleaned && cleaned !== sec.text) {
+        const oldText = sec.text;
         sec.text = cleaned;
         quoteDisplay.textContent = `"${cleaned}"`;
         await dbPut('annotations', sec);
+        await logExtractedTextEdit(sec, oldText);
         renderHighlights();
       }
       toggleSecEditor(false);
@@ -571,9 +573,11 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
   c.querySelector('.f-quote-save').onclick = async () => {
     const cleaned = stripOuterQuotes(fTextarea.value);
     if (cleaned && cleaned !== f.text) {
+      const oldText = f.text;
       f.text = cleaned;
       fDisplay.textContent = `"${cleaned}"`;
       await dbPut('annotations', f);
+      await logExtractedTextEdit(f, oldText);
       renderHighlights();
     }
     toggleFirstEditor(false);

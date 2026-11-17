@@ -19,6 +19,20 @@ async function promptReassignItemReviewer(item, storeName, refreshFn) {
     item.by = clean;
   }
   await dbPut(storeName, item);
+  // Attribution is part of the audit trail: a change of who made an entry is itself recorded
+  const what = storeName === 'logs'
+    ? `audit trail entry "${item.action || ''}" (${new Date(item.timestamp).toLocaleString()})`
+    : storeName === 'clusters'
+      ? `3rd Order row "${item.thirdOrderTitle || '(Untitled Row)'}"`
+      : `${item.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} in ${getDisplayName(state.docs.find(d => d.id === item.docId))} (p.${item.page}): ${item.note || '"' + String(item.text || '').slice(0, 60) + '…"'}`;
+  await recordAuditLog({
+    category: 'audit_edit',
+    action: 'Changed the reviewer attributed to an item',
+    detail: `The ${what} is now attributed to @${clean}.`,
+    fromVal: '@' + currentRev,
+    toVal: '@' + clean,
+    clusterIds: storeName === 'clusters' ? [item.id] : (storeName === 'logs' ? item.clusterIds : (item.type === 'second_order' ? liveClusterIds(item) : null))
+  });
   if (refreshFn) refreshFn();
 }
 
@@ -245,6 +259,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
   populateLoaInputs();
   updateHeaderProjectUI();
+  if (state.docs.length && !state.loa.baselineDocId) await checkBaselineChange(); // remember study #1 (projects made before it was stored)
+  setTimeout(() => ensureDocFingerprints(), 4000); // projects made before fingerprints were stored: one PDF at a time, after start-up
 
   document.getElementById('projectSetupBadgeBtn')?.addEventListener('click', () => {
     openProjectSetupModal({
@@ -442,8 +458,8 @@ window.ondrop = async e => {
 
 // ---- Modals: Esc closes (except the required Reviewer ID dialog), focus moves in and returns, Tab stays inside ----
 (function modalAccessibility() {
-  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn' };
-  const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'reviewerLoginModal'];
+  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn', refutMapModal: 'refutMapCloseBtn' };
+  const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'refutMapModal', 'reviewerLoginModal'];
   const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   const returnTo = {};
   const visible = id => { const m = document.getElementById(id); return m && !m.classList.contains('hidden') ? m : null; };

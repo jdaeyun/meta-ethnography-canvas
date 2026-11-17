@@ -326,6 +326,161 @@ await group('Safety and accessibility', async () => {
   await ctx.close();
 });
 
+await group('Undo history belongs to one workspace (reset / clean restore)', async () => {
+  const p = await openDemo();
+  await tab(p, 'extract'); await p.waitForTimeout(400);
+  await p.locator('#studyList .del').first().click(); await p.waitForTimeout(800);
+  check('deleting a study can be undone', await p.evaluate(() => state.undoStack.length) === 1);
+  await p.evaluate(() => document.getElementById('resetProjectBtn').click()); await p.waitForTimeout(1500); await p.keyboard.press('Escape');
+  check('reset empties the undo stack', await p.evaluate(() => state.undoStack.length === 0 && document.getElementById('undoDeleteBtn').disabled));
+  await p.evaluate(() => performUndo()); await p.waitForTimeout(500);
+  check('Ctrl+Z after reset brings nothing back', await p.evaluate(() => state.docs.length === 0 && state.annotations.length === 0));
+  await p.context().close();
+});
+
+await group('Extracted text edits, attribution changes and late reasons leave a trace', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  let before = await logCount(p);
+  await p.locator('.edit-cell-quote-btn').first().click();
+  await p.locator('.cell-quote-textarea:visible').fill('Corrected passage text');
+  await p.locator('.cell-quote-save:visible').click(); await p.waitForTimeout(400);
+  const ed = await p.evaluate(() => state.logs[0]);
+  check('editing extracted text is logged with old and new wording', (await logCount(p)) === before + 1 && ed.action.includes('extracted text') && ed.toVal === 'Corrected passage text' && !!ed.fromVal);
+  check('the entry is tagged with its row', (ed.clusterIds || []).length > 0);
+  before = await logCount(p);
+  p.removeAllListeners('dialog'); p.on('dialog', d => d.type() === 'prompt' ? d.accept('NewRev') : d.accept());
+  await p.locator('.cl-rev-btn').first().click(); await p.waitForTimeout(400);
+  const at = await p.evaluate(() => state.logs[0]);
+  check('changing the attributed reviewer is logged', (await logCount(p)) === before + 1 && at.category === 'audit_edit' && at.toVal === '@NewRev');
+  await tab(p, 'audit'); await p.waitForTimeout(500);
+  const ta = p.locator('.rationale-input').nth(3);
+  await ta.fill('First reason'); await ta.blur(); await p.waitForTimeout(300);
+  await ta.fill('Second reason'); await ta.blur(); await p.waitForTimeout(300);
+  const lg = await p.evaluate(() => state.logs[3]);
+  check('a later reason keeps its date and earlier wording', lg.rationale === 'Second reason' && !!lg.rationaleAt && lg.rationaleHistory?.[0]?.text === 'First reason');
+  await tab(p, 'pub'); await p.locator('[data-pub=appendix]').click(); await p.waitForTimeout(400);
+  check('Appendix A shows when the reason was written', (await p.locator('#pubPreviewContainer').innerText()).includes('Reason written'));
+  await p.context().close();
+});
+
+await group('MERGE restore never overwrites local work', async () => {
+  const p = await openDemo();
+  const json = await p.evaluate(() => {
+    const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: state.logs, loa: state.loa, projectCode: state.projectCode, version: DB_VERSION }));
+    d.clusters[0].thirdOrderTitle = 'Title from the backup';
+    d.loa.aim = 'Aim from the backup';
+    d.annotations.push({ ...d.annotations.find(a => a.type === 'second_order'), id: 'merge_new_1', clusterIds: [], text: 'Only in the backup' });
+    return JSON.stringify(d);
+  });
+  const local = await p.evaluate(() => ({ title: state.clusters[0].thirdOrderTitle, aim: state.loa.aim, n: state.annotations.length }));
+  const alerts = [];
+  p.removeAllListeners('dialog');
+  p.on('dialog', d => { if (d.type() === 'confirm') d.dismiss(); else { alerts.push(d.message()); d.accept(); } }); // Cancel = MERGE
+  await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
+  const after = await p.evaluate(() => ({ title: state.clusters[0].thirdOrderTitle, aim: state.loa.aim, n: state.annotations.length, log: state.logs[0] }));
+  check('local row title and aim are kept', after.title === local.title && after.aim === local.aim);
+  check('items only in the backup are added', after.n === local.n + 1);
+  check('conflicts are reported and the merge is logged', alerts.some(a => a.includes('Kept YOUR version')) && after.log.category === 'project_data' && after.log.detail.includes(local.title));
+  await p.context().close();
+});
+
+await group('Changing study #1 marks the affected rows for re-reading', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const before = await p.evaluate(() => state.docs[0].id);
+  await p.evaluate(() => moveStudyOrder(1, 0)); await p.waitForTimeout(800);
+  const r = await p.evaluate(() => ({ flagged: state.clusters.filter(c => c.baselineChange).length, log: state.logs.find(l => l.action.startsWith('Study #1 changed')), first: state.docs[0].id, base: state.loa.baselineDocId }));
+  check('#1 is remembered in the project', r.first !== before && r.base === r.first);
+  check('rows are flagged and the change is logged per row', r.flagged > 0 && r.log && r.log.clusterIds.length === r.flagged);
+  check('the row shows the warning', (await p.locator('.cl-baseline-warn').count()) > 0);
+  await tab(p, 'pub'); await p.locator('[data-pub=table2]').click(); await p.waitForTimeout(300);
+  check('Table 2 notes the unreviewed rows', (await p.locator('#pubPreviewContainer').innerText()).includes('study #1 changed'));
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  await p.locator('.cl-baseline-ok').first().click(); await p.waitForTimeout(500);
+  check('marking a row as re-read clears it and is logged', (await p.evaluate(() => state.clusters.filter(c => c.baselineChange).length)) === r.flagged - 1 && (await p.evaluate(() => state.logs[0].action)).startsWith('Re-read row'));
+  await p.context().close();
+});
+
+await group('Constructs not translated: reason in the pool, Appendix B, Methods; provisional agreement', async () => {
+  const p = await openDemo();
+  await p.evaluate(async () => { const s = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId)); s.clusterIds = []; await dbPut('annotations', s); });
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  await p.locator('.pool-nt summary').first().click();
+  await p.locator('.pool-nt-input').first().fill('Outside the review question');
+  await tab(p, 'pub'); await p.waitForTimeout(400);
+  check('the reason is saved and logged', await p.evaluate(() => state.annotations.some(a => a.notTranslatedNote === 'Outside the review question') && state.logs[0].action.includes('not translated')));
+  await p.locator('[data-pub=appendix]').click(); await p.waitForTimeout(300);
+  const app = await p.locator('#pubPreviewContainer').innerText();
+  check('Appendix B lists it with the reason', app.includes('Appendix B') && app.includes('Outside the review question'));
+  await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  const m = await p.locator('#pubPreviewContainer').innerText();
+  check('Methods mentions Appendix B', m.includes('not translated into any third-order construct'));
+  check('Methods does not claim a comparison it cannot see', !m.includes('each study being compared with the synthesis'));
+  const refut = await p.evaluate(() => state.annotations.some(a => a.type === 'second_order' && (a.clusterIds || []).some(id => isSecRefutational(a, id))));
+  check('refutational wording follows the matrix', refut ? m.includes('reciprocal and refutational translation') : m.includes('no placement was judged refutational'));
+  check('agreement is provisional in exports', await p.evaluate(() => concordanceLabel('agreed') === 'Agreed (for now)' && getConcordanceBadgeMeta('agreed').label.includes('for now')));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Comparing reviewers: studies by file / DOI, order-independent pairs, translation order', async () => {
+  const p = await openDemo();
+  await p.waitForFunction(() => state.docs.filter(d => d.hasBinary).every(d => d.fpDone && /^[0-9a-f]{64}$/.test(d.sha256 || '')), null, { timeout: 30000 });
+  check('every stored PDF gets a fingerprint (in the background)', true);
+  await p.click('#compareJsonModalBtn');
+  check('DOI is read from text and tidied', await p.evaluate(() => normalizeDoi('https://doi.org/10.1177/1049732318ABC.') === '10.1177/1049732318abc'));
+  const run = (opts) => p.evaluate(async o => {
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode, reviewerId: 'Peer' }));
+    const idMap = {};
+    peer.docs.forEach((d, i) => { idMap[d.id] = 'peer_doc_' + i; d.id = idMap[d.id]; d.name = 'renamed_' + i + '.pdf'; d.title = 'x'; });
+    peer.annotations.forEach((a, i) => { a.docId = idMap[a.docId]; a.id = 'peer_a_' + i; });
+    if (o.noHash) peer.docs[1].sha256 = '';
+    if (o.reverse) peer.annotations.reverse();
+    if (o.swapFirst) peer.docs.reverse().forEach((d, i) => { d.order = i; });
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    const cmp = state.peerComparison;
+    return {
+      hows: cmp.matchedStudies.map(m => m.how), unmatched: cmp.unmatchedPeerDocs.length,
+      pairs: cmp.matchedPairs.map(x => x.peerAnno.id + '>' + x.localAnno.id).sort().join(','),
+      tab: state.activeCompareTab, firstDiffers: peerOrderInfo(cmp).firstDiffers
+    };
+  }, opts);
+  const a = await run({});
+  check('renamed files are matched as the identical PDF', a.unmatched === 0 && a.hows.every(h => h === 'sha256'));
+  const b = await run({ reverse: true });
+  check('pairs do not depend on the order of the peer file', a.pairs === b.pairs && a.pairs.length > 0);
+  const c = await run({ noHash: true });
+  check('same author + year is only a suggestion, not a match', c.unmatched === 1);
+  check('unmatched studies open the Studies & Order tab', c.tab === 'studies' && (await p.locator('.cmp-doc-pick').count()) === 1);
+  const before = await p.evaluate(() => state.peerComparison.matchedPairs.length);
+  await p.locator('.cmp-doc-pick').selectOption({ index: 1 }); await p.waitForTimeout(300);
+  check('connecting it by hand re-matches its constructs', await p.evaluate(() => state.peerComparison.unmatchedPeerDocs.length === 0 && state.peerComparison.matchedStudies.some(m => m.how === 'manual')) && (await p.evaluate(() => state.peerComparison.matchedPairs.length)) > before);
+  const d = await run({ swapFirst: true });
+  check('a different #1 is shown as something to discuss', d.firstDiffers && d.tab === 'studies' && (await p.locator('.cmp-order-memo').count()) === 1);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Refutation map gathers the ⚡ cards by study', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  // Make sure there is one refutational card outside study #1
+  await p.evaluate(async () => {
+    const s = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && a.clusterIds.length);
+    s.clusterRelations[s.clusterIds[0]] = 'refutational'; await dbPut('annotations', s);
+  });
+  const m = await p.evaluate(() => { const r = buildRefutationMap(); return { studies: r.studies.length, pairs: r.pairList.length, okPairs: r.pairList.every(x => x.r !== x.h) }; });
+  check('studies and pairs are derived from the cells', m.studies > 0 && m.pairs > 0 && m.okPairs);
+  await p.click('#refutMapBtn'); await p.waitForTimeout(300);
+  const txt = await p.locator('#refutMapBody').innerText();
+  check('the map opens and lists pairs and studies', txt.includes('Studies in tension') && txt.includes('By study') && txt.includes('contrasts with'));
+  await p.locator('.refut-row-link').first().click(); await p.waitForTimeout(500);
+  check('a row link closes the map and goes to the row', await p.evaluate(() => document.getElementById('refutMapModal').classList.contains('hidden')));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Offline edition (file://) starts without errors and renders PDFs', async () => {
   const p = await openDemo('file://' + path.join(ROOT, 'me_canvas.html') + '?demo');
   await p.waitForTimeout(2500);

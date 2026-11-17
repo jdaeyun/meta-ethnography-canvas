@@ -113,9 +113,9 @@ function buildTable2Html() {
     rowsHtml += `
       <tr>
         <td>
-          <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Construct)')}</b>${c.autoSeeded && !c.seedConfirmed ? ' <span style="font-size:10px; color:#b45309;">(provisional: seeded from Index Paper, not yet confirmed)</span>' : ''}
+          <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Construct)')}</b>${c.autoSeeded && !c.seedConfirmed ? ' <span style="font-size:10px; color:#b45309;">(provisional: seeded from Index Paper, not yet confirmed)</span>' : ''}${c.baselineChange ? ' <span style="font-size:10px; color:#b45309;">(study #1 changed; translation not yet re-read)</span>' : ''}
           <div style="font-size:10.5px; color:#475569; margin-top:4px;"><b>Type:</b> ${escapeHtml(transLabel)}</div>
-          <div style="font-size:10px; color:#64748b; margin-top:2px;"><b>Concordance:</b> ${escapeHtml(c.concordanceStatus.toUpperCase())}</div>
+          <div style="font-size:10px; color:#64748b; margin-top:2px;"><b>Concordance:</b> ${escapeHtml(concordanceLabel(c.concordanceStatus))}</div>
         </td>
         <td>${c.translationSummary ? `<div style="margin-bottom:6px;"><b>Translation:</b> ${escapeHtml(c.translationSummary)}</div>` : ''}${c.synthesisNote ? `<div><b>3rd order interpretation:</b> ${escapeHtml(c.synthesisNote)}</div>` : ''}${(!c.translationSummary && !c.synthesisNote) ? '-' : ''}</td>
         <td>${secondOrderListHtml || '-'}</td>
@@ -255,6 +255,44 @@ function buildTable3SoQFHtml() {
   }).join('');
 }
 
+// ---- Appendix B: 2nd order constructs that were not translated into any 3rd order row (one spec, three renderers) ----
+// What did not fit is part of the synthesis: it can be a disconfirming case or an alternative reading (eMERGe items 12, 13).
+function getNotTranslatedSpec() {
+  const live = new Set(state.clusters.map(c => c.id));
+  const secs = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation)
+    .filter(s => !s.clusterIds.some(id => live.has(id)));
+  const docIdx = id => { const i = state.docs.findIndex(d => d.id === id); return i < 0 ? 9999 : i; };
+  secs.sort((a, b) => (docIdx(a.docId) - docIdx(b.docId)) || ((parseInt(a.page, 10) || 0) - (parseInt(b.page, 10) || 0)));
+  const nStudies = new Set(secs.map(s => s.docId)).size;
+  return {
+    title: 'Appendix B. Second-Order Constructs Not Translated into a Third-Order Construct',
+    caption: 'Constructs extracted from the primary studies that were not placed in any third-order construct, with the reviewers\' reasons where recorded. Reported for transparency: some may be disconfirming cases or alternative interpretations (eMERGe items 12 and 13).',
+    headers: ['Study', 'Page(s)', 'Second-Order Construct (Authors\' Interpretation)', 'Why It Was Not Translated'],
+    widths: [16, 8, 46, 30],
+    count: secs.length,
+    nStudies,
+    rows: secs.map(s => {
+      const d = state.docs.find(x => x.id === s.docId);
+      return [d ? getDisplayName(d) : 'Study', secPagesLabel(s) || '-', (s.note ? s.note + secLabelTag(s) + ' — ' : '') + '"' + secEvidenceText(s) + '"', s.notTranslatedNote || '[Reason not recorded]'];
+    })
+  };
+}
+function buildNotTranslatedHtml() {
+  const spec = getNotTranslatedSpec();
+  const body = spec.rows.length
+    ? spec.rows.map(r => '<tr>' + r.map((c, i) => `<td${i === 3 && c === '[Reason not recorded]' ? ' style="color:#2563eb;"' : ''}>${escapeHtml(c)}</td>`).join('') + '</tr>').join('')
+    : `<tr><td colspan="4">Every extracted second-order construct was translated into at least one third-order construct.</td></tr>`;
+  return `
+    <div class="mb-3" style="margin-top:28px;">
+      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">${escapeHtml(spec.title)}</h3>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">${escapeHtml(spec.caption)}</p>
+    </div>
+    <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
+      <thead><tr>${spec.headers.map((h, i) => `<th style="width:${spec.widths[i]}%;">${escapeHtml(h)}</th>`).join('')}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>`;
+}
+
 function buildAppendixHtml() {
   let rowsHtml = '';
   const chronological = [...state.logs].reverse();
@@ -272,7 +310,7 @@ function buildAppendixHtml() {
         <td><b>${escapeHtml(meta.label)}</b></td>
         <td><b>${escapeHtml(l.action)}</b>${l.detail ? `<br>${escapeHtml(l.detail)}` : ''}</td>
         <td>${changeStr}</td>
-        <td>${escapeHtml(l.rationale || '-')}</td>
+        <td>${escapeHtml(rationaleExportText(l))}</td>
       </tr>
     `;
   });
@@ -297,6 +335,7 @@ function buildAppendixHtml() {
         ${rowsHtml || '<tr><td colspan="6">No audit trail entries recorded yet.</td></tr>'}
       </tbody>
     </table>
+    ${buildNotTranslatedHtml()}
   `;
 }
 
@@ -400,7 +439,7 @@ function getEmergeChecklist() {
           : P(`Table 1; ${state.docs.filter(d => !(d.setting && d.participants && d.methodology)).length} stud(ies) with missing context; ${state.docs.some(d => d.funder) ? '' : 'no funder recorded; '}link companion papers in Edit Study Info`)] ] },
     { name: 'Phase 4\nDetermining how studies are related', items: [
       [11, 'Process for determining how studies are related', 'Which aspects of studies were compared, and how', hasRelProc ? R('Phase 4 field → Methods Summary / Table 2') : A('Author to complete: use the Phase 4 field in Research Aim & Overall Model')],
-      [12, 'Outcome of relating studies', 'How studies relate to each other, incl. disconfirming cases', hasRelOut ? R('Phase 4 outcome text → Table 2 / Table 2b') : (nCl > 0 ? P('Table 2b (contribution grid); enter the outcome in the Phase 4 field') : A('Author to complete (Findings)'))] ] },
+      [12, 'Outcome of relating studies', 'How studies relate to each other, incl. disconfirming cases', hasRelOut ? R('Phase 4 outcome text → Table 2 / Table 2b; constructs not translated → Appendix B') : (nCl > 0 ? P('Table 2b (contribution grid); enter the outcome in the Phase 4 field') : A('Author to complete (Findings)'))] ] },
     { name: 'Phase 5\nTranslating studies into one another', items: [
       [13, 'Process of translating studies', 'Working definitions, preservation of context/meaning, reciprocal and refutational translation, alternative interpretations',
         (loa.translationDefinitions && loa.translationProcess && loa.alternativeInterpretations) ? R('Phase 5 fields → Methods Summary; Table 2, Appendix A')
@@ -472,11 +511,33 @@ function getMethodSections() {
   const orderHtml = strategy === 'index'
     ? `Studies were ordered for translation, designating <b>${firstName}</b> as the index paper. ${orderWhy || PH('why this study was chosen as the index paper')}`
     : strategy === 'chronological'
-      ? `Studies were translated in chronological order of publication, beginning with <b>${firstName}</b>, each study being compared with the synthesis of the studies before it.`
+      ? `Studies were translated in chronological order of publication, beginning with <b>${firstName}</b>. ${orderWhy || PH('how each study was compared with the studies before it')}`
       : `Studies were translated in the order shown in Table 1, beginning with <b>${firstName}</b>. ${orderWhy || PH('rationale for this translation order')}`;
+  // Only what the project data shows: how many rows were seeded, how many of them the reviewer confirmed, how many were added later
+  const seedConfirmedCount = state.clusters.filter(c => c.autoSeeded && c.seedConfirmed).length;
+  const laterRows = nCl - seedCount;
   const seedHtml = seedCount > 0
-    ? ` The second-order constructs of the first study (${firstName}) were used to seed the initial third-order rows, which were then refined as further studies were translated into them.`
+    ? ` The second-order constructs of the first study (${firstName}) were placed as ${seedCount} provisional third-order row${seedCount === 1 ? '' : 's'}`
+      + ` (${seedConfirmedCount} of which ${seedConfirmedCount === 1 ? 'was' : 'were'} later confirmed by the reviewer)`
+      + `${laterRows > 0 ? `; ${laterRows} further row${laterRows === 1 ? ' was' : 's were'} created during translation` : ''}.`
     : '';
+  // Relations actually recorded in the matrix (study #1 has none of its own)
+  const live = new Set(state.clusters.map(c => c.id));
+  let refutCells = 0, translatedCells = 0;
+  state.annotations.forEach(a => {
+    if (a.type !== 'second_order' || isBaselineDocId(a.docId)) return;
+    (a.clusterIds || []).filter(id => live.has(id)).forEach(id => { translatedCells++; if (isSecRefutational(a, id)) refutCells++; });
+  });
+  const translationKindHtml = nCl === 0
+    ? `${PH('how the extracted constructs were translated into third-order constructs')}`
+    : refutCells > 0
+      ? `Through reciprocal and refutational translation (${refutCells} of ${translatedCells} placements of a construct in a row were judged refutational), the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b).`
+      : `Through reciprocal translation, the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b); no placement was judged refutational. ${PH('how refutational relations and disconfirming cases were looked for')}`;
+  const nt = getNotTranslatedSpec();
+  const ntMissing = nt.rows.filter(r => r[3] === '[Reason not recorded]').length;
+  const notTranslatedHtml = nt.count > 0
+    ? ` ${nt.count} second-order construct${nt.count === 1 ? '' : 's'} from ${nt.nStudies} stud${nt.nStudies === 1 ? 'y was' : 'ies were'} not translated into any third-order construct; ${nt.count === 1 ? 'it is' : 'they are'} listed${ntMissing < nt.count ? ' with the reasons' : ''} in Appendix B.${ntMissing ? ' ' + PH(`reasons for the ${ntMissing} construct(s) without one`) : ''}`
+    : (nCl > 0 ? ' Every extracted second-order construct was translated into at least one third-order construct.' : '');
 
   const aimText = state.loa.aim
     ? escapeHtml(state.loa.aim)
@@ -513,7 +574,7 @@ function getMethodSections() {
   const readingHtml = `${L.readingApproach ? esc(L.readingApproach) : PH('how studies were read and data extracted, by whom, whether independently, and how accuracy was checked (eMERGe Item 9)')} ${scopeText || PH('whether data were extracted from the full accounts or the findings sections only')} First-order constructs (participant quotations) and second-order constructs (the primary authors' interpretations) were extracted and recorded separately${L.unitsTerminology ? '; ' + esc(L.unitsTerminology) : ''}.${L.unitsTerminology ? '' : ' ' + PH('what is meant by the units of synthesis used, e.g., concept, theme, metaphor')}${companionHtml}`;
 
   // Phase 5 (Item 13)
-  const translationHtml = `Data extraction and cross-study translation were managed using <i>Meta-Ethnography Canvas</i>${appCitationHtml()}. ${orderHtml}${seedHtml} ${L.translationDefinitions ? esc(L.translationDefinitions) : PH('working definitions of reciprocal and refutational translation (eMERGe Item 13)')} ${L.translationProcess ? esc(L.translationProcess) : PH('who translated, how meaning was translated from one study into another, and how context and relationships between concepts were preserved')} Through reciprocal and refutational translation, the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b). ${L.alternativeInterpretations ? esc(L.alternativeInterpretations) : PH('how alternative interpretations or explanations were considered (Items 13 and 15)')}`;
+  const translationHtml = `Data extraction and cross-study translation were managed using <i>Meta-Ethnography Canvas</i>${appCitationHtml()}. ${orderHtml}${seedHtml} ${L.translationDefinitions ? esc(L.translationDefinitions) : PH('working definitions of reciprocal and refutational translation (eMERGe Item 13)')} ${L.translationProcess ? esc(L.translationProcess) : PH('who translated, how meaning was translated from one study into another, and how context and relationships between concepts were preserved')} ${translationKindHtml}${notTranslatedHtml} ${L.alternativeInterpretations ? esc(L.alternativeInterpretations) : PH('how alternative interpretations or explanations were considered (Items 13 and 15)')}`;
 
   // Phase 6 (Items 15-16) incl. independent team models (Atkins et al., 2008)
   const teamModels = Array.isArray(L.teamModels) ? L.teamModels : [];
@@ -683,7 +744,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
         const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
         firsts.forEach(f => quotes.push(`"${f.text}"${f.note ? ' [' + f.note + ']' : ''} (p.${f.page})`));
       });
-      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cleanMd(clusterTranslationLabel(c))} | ${cleanMd(c.concordanceStatus)} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
+      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cleanMd(clusterTranslationLabel(c))} | ${cleanMd(concordanceLabel(c.concordanceStatus))} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
     });
     // Line of Argument block (same content as the HTML preview and the Word export)
     const L = state.loa || {};
@@ -741,8 +802,14 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
     [...state.logs].reverse().forEach(l => {
       const meta = getCategoryMeta(l.category);
       const diff = (l.fromVal || l.toVal) ? `${l.fromVal || ''} ➔ ${l.toVal || ''}` : '-';
-      md += `| ${cleanMd(new Date(l.timestamp).toLocaleString())} | @${cleanMd(l.reviewer || 'Unknown')} | ${cleanMd(meta.label)} | **${cleanMd(l.action)}** ${cleanMd(l.detail)} | ${cleanMd(diff)} | ${cleanMd(l.rationale)} |\n`;
+      md += `| ${cleanMd(new Date(l.timestamp).toLocaleString())} | @${cleanMd(l.reviewer || 'Unknown')} | ${cleanMd(meta.label)} | **${cleanMd(l.action)}** ${cleanMd(l.detail)} | ${cleanMd(diff)} | ${cleanMd(rationaleExportText(l))} |\n`;
     });
+    const nt = getNotTranslatedSpec();
+    md += `\n### ${nt.title}\n\n*${nt.caption}*\n\n`;
+    if (nt.rows.length) {
+      md += `| ${nt.headers.map(cleanMd).join(' | ')} |\n|${nt.headers.map(() => '---').join('|')}|\n`;
+      nt.rows.forEach(r => { md += `| ${r.map(cleanMd).join(' | ')} |\n`; });
+    } else md += 'Every extracted second-order construct was translated into at least one third-order construct.\n';
   }
 
   await navigator.clipboard.writeText(md);
@@ -880,7 +947,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
       t2Rows.push(new TableRow({
         children: [
-          makeCell(`${c.thirdOrderTitle || '(Untitled)'}\n[Type: ${transLabel} | Concordance: ${c.concordanceStatus.toUpperCase()}]`, { isLastRow: isLast, bold: true }),
+          makeCell(`${c.thirdOrderTitle || '(Untitled)'}\n[Type: ${transLabel} | Concordance: ${concordanceLabel(c.concordanceStatus)}]`, { isLastRow: isLast, bold: true }),
           makeCell([c.translationSummary ? 'Translation: ' + c.translationSummary : '', c.synthesisNote ? '3rd order interpretation: ' + c.synthesisNote : ''].filter(Boolean).join('\n\n') || '-', { isLastRow: isLast }),
           makeCell(secParagraphs, { isLastRow: isLast }),
           makeCell(quoteParagraphs, { isLastRow: isLast }),
@@ -961,11 +1028,13 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           makeCell(meta.label, { isLastRow: isLast }),
           makeCell(`${l.action}${l.detail ? '\n' + l.detail : ''}`, { isLastRow: isLast }),
           makeCell(changeStr, { isLastRow: isLast }),
-          makeCell(l.rationale || '-', { isLastRow: isLast })
+          makeCell(rationaleExportText(l), { isLastRow: isLast })
         ]
       }));
     });
   }
+
+  const ntSpec = getNotTranslatedSpec();
 
   const projBannerParagraphs = [
     new Paragraph({
@@ -1110,7 +1179,20 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           children: [new TextRun({ text: "Appendix A. Methodological Audit Trail, Team Perspectives & Reflexive Synthesis Log", bold: true, font: "Times New Roman", size: 24 })],
           spacing: { after: 140 }
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: appRows })
+        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: appRows }),
+
+        new Paragraph({ children: [new PageBreak()] }),
+        new Paragraph({
+          children: [new TextRun({ text: ntSpec.title, bold: true, font: "Times New Roman", size: 24 })],
+          spacing: { after: 80 }
+        }),
+        new Paragraph({ children: [new TextRun({ text: ntSpec.caption, italics: true, font: "Times New Roman", size: 20 })], spacing: { after: 140 } }),
+        ...(ntSpec.rows.length
+          ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
+              new TableRow({ tableHeader: true, children: ntSpec.headers.map(h => makeCell(h, { isHeader: true })) }),
+              ...ntSpec.rows.map((r, i) => new TableRow({ children: r.map(c => makeCell(c, { isLastRow: i === ntSpec.rows.length - 1 })) }))
+            ] })]
+          : [new Paragraph({ children: [new TextRun({ text: 'Every extracted second-order construct was translated into at least one third-order construct.', font: "Times New Roman", size: 20 })] })])
       ]
     }]
   });
@@ -1141,11 +1223,11 @@ document.getElementById('exportCsvBtn').addEventListener('click', () => {
       const cluster = state.clusters.find(c => c.id === cid);
       if (cluster) normalizeCluster(cluster);
       const cellRelation = cid ? (isBaselineDocId(sec.docId) ? 'baseline' : ((sec.clusterRelations && sec.clusterRelations[cid]) || 'reciprocal')) : '';
-      const cellComment = cid && sec.clusterComments ? `[${cellRelation}] ` + (sec.clusterComments[cid] || '') : (cellRelation ? `[${cellRelation}]` : '');
+      const cellComment = cid && sec.clusterComments ? `[${cellRelation}] ` + (sec.clusterComments[cid] || '') : (cellRelation ? `[${cellRelation}]` : (sec.notTranslatedNote ? `[not translated] ${sec.notTranslatedNote}` : ''));
       rows.push([
         cluster ? cluster.thirdOrderTitle : '(Unassigned)',
         cluster ? clusterTranslationLabel(cluster) : '',
-        cluster ? `${cluster.concordanceStatus}${cluster.concordanceNote ? ': ' + cluster.concordanceNote : ''}` : '',
+        cluster ? `${concordanceLabel(cluster.concordanceStatus)}${cluster.concordanceNote ? ': ' + cluster.concordanceNote : ''}` : '',
         cluster ? cluster.cerqualConfidence : '',
         cluster ? cluster.cerqualExplanation : '',
         cluster ? (cluster.translationSummary || '') : '',
@@ -1167,7 +1249,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', () => {
         sec.note || '',
         secEvidenceText(sec) || '',
         sec.nuanceNote || '',
-        `${sec.concordanceStatus}${sec.concordanceNote ? ': ' + sec.concordanceNote : ''}`,
+        `${concordanceLabel(sec.concordanceStatus)}${sec.concordanceNote ? ': ' + sec.concordanceNote : ''}`,
         cellComment,
         firsts.map(f => `"${f.text}"${f.note ? ' [' + f.note + ']' : ''} (p.${f.page})`).join(' | '),
         secPagesLabel(sec)

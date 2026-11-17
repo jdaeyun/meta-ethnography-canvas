@@ -16,8 +16,64 @@ document.getElementById('pdfFileInput').addEventListener('change', async (e) => 
 async function attachPdfFileToDoc(doc, file) {
   const buffer = await file.arrayBuffer();
   doc.hasBinary = true;
+  doc.fpDone = false; // fingerprint the newly attached file
   await dbPut('pdf_binaries', { id: doc.id, data: buffer });
   await dbPut('docs', doc);
+  ensureDocFingerprints();
+}
+
+// ---- Study fingerprints: recognise the same paper in a co-reviewer's file, whatever it is called ----
+// sha256 = identical file; doi = same article even if downloaded from another source. Computed once per PDF, in the background.
+function normalizeDoi(s) {
+  const m = String(s || '').match(/10\.\d{4,9}\/[^\s"'<>]+/i);
+  return m ? m[0].replace(/[.,;:)\]}]+$/, '').toLowerCase() : '';
+}
+async function sha256Hex(buffer) {
+  try {
+    if (!(window.crypto && crypto.subtle)) return '';
+    const h = await crypto.subtle.digest('SHA-256', buffer);
+    return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) { return ''; }
+}
+// The article's own DOI: PDF metadata first, then page 1 only (later pages hold the DOIs of cited works)
+async function findDoiInPdf(buffer) {
+  if (typeof pdfjsLib === 'undefined') return '';
+  let pdf = null;
+  try {
+    pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)), ...pdfjsDocumentOptions() }).promise;
+    try {
+      const meta = await pdf.getMetadata();
+      const xmp = meta && meta.metadata;
+      const cands = [xmp && xmp.get('prism:doi'), xmp && xmp.get('dc:identifier'), meta && meta.info && meta.info.doi, meta && meta.info && meta.info.Subject];
+      for (const c of cands) { const d = normalizeDoi(Array.isArray(c) ? c.join(' ') : c); if (d) return d; }
+    } catch (e) { /* no metadata */ }
+    const page = await pdf.getPage(1);
+    const tc = await page.getTextContent();
+    return normalizeDoi(tc.items.map(i => i.str).join(' ').replace(/doi\s*:\s*/gi, ' ').replace(/(10\.\d{4,9})\s*\/\s*/g, '$1/'));
+  } catch (e) {
+    return '';
+  } finally {
+    if (pdf) { try { await pdf.destroy(); } catch (e) { /* ignore */ } }
+  }
+}
+let fingerprintBusy = false;
+async function ensureDocFingerprints() {
+  if (fingerprintBusy) return;
+  fingerprintBusy = true;
+  try {
+    for (const d of state.docs.filter(x => x.hasBinary && !x.fpDone)) {
+      const rec = await dbGet('pdf_binaries', d.id); // one PDF in memory at a time
+      if (!rec || !rec.data || !rec.data.byteLength) continue;
+      d.sha256 = await sha256Hex(rec.data);
+      if (!d.doi) d.doi = await findDoiInPdf(rec.data);
+      d.fpDone = true;
+      if (state.docs.includes(d)) await dbPut('docs', d, { quiet: true });
+    }
+  } catch (e) {
+    console.warn('Fingerprinting skipped:', e);
+  } finally {
+    fingerprintBusy = false;
+  }
 }
 
 async function handleFiles(files) {
@@ -62,6 +118,8 @@ async function handleFiles(files) {
     state.docs.push(doc);
     lastAffectedId = doc.id;
   }
+  if (!state.loa.baselineDocId) await checkBaselineChange(); // the first study added becomes #1
+  ensureDocFingerprints();
   renderStudyList();
   if (typeof refreshMissingPdfModal === 'function') refreshMissingPdfModal(unmatched);
   if (lastAffectedId) switchStudy(lastAffectedId);
@@ -148,6 +206,50 @@ async function persistDocOrder() {
     state.docs[i].order = i;
     await dbPut('docs', state.docs[i]);
   }
+  await checkBaselineChange();
+}
+
+// ---- Study #1 is the basis of every row: when it changes, the translation in the affected rows has to be re-read ----
+// The #1 study is remembered in the project (loa.baselineDocId), so every path that reorders, deletes or restores studies is covered.
+async function checkBaselineChange() {
+  const prevId = state.loa.baselineDocId || null;
+  const prevName = state.loa.baselineDocName || '';
+  const now = state.docs[0] || null;
+  const nowId = now ? now.id : null;
+  if (prevId === nowId && (!now || prevName === getDisplayName(now))) return;
+  state.loa = { ...state.loa, id: 'loa_main', baselineDocId: nowId, baselineDocName: now ? getDisplayName(now) : '' };
+  await dbPut('meta', state.loa);
+  if (!prevId || !nowId || prevId === nowId) return; // first study ever, or only the name changed
+  await flagRowsForBaselineChange(prevId, prevName, now);
+}
+
+async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
+  const secsOf = docId => state.annotations.filter(a => a.type === 'second_order' && a.docId === docId).map(normalizeAnnotation);
+  const prevSecs = secsOf(prevId), nowSecs = secsOf(nowDoc.id);
+  const live = new Set(state.clusters.map(c => c.id));
+  const affected = state.clusters.filter(c => [...prevSecs, ...nowSecs].some(s => s.clusterIds.includes(c.id)));
+  if (affected.length === 0) return;
+  // Relations the new #1 study had as a translated study: they are kept but no longer shown or exported (a baseline has none)
+  let hiddenRefut = 0;
+  nowSecs.forEach(s => s.clusterIds.filter(id => live.has(id)).forEach(id => { if (s.clusterRelations && s.clusterRelations[id] === 'refutational') hiddenRefut++; }));
+  const prevCells = prevSecs.reduce((n, s) => n + s.clusterIds.filter(id => live.has(id)).length, 0);
+  const at = Date.now();
+  for (const c of affected) {
+    c.baselineChange = { at, fromDocId: prevId, fromName: prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) };
+    await dbPut('clusters', c);
+  }
+  await recordAuditLog({
+    category: 'study_order',
+    action: `Study #1 changed: the translation in ${affected.length} 3rd Order row(s) needs re-reading`,
+    detail: `#1 was ${prevName || 'another study'}; it is now ${getDisplayName(nowDoc)}, which now establishes these rows.`
+      + (prevCells ? ` ${prevName || 'The former #1'} is now translated into ${prevCells} cell(s); its cards there show as Reciprocal until you judge them.` : '')
+      + (hiddenRefut ? ` ${hiddenRefut} Refutational judgement(s) of ${getDisplayName(nowDoc)} are no longer shown, because study #1 has no relation of its own.` : '')
+      + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
+    fromVal: `#1: ${prevName}`,
+    toVal: `#1: ${getDisplayName(nowDoc)}`,
+    clusterIds: affected.map(c => c.id)
+  });
+  showSnackbar(`Study #1 changed: ${affected.length} row(s) marked for re-reading in the Synthesis Matrix.`);
 }
 
 async function moveStudyOrder(fromIdx, toIdx) {
@@ -538,6 +640,7 @@ function populateMetaEditInputs() {
   document.getElementById('metaEtAl').checked = doc.etAl !== false;
   document.getElementById('metaYear').value = doc.year || '';
   document.getElementById('metaTitle').value = doc.title || '';
+  document.getElementById('metaDoi').value = doc.doi || '';
   document.getElementById('metaSetting').value = doc.setting || '';
   document.getElementById('metaParticipants').value = doc.participants || '';
   document.getElementById('metaGroup').value = doc.group || '';
@@ -567,6 +670,7 @@ async function saveCurrentMeta() {
   doc.etAl = document.getElementById('metaEtAl').checked;
   doc.year = document.getElementById('metaYear').value.trim();
   doc.title = document.getElementById('metaTitle').value.trim();
+  doc.doi = normalizeDoi(document.getElementById('metaDoi').value) || '';
   doc.setting = document.getElementById('metaSetting').value.trim();
   doc.participants = document.getElementById('metaParticipants').value.trim();
   const prevGroup = doc.group || '';
