@@ -535,6 +535,7 @@ let matrixRowObserver = null;
 const matrixRowHeights = {};
 
 function renderMatrixTable() {
+  if (matrixRowObserver) { matrixRowObserver.disconnect(); matrixRowObserver = null; }
   const t = document.getElementById('matrixTable');
   const scrollParent = t ? t.parentElement : null;
   const prevTop = scrollParent ? scrollParent.scrollTop : 0;
@@ -662,7 +663,6 @@ function renderMatrixTable() {
 
   // Rows are built lazily: only rows near the viewport get their (heavy) content; the rest are light placeholders
   // that are filled in as they scroll into view. This keeps big projects (dozens of studies) responsive.
-  if (matrixRowObserver) { matrixRowObserver.disconnect(); matrixRowObserver = null; }
   const compactKey = state.matrixCompactMode ? 'c' : 'n';
   const knownHeights = Object.values(matrixRowHeights).filter(h => typeof h === 'number' && h > 0);
   const avgRowHeight = knownHeights.length ? knownHeights.reduce((x, y) => x + y, 0) / knownHeights.length : 320;

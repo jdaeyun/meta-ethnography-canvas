@@ -1392,7 +1392,8 @@ function richnessTieGroups() {
     const key = d => (d.richness || '') + '|' + (d.quality || '');
     let j = i + 1;
     while (j < state.docs.length && key(state.docs[j]) === key(state.docs[i])) j++;
-    if (j - i > 1) groups.push({ start: i, docs: state.docs.slice(i, j) });
+    // Studies with neither richness nor quality rated are not a meaningful "tie": nothing was rated, so skip them
+    if (j - i > 1 && key(state.docs[i]) !== '|') groups.push({ start: i, docs: state.docs.slice(i, j) });
     i = j;
   }
   return groups;

@@ -80,6 +80,10 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   2nd order → rows are `clusterIds[]` with per-row `clusterRelations` / `clusterComments`.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
+- Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit
+  (save + `recordAuditLog`) then also runs on tab switch, matrix re-render and page leave, so a saved text never lacks its log entry.
+- Tab 2 rows are built lazily (`renderMatrixTable`): only rows near the viewport have content. Do not query row DOM across the whole table.
+- A row's Reciprocal / Refutational character is derived from its cells (`clusterTranslationType()`); there is no per-row setting.
 - Escape every user value interpolated into HTML with `escapeHtml()`.
 - Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`);
   change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
