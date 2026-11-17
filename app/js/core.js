@@ -361,6 +361,7 @@ function normalizeAnnotation(a) {
     if (!a.clusterComments || typeof a.clusterComments !== 'object') a.clusterComments = {};
     if (!a.clusterRelations || typeof a.clusterRelations !== 'object') a.clusterRelations = {};
     // Additional passages where the authors state the SAME interpretation elsewhere in the paper
+    if (typeof a.notTranslatedNote !== 'string') a.notTranslatedNote = ''; // why it was left out of every 3rd order row (Appendix B)
     if (!Array.isArray(a.passages)) a.passages = [];
     a.passages.forEach(p => { p.page = sanitizePageLabel(p.page); if (typeof p.text !== 'string') p.text = ''; });
   }
@@ -471,8 +472,12 @@ function normalizeCluster(c) {
   return c;
 }
 
+// Agreement is provisional (Big Q): the same wording is used in the app and in every export
+function concordanceLabel(status) {
+  return status === 'agreed' ? 'Agreed (for now)' : status === 'discuss' ? 'Discuss' : 'Pending';
+}
 function getConcordanceBadgeMeta(status) {
-  if (status === 'agreed') return { label: '✅ Agreed', cls: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+  if (status === 'agreed') return { label: '✅ Agreed (for now)', cls: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
   if (status === 'discuss') return { label: '💬 Discuss', cls: 'bg-amber-100 text-amber-800 border-amber-300' };
   return { label: '⏳ Pending', cls: 'bg-slate-100 text-slate-600 border-slate-300' };
 }

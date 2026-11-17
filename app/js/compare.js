@@ -273,7 +273,7 @@ function renderComparisonTabContent() {
         <b>Resolution Mode:</b> Review constructs extracted by <b>@${escapeHtml(cmp.peerReviewer)}</b> that are not in your local project. Import & Agree, Import for Discussion, or Set Aside (it stays in the other reviewer's file; nothing is deleted).
       </div>
       <button id="importAllPeerBtn" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer">
-        + Import All as Agreed
+        + Import All as Agreed (for now)
       </button>
     `;
     topAction.querySelector('#importAllPeerBtn').onclick = async () => {
@@ -361,7 +361,7 @@ function renderComparisonTabContent() {
           </div>
           <div class="flex items-center space-x-2">
             <button class="mark-agreed-btn px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded cursor-pointer">
-              ${l.concordanceStatus === 'agreed' ? '✓ Already Agreed (Adopt Peer Note)' : '✅ Mark Agreed & Merge Note'}
+              ${l.concordanceStatus === 'agreed' ? '✓ Already Agreed for now (Adopt Peer Note)' : '✅ Mark Agreed (for now) & Merge Note'}
             </button>
           </div>
         </div>

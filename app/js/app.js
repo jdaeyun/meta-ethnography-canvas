@@ -19,6 +19,20 @@ async function promptReassignItemReviewer(item, storeName, refreshFn) {
     item.by = clean;
   }
   await dbPut(storeName, item);
+  // Attribution is part of the audit trail: a change of who made an entry is itself recorded
+  const what = storeName === 'logs'
+    ? `audit trail entry "${item.action || ''}" (${new Date(item.timestamp).toLocaleString()})`
+    : storeName === 'clusters'
+      ? `3rd Order row "${item.thirdOrderTitle || '(Untitled Row)'}"`
+      : `${item.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} in ${getDisplayName(state.docs.find(d => d.id === item.docId))} (p.${item.page}): ${item.note || '"' + String(item.text || '').slice(0, 60) + '…"'}`;
+  await recordAuditLog({
+    category: 'audit_edit',
+    action: 'Changed the reviewer attributed to an item',
+    detail: `The ${what} is now attributed to @${clean}.`,
+    fromVal: '@' + currentRev,
+    toVal: '@' + clean,
+    clusterIds: storeName === 'clusters' ? [item.id] : (storeName === 'logs' ? item.clusterIds : (item.type === 'second_order' ? liveClusterIds(item) : null))
+  });
   if (refreshFn) refreshFn();
 }
 
@@ -245,6 +259,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
   populateLoaInputs();
   updateHeaderProjectUI();
+  if (state.docs.length && !state.loa.baselineDocId) await checkBaselineChange(); // remember study #1 (projects made before it was stored)
 
   document.getElementById('projectSetupBadgeBtn')?.addEventListener('click', () => {
     openProjectSetupModal({

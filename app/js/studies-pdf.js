@@ -62,6 +62,7 @@ async function handleFiles(files) {
     state.docs.push(doc);
     lastAffectedId = doc.id;
   }
+  if (!state.loa.baselineDocId) await checkBaselineChange(); // the first study added becomes #1
   renderStudyList();
   if (typeof refreshMissingPdfModal === 'function') refreshMissingPdfModal(unmatched);
   if (lastAffectedId) switchStudy(lastAffectedId);
@@ -148,6 +149,50 @@ async function persistDocOrder() {
     state.docs[i].order = i;
     await dbPut('docs', state.docs[i]);
   }
+  await checkBaselineChange();
+}
+
+// ---- Study #1 is the basis of every row: when it changes, the translation in the affected rows has to be re-read ----
+// The #1 study is remembered in the project (loa.baselineDocId), so every path that reorders, deletes or restores studies is covered.
+async function checkBaselineChange() {
+  const prevId = state.loa.baselineDocId || null;
+  const prevName = state.loa.baselineDocName || '';
+  const now = state.docs[0] || null;
+  const nowId = now ? now.id : null;
+  if (prevId === nowId && (!now || prevName === getDisplayName(now))) return;
+  state.loa = { ...state.loa, id: 'loa_main', baselineDocId: nowId, baselineDocName: now ? getDisplayName(now) : '' };
+  await dbPut('meta', state.loa);
+  if (!prevId || !nowId || prevId === nowId) return; // first study ever, or only the name changed
+  await flagRowsForBaselineChange(prevId, prevName, now);
+}
+
+async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
+  const secsOf = docId => state.annotations.filter(a => a.type === 'second_order' && a.docId === docId).map(normalizeAnnotation);
+  const prevSecs = secsOf(prevId), nowSecs = secsOf(nowDoc.id);
+  const live = new Set(state.clusters.map(c => c.id));
+  const affected = state.clusters.filter(c => [...prevSecs, ...nowSecs].some(s => s.clusterIds.includes(c.id)));
+  if (affected.length === 0) return;
+  // Relations the new #1 study had as a translated study: they are kept but no longer shown or exported (a baseline has none)
+  let hiddenRefut = 0;
+  nowSecs.forEach(s => s.clusterIds.filter(id => live.has(id)).forEach(id => { if (s.clusterRelations && s.clusterRelations[id] === 'refutational') hiddenRefut++; }));
+  const prevCells = prevSecs.reduce((n, s) => n + s.clusterIds.filter(id => live.has(id)).length, 0);
+  const at = Date.now();
+  for (const c of affected) {
+    c.baselineChange = { at, fromDocId: prevId, fromName: prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) };
+    await dbPut('clusters', c);
+  }
+  await recordAuditLog({
+    category: 'study_order',
+    action: `Study #1 changed: the translation in ${affected.length} 3rd Order row(s) needs re-reading`,
+    detail: `#1 was ${prevName || 'another study'}; it is now ${getDisplayName(nowDoc)}, which now establishes these rows.`
+      + (prevCells ? ` ${prevName || 'The former #1'} is now translated into ${prevCells} cell(s); its cards there show as Reciprocal until you judge them.` : '')
+      + (hiddenRefut ? ` ${hiddenRefut} Refutational judgement(s) of ${getDisplayName(nowDoc)} are no longer shown, because study #1 has no relation of its own.` : '')
+      + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
+    fromVal: `#1: ${prevName}`,
+    toVal: `#1: ${getDisplayName(nowDoc)}`,
+    clusterIds: affected.map(c => c.id)
+  });
+  showSnackbar(`Study #1 changed: ${affected.length} row(s) marked for re-reading in the Synthesis Matrix.`);
 }
 
 async function moveStudyOrder(fromIdx, toIdx) {

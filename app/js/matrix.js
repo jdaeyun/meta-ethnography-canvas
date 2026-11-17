@@ -421,6 +421,10 @@ function renderSecondOrderPool() {
       <div class="text-[13px] text-slate-600 italic line-clamp-3 leading-snug">"${escapeHtml(sec.text)}"</div>
       ${sec.nuanceNote ? `<div class="mt-1 text-xs text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 truncate" title="${escapeHtml(sec.nuanceNote)}">🌐 ${escapeHtml(sec.nuanceNote)}</div>` : ''}
       ${poolQuotesPreviewHtml}
+      ${count === 0 ? `<details class="pool-nt mt-1.5 rounded border border-slate-200 bg-slate-50 p-1.5" ${sec.notTranslatedNote ? 'open' : ''}>
+        <summary class="text-[11px] font-semibold text-slate-600 cursor-pointer select-none">${sec.notTranslatedNote ? '✎ Why not translated (Appendix B)' : '+ Why not translated? (optional, reported in Appendix B)'}</summary>
+        <textarea rows="2" class="pool-nt-input mt-1 w-full text-xs border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-indigo-500 resize-y" placeholder="e.g., outside the review question; contradicts the rows but does not translate into any; too thin to interpret…">${escapeHtml(sec.notTranslatedNote)}</textarea>
+      </details>` : ''}
       <div class="mt-1.5 flex items-center justify-between text-xs text-slate-400">
         <span>🟦 ${linkedQuotes.length} quote(s)</span>
         ${count > 0
@@ -436,6 +440,29 @@ function renderSecondOrderPool() {
       e.stopPropagation();
       promptReassignItemReviewer(sec, 'annotations', renderMatrixView);
     };
+    const ntInput = card.querySelector('.pool-nt-input');
+    if (ntInput) {
+      // The note box sits on a draggable card: keep text selection inside it from starting a drag
+      card.querySelector('.pool-nt').addEventListener('mousedown', () => { card.draggable = false; });
+      ntInput.addEventListener('blur', () => { card.draggable = true; });
+      ntInput.addEventListener('mouseup', () => { card.draggable = true; });
+      let initialNt = sec.notTranslatedNote;
+      bindPendingCommit(ntInput, async () => {
+        const next = ntInput.value.trim();
+        if (next === initialNt.trim()) return;
+        const prev = initialNt;
+        initialNt = next;
+        sec.notTranslatedNote = next;
+        await dbPut('annotations', sec);
+        await recordAuditLog({
+          category: 'translation_process',
+          action: 'Noted why a 2nd Order construct was not translated into any 3rd Order row',
+          detail: `${docName} (p.${sec.page}): ${sec.note || '"' + String(sec.text || '').slice(0, 60) + '…"'}`,
+          fromVal: prev,
+          toVal: next
+        });
+      });
+    }
     pool.appendChild(card);
   });
 
@@ -756,6 +783,12 @@ function renderMatrixTable() {
           </div>
         </div>
         
+        ${cluster.baselineChange ? `<div class="cl-baseline-warn rounded border border-amber-400 bg-amber-50 p-1.5 text-[11px] text-amber-900 leading-snug">
+          <div class="font-bold">⚠ Study #1 changed after this row was built</div>
+          <div>${escapeHtml(cluster.baselineChange.fromName || 'The former #1')} → <b>${escapeHtml(cluster.baselineChange.toName)}</b>, which now establishes this row (its own Reciprocal / Refutational judgements are not shown). ${escapeHtml(cluster.baselineChange.fromName || 'The former #1')} is now translated into the row: check whether its cards here are Reciprocal or Refutational, and whether the title still holds.</div>
+          <button type="button" class="cl-baseline-ok mt-1 px-1.5 py-0.5 rounded border border-amber-400 bg-white font-semibold cursor-pointer hover:bg-amber-100">Re-read · mark as reviewed</button>
+        </div>` : ''}
+
         <!-- Always-visible 3rd Order Title -->
         <input type="text" class="cluster-title w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-indigo-600" placeholder="3rd Order Construct / Theme Name..." value="${escapeHtml(cluster.thirdOrderTitle)}">
 
@@ -1039,6 +1072,21 @@ function renderMatrixTable() {
       });
       seedBtn.remove();
     };
+    const baselineOkBtn = tdMeta.querySelector('.cl-baseline-ok');
+    if (baselineOkBtn) baselineOkBtn.onclick = async () => {
+      const bc = cluster.baselineChange;
+      const why = (prompt('What did you check or change in this row after study #1 changed? (optional — recorded in the audit trail)') || '').trim();
+      delete cluster.baselineChange;
+      await dbPut('clusters', cluster);
+      await recordAuditLog({
+        clusterIds: [cluster.id],
+        category: 'third_order',
+        action: `Re-read row after study #1 changed: "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+        detail: `#1 changed from ${bc.fromName || 'another study'} to ${bc.toName}.`,
+        rationale: why
+      });
+      renderMatrixTable();
+    };
     bindPendingCommit(tdMeta.querySelector('.cl-conc-note'), updateClusterConcordance);
 
     // GRADE-CERQual Handlers
@@ -1230,9 +1278,11 @@ function renderMatrixTable() {
           card.querySelector('.cell-quote-save').onclick = async () => {
             const cleaned = stripOuterQuotes(cellQuoteTa.value);
             if (cleaned && cleaned !== sec.text) {
+              const oldText = sec.text;
               sec.text = cleaned;
               cellQuoteDisp.textContent = `"${cleaned}"`;
               await dbPut('annotations', sec);
+              await logExtractedTextEdit(sec, oldText);
             }
             toggleCellQuoteEdit(false);
           };

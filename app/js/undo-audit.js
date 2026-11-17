@@ -24,6 +24,13 @@ function pushUndoAction(actionObj) {
   updateUndoButtonUI();
 }
 
+// The undo stack belongs to one workspace: empty it whenever the workspace is replaced (reset, clean restore),
+// so Ctrl+Z can never bring a deleted item of the previous project into the new one.
+function clearUndoStack() {
+  state.undoStack = [];
+  updateUndoButtonUI();
+}
+
 async function performUndo() {
   if (state.undoStack.length === 0) return;
   const last = state.undoStack.pop();
@@ -185,6 +192,20 @@ async function recordAuditLog({ category, action, detail, fromVal = '', toVal = 
   updateAuditBadge();
   if (!divAudit.classList.contains('hidden')) renderAuditView();
   return entry;
+}
+
+// Extracted text is evidence from the primary study: every correction of it is logged with the old and new wording.
+async function logExtractedTextEdit(anno, oldText) {
+  const doc = state.docs.find(d => d.id === anno.docId);
+  const isSec = anno.type === 'second_order';
+  await recordAuditLog({
+    category: 'reading_extraction',
+    action: isSec ? 'Edited the extracted text of a 2nd Order Construct' : 'Edited the extracted text of a 1st Order Quote',
+    detail: `${getDisplayName(doc)} (p.${anno.page})${anno.note ? ': ' + anno.note : ''}`,
+    fromVal: oldText || '',
+    toVal: anno.text || '',
+    clusterIds: isSec ? liveClusterIds(anno) : null
+  });
 }
 
 function updateAuditBadge() {
