@@ -302,7 +302,8 @@ class ScriptStandardFontDataFactory {     // same interface as PDF.js' DOMStanda
   }
 }
 function pdfjsDocumentOptions() {
-  const opts = { cMapUrl: PDFJS_BASE + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS_BASE + 'standard_fonts/' };
+  // isEvalSupported:false = mitigation for CVE-2024-4367 (arbitrary JS via a crafted PDF font) in pdfjs-dist <= 4.1.x, which includes the bundled 3.11.174.
+  const opts = { cMapUrl: PDFJS_BASE + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS_BASE + 'standard_fonts/', isEvalSupported: false };
   if (IS_FILE_PROTOCOL) Object.assign(opts, { useWorkerFetch: false, CMapReaderFactory: ScriptCMapReaderFactory, StandardFontDataFactory: ScriptStandardFontDataFactory });
   return opts;
 }
