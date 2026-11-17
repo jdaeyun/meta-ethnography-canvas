@@ -304,25 +304,54 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
 });
 
 // ---- After a restore: list the studies whose PDF is not stored in this browser and offer to import them ----
+// How alike a file name and a study's file name are (shared words / numbers such as the year): used only to list the likeliest study first
+function pdfNameScore(fileName, docName) {
+  const tokens = n => new Set(String(n || '').toLowerCase().replace(/\.pdf$/, '').split(/[^a-z0-9]+/).filter(t => t.length >= 3 && !['pdf', 'et', 'al', 'and', 'the'].includes(t)));
+  const a = tokens(fileName), b = tokens(docName);
+  let n = 0; a.forEach(t => { if (b.has(t)) n++; });
+  return n;
+}
+let unmatchedPdfFiles = [];
 function refreshMissingPdfModal(unmatched = null) {
   const modal = document.getElementById('missingPdfModal');
   if (!modal || modal.classList.contains('hidden')) return;
-  const box = document.getElementById('missingPdfUnmatched');
   if (Array.isArray(unmatched)) {
-    box.classList.toggle('hidden', unmatched.length === 0);
-    document.getElementById('missingPdfUnmatchedList').innerHTML = unmatched
-      .map(n => `<li class="truncate" title="${escapeHtml(n)}">• ${escapeHtml(n)}</li>`).join('');
+    unmatched.forEach(f => { if (!unmatchedPdfFiles.some(x => x.name === f.name && x.size === f.size)) unmatchedPdfFiles.push(f); });
   }
   const missing = state.docs.filter(d => !d.hasBinary);
-  if (missing.length === 0) { closeMissingPdfModal(); showSnackbar('All PDFs reconnected.'); return; }
+  if (missing.length === 0) { unmatchedPdfFiles = []; closeMissingPdfModal(); showSnackbar('All PDFs reconnected.'); return; }
   document.getElementById('missingPdfList').innerHTML = missing
     .map(d => `<li class="truncate" title="${escapeHtml(d.name || '')}">• ${escapeHtml(d.name || getDisplayName(d))}</li>`).join('');
+
+  const box = document.getElementById('missingPdfUnmatched');
+  const list = document.getElementById('missingPdfUnmatchedList');
+  box.classList.toggle('hidden', unmatchedPdfFiles.length === 0);
+  list.innerHTML = '';
+  unmatchedPdfFiles.forEach(file => {
+    const ranked = missing.map(d => ({ d, score: pdfNameScore(file.name, d.name) })).sort((x, y) => y.score - x.score);
+    const li = document.createElement('li');
+    li.className = 'flex items-center gap-2';
+    li.innerHTML = `<span class="truncate flex-1 font-mono" title="${escapeHtml(file.name)}">• ${escapeHtml(file.name)}</span>
+      <select class="unmatched-assign max-w-[55%] text-xs border border-amber-300 rounded px-1 py-0.5 bg-white text-slate-700">
+        <option value="">Connect to study…</option>
+        ${ranked.map((r, i) => `<option value="${escapeHtml(r.d.id)}">${i === 0 && r.score > 0 ? '★ ' : ''}${escapeHtml(r.d.name || getDisplayName(r.d))}</option>`).join('')}
+      </select>`;
+    li.querySelector('select').onchange = async e => {
+      const doc = state.docs.find(d => d.id === e.target.value);
+      if (!doc) return;
+      await attachPdfFileToDoc(doc, file);
+      unmatchedPdfFiles = unmatchedPdfFiles.filter(f => f !== file);
+      renderStudyList();
+      refreshMissingPdfModal();
+    };
+    list.appendChild(li);
+  });
 }
 function showMissingPdfModal() {
   const modal = document.getElementById('missingPdfModal');
   modal.classList.remove('hidden');
   modal.classList.add('flex');
-  document.getElementById('missingPdfUnmatched').classList.add('hidden');
+  unmatchedPdfFiles = [];
   refreshMissingPdfModal();
 }
 function closeMissingPdfModal() {

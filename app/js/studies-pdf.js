@@ -12,6 +12,14 @@ document.getElementById('pdfFileInput').addEventListener('change', async (e) => 
   e.target.value = '';
 });
 
+// Stores a PDF file for an existing study record (e.g. one restored from a backup)
+async function attachPdfFileToDoc(doc, file) {
+  const buffer = await file.arrayBuffer();
+  doc.hasBinary = true;
+  await dbPut('pdf_binaries', { id: doc.id, data: buffer });
+  await dbPut('docs', doc);
+}
+
 async function handleFiles(files) {
   let lastAffectedId = null;
   // While the "reconnect your PDFs" window is open, only reconnect files by name; unmatched files are reported, not added as new studies
@@ -21,15 +29,13 @@ async function handleFiles(files) {
   for (const file of files) {
     // Check if a study stub with the same filename already exists (e.g. from JSON restore)
     const existingStub = state.docs.find(d => d.name && d.name.toLowerCase() === file.name.toLowerCase() && !d.hasBinary);
-    if (!existingStub && reconnectMode) { unmatched.push(file.name); continue; }
-    const buffer = await file.arrayBuffer();
+    if (!existingStub && reconnectMode) { unmatched.push(file); continue; }
     if (existingStub) {
-      existingStub.hasBinary = true;
-      await dbPut('pdf_binaries', { id: existingStub.id, data: buffer });
-      await dbPut('docs', existingStub);
+      await attachPdfFileToDoc(existingStub, file);
       lastAffectedId = existingStub.id;
       continue;
     }
+    const buffer = await file.arrayBuffer();
 
     const docId = 'doc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
     const doc = normalizeDoc({
@@ -467,6 +473,7 @@ function updateDocHeaderUI() {
     badgesEl.innerHTML = '';
     titleEl.textContent = 'Select a PDF to begin';
     ctxEl.classList.add('hidden');
+    document.getElementById('docOverviewBox')?.classList.add('hidden');
     return;
   }
   authorEl.textContent = getDisplayName(doc);
@@ -479,6 +486,18 @@ function updateDocHeaderUI() {
     ctxEl.classList.remove('hidden');
   } else {
     ctxEl.classList.add('hidden');
+  }
+
+  // The study's storyline / key metaphors stay in view while reading, unless the edit dock (which holds the same text) is open
+  const ovBox = document.getElementById('docOverviewBox');
+  const overview = (doc.studyOverview || '').trim();
+  if (ovBox) {
+    ovBox.classList.toggle('hidden', !overview || state.isEditMetaMode);
+    if (overview) {
+      const firstLine = overview.replace(/\s+/g, ' ');
+      document.getElementById('docOverviewSummary').textContent = '📖 Storyline & key metaphors: ' + (firstLine.length > 90 ? firstLine.slice(0, 89) + '…' : firstLine);
+      document.getElementById('docOverviewText').textContent = overview;
+    }
   }
 }
 
@@ -500,6 +519,7 @@ document.getElementById('closeMetaDockBtn').addEventListener('click', () => {
 });
 
 function toggleMetaDockUI() {
+  updateDocHeaderUI();
   if (state.isEditMetaMode) {
     populateMetaEditInputs();
     metaDock.classList.remove('hidden');
