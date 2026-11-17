@@ -34,8 +34,14 @@ document.querySelectorAll('.loa-op-btn').forEach(btn => {
 const LINK_TYPES = {
   leads: { sym: '➔', label: 'leads to', color: '#6d28d9', dash: '' },
   mutual: { sym: '⇄', label: 'is mutually related to', color: '#0f766e', dash: '' },
-  contradicts: { sym: '⚡', label: 'is in tension with', color: '#be123c', dash: '6 4' }
+  contradicts: { sym: '⚡', label: 'is in tension with', color: '#be123c', dash: '6 4' },
+  encompasses: { sym: '⊃', label: 'encompasses', color: '#b45309', dash: '' },
+  metaphor: { sym: '≈', label: 'is understood through the metaphor of', color: '#0369a1', dash: '2 3' }
 };
+// Relations with a direction (A → B); the others are symmetric. Not every line of argument is a causal flow:
+// themes can also nest in one another (encompasses) or be read through a metaphor.
+const DIRECTED_LINK_TYPES = ['leads', 'encompasses', 'metaphor'];
+function isDirectedLink(type) { return DIRECTED_LINK_TYPES.includes(type); }
 function getLoaLinks() {
   const ids = new Set(state.clusters.map(c => c.id));
   return (Array.isArray(state.loa.links) ? state.loa.links : []).filter(l => ids.has(l.from) && ids.has(l.to));
@@ -72,9 +78,8 @@ function buildConceptMapSvg(prefix, width, height, layout = getLoaMapLayout()) {
   links.forEach(l => {
     const m = LINK_TYPES[l.type] || LINK_TYPES.leads;
     const e = edge(pos[l.from], pos[l.to]);
-    const markers = l.type === 'mutual' ? `marker-start="url(#${prefix}-ah-${l.type})" marker-end="url(#${prefix}-ah-${l.type})"`
-                  : l.type === 'contradicts' ? `marker-start="url(#${prefix}-ah-${l.type})" marker-end="url(#${prefix}-ah-${l.type})"`
-                  : `marker-end="url(#${prefix}-ah-${l.type})"`;
+    const markers = isDirectedLink(l.type) ? `marker-end="url(#${prefix}-ah-${l.type})"`
+                  : `marker-start="url(#${prefix}-ah-${l.type})" marker-end="url(#${prefix}-ah-${l.type})"`;
     lines += `<line x1="${e.x1.toFixed(1)}" y1="${e.y1.toFixed(1)}" x2="${e.x2.toFixed(1)}" y2="${e.y2.toFixed(1)}" stroke="${m.color}" stroke-width="1.8" ${m.dash ? `stroke-dasharray="${m.dash}"` : ''} ${markers}><title>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.from)))} ${m.label} ${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.to)))}${l.note ? ' — ' + escapeHtml(l.note) : ''}</title></line>`;
   });
   let boxes = '';
@@ -179,7 +184,7 @@ function buildFlowMapSvg(prefix) {
       const cx = x1 + 22 + 10 * Math.abs(orderIdx[l.to] - orderIdx[l.from]);
       d = `M${x1.toFixed(1)},${a.y.toFixed(1)} C${cx.toFixed(1)},${a.y.toFixed(1)} ${cx.toFixed(1)},${b.y.toFixed(1)} ${x2.toFixed(1)},${b.y.toFixed(1)}`;
     }
-    const markers = l.type === 'leads' ? `marker-end="url(#${prefix}-fl-${l.type})"` : `marker-start="url(#${prefix}-fl-${l.type})" marker-end="url(#${prefix}-fl-${l.type})"`;
+    const markers = isDirectedLink(l.type) ? `marker-end="url(#${prefix}-fl-${l.type})"` : `marker-start="url(#${prefix}-fl-${l.type})" marker-end="url(#${prefix}-fl-${l.type})"`;
     paths += `<path d="${d}" fill="none" stroke="${m.color}" stroke-width="1.8" ${m.dash ? `stroke-dasharray="${m.dash}"` : ''} ${markers}><title>${escapeHtml(a.label)} ${m.label} ${escapeHtml(b.label)}${l.note ? ' — ' + escapeHtml(l.note) : ''}</title></path>`;
   });
   let boxes = '';
@@ -199,7 +204,7 @@ function downloadConceptMapSvg() {
   const W = vb ? +vb[1] : 640, H = vb ? +vb[2] : 360;
   const legendH = 22;
   svg = svg.replace(/viewBox="0 0 [\d.]+ [\d.]+" width="100%" style="[^"]*"/, `viewBox="0 0 ${W} ${H + legendH}" width="${W}" height="${H + legendH}"`);
-  const legend = `<g font-family="Georgia, serif" font-size="10" fill="#334155"><text x="8" y="${H + 15}">${escapeHtml(state.loa.title || 'Line of argument')} — ➔ leads to · ⇄ mutually related · ⚡ (dashed) in tension</text></g>`;
+  const legend = `<g font-family="Georgia, serif" font-size="10" fill="#334155"><text x="8" y="${H + 15}">${escapeHtml(state.loa.title || 'Line of argument')} — ${[...new Set(getLoaLinks().map(l => l.type))].map(t => (LINK_TYPES[t] || LINK_TYPES.leads)).map(m => m.sym + ' ' + m.label).join(' · ')}</text></g>`;
   svg = svg.replace('</svg>', legend + '</svg>');
   const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -271,7 +276,7 @@ document.addEventListener('click', async (ev) => {
   const type = document.getElementById('loaLinkType').value;
   const note = document.getElementById('loaLinkNote').value.trim();
   if (!from || !to || from === to) { alert('Choose two different 3rd Order rows.'); return; }
-  const dup = (state.loa.links || []).some(l => l.type === type && ((l.from === from && l.to === to) || (type !== 'leads' && l.from === to && l.to === from)));
+  const dup = (state.loa.links || []).some(l => l.type === type && ((l.from === from && l.to === to) || (!isDirectedLink(type) && l.from === to && l.to === from)));
   if (dup) { alert('This relation already exists.'); return; }
   const link = { id: 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, type, note };
   state.loa.links = [...(state.loa.links || []), link];
@@ -334,7 +339,7 @@ async function addTeamModel(model, how) {
 }
 function teamLinkKey(l) {
   const a = l.from.toLowerCase().trim(), b = l.to.toLowerCase().trim();
-  return l.type === 'leads' ? `${a}>${b}>leads` : [a, b].sort().join('~') + '~' + l.type;
+  return isDirectedLink(l.type) ? `${a}>${b}>${l.type}` : [a, b].sort().join('~') + '~' + l.type;
 }
 function renderTeamModels() {
   const box = document.getElementById('teamModelsBox');

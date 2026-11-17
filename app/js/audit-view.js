@@ -71,7 +71,7 @@ function renderAuditView() {
 function getCategoryMeta(cat) {
   switch (cat) {
     case 'reflexive_memo': return { label: 'Reflexive / Analytic Memo', cls: 'bg-amber-100 text-amber-800 border-amber-300', icon: 'ph-notebook' };
-    case 'concordance': return { label: 'Team Concordance', cls: 'bg-teal-100 text-teal-800 border-teal-300', icon: 'ph-users-three' };
+    case 'concordance': return { label: 'Team Perspectives', cls: 'bg-teal-100 text-teal-800 border-teal-300', icon: 'ph-users-three' };
     case 'cerqual': return { label: 'GRADE-CERQual', cls: 'bg-cyan-100 text-cyan-900 border-cyan-300', icon: 'ph-chart-bar' };
     case 'appraisal_policy': return { label: 'Appraisal Policy', cls: 'bg-teal-100 text-teal-800 border-teal-300', icon: 'ph-stethoscope' };
     case 'relating_studies': return { label: 'Phase 4: Relating Studies', cls: 'bg-violet-100 text-violet-800 border-violet-300', icon: 'ph-intersect' };

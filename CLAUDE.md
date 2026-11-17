@@ -37,6 +37,8 @@ Node.js LTS required. `npm install` (exact versions from package.json / package-
 Re-run `npm run css` after using a Tailwind class that appears nowhere else. Write class names in full
 (no string concatenation such as 'bg-' + color) so the Tailwind scanner can see them.
 `npm run serve` serves the folder at http://localhost:8080 for testing. node_modules/ is not committed.
+`npm test` runs the Playwright smoke tests (tools/test/smoke.mjs: audit logging, restore, lazy matrix rows, dialogs, file://) against the ?demo project;
+install the browser once with `npx playwright install chromium`. Run it after changing app behaviour and extend it with the change.
 
 ## Demo (?demo)
 
@@ -63,10 +65,12 @@ Test both ways after changes: `npm run serve` (http) and double-clicking me_canv
 (https://jdaeyun.github.io/meta-ethnography-canvas/) on every push to main that touches them. The pages sit next to
 the app, link to it as `me_canvas.html` and read `app/version.js` for version / DOI (js/site.js). When a change is
 visible in the UI or changes how something works, update the manual (and the 101 if relevant) in site/.
-Release checklist: edit ONLY `app/version.js` (version, released) and push to main. `tools/sync-version.mjs` (run by the
-`Sync version` workflow, or locally with `npm run sync-version`; `--check` only reports) copies it into CITATION.cff, README.md,
-me_canvas.html and the site pages (the fallback text of `<span data-mec="version">`). Wait for that workflow to finish, then publish
-a release whose tag is exactly `v` + the version in `app/version.js` (e.g. `v1.3.2-beta.1`; tick "pre-release" for beta versions).
+Release checklist: edit ONLY `app/version.js` (version, released) and push to main (usually by merging a pull request). The
+`Sync version and publish release` workflow then (1) runs `tools/sync-version.mjs` (also `npm run sync-version`; `--check` only reports), which copies
+the version into CITATION.cff, README.md, me_canvas.html and the site pages (the fallback text of `<span data-mec="version">`), (2) creates the GitHub
+release with tag exactly `v` + version (a hyphen, e.g. `1.4.0-beta.1`, makes it a pre-release; notes are generated), and (3) runs `offline-zip.yml` to attach the ZIP.
+Nothing happens if that release already exists, so bump the version only when you want a release: one version per group of merged pull requests,
+not one per merge (patch = fixes, minor = new features; use a -beta.N suffix only for trial versions).
 The website's offline-ZIP link is built from that tag (`site/js/site.js`), because `releases/latest/download/...` ignores pre-releases.
 
 ## Rules
@@ -80,6 +84,13 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   2nd order → rows are `clusterIds[]` with per-row `clusterRelations` / `clusterComments`.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
+- Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit
+  (save + `recordAuditLog`) then also runs on tab switch, matrix re-render and page leave, so a saved text never lacks its log entry.
+- Tab 2 rows are built lazily (`renderMatrixTable`): only rows near the viewport have content. Do not query row DOM across the whole table.
+  Scroll position is kept by an anchor row (`data-cluster-id`) and corrected when a placeholder above the viewport is built; overflow-anchor is off on purpose.
+- Stance: this is a qualitative (Big Q) tool. Differences between reviewers are readings to discuss, not errors; agreement is provisional
+  ("Agreed (for now)"); quality appraisal is never a ranking criterion; the Index Paper is a reasoned choice by the reviewer, not a sort result.
+- A row's Reciprocal / Refutational character is derived from its cells (`clusterTranslationType()`); there is no per-row setting.
 - Escape every user value interpolated into HTML with `escapeHtml()`.
 - Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`);
   change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).

@@ -270,7 +270,7 @@ function renderComparisonTabContent() {
     topAction.className = 'flex items-center justify-between bg-teal-50 border border-teal-200 px-4 py-2.5 rounded-xl';
     topAction.innerHTML = `
       <div class="text-xs text-teal-900">
-        <b>Resolution Mode:</b> Review constructs extracted by <b>@${escapeHtml(cmp.peerReviewer)}</b> that are not in your local project. Import & Agree, Import for Discussion, or Dismiss.
+        <b>Resolution Mode:</b> Review constructs extracted by <b>@${escapeHtml(cmp.peerReviewer)}</b> that are not in your local project. Import & Agree, Import for Discussion, or Set Aside (it stays in the other reviewer's file; nothing is deleted).
       </div>
       <button id="importAllPeerBtn" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer">
         + Import All as Agreed
@@ -309,8 +309,8 @@ function renderComparisonTabContent() {
           <button class="imp-discuss px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1">
             <i class="ph ph-chats-circle"></i><span>Import as Discuss</span>
           </button>
-          <button class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs rounded-md cursor-pointer">
-            ✕ Dismiss
+          <button class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-md cursor-pointer" title="Not imported now; the construct stays in the other reviewer's file">
+            Set Aside
           </button>
         </div>
       `;
@@ -326,7 +326,7 @@ function renderComparisonTabContent() {
         cmp.peerOnlyAnnos.splice(idx, 1);
         await recordAuditLog({
           category: 'concordance',
-          action: `Dismissed Peer-Only Construct from @${cmp.peerReviewer}`,
+          action: `Set Aside Peer-Only Construct from @${cmp.peerReviewer}`,
           detail: `${studyName} (p.${p.page}): "${p.text.slice(0, 70)}..."`
         });
         renderComparisonDashboard();
@@ -350,12 +350,12 @@ function renderComparisonTabContent() {
       const differs = (labelDiff || flaggedDisc) && l.concordanceStatus !== 'agreed';
       const card = document.createElement('div');
       card.className = differs
-        ? 'bg-rose-50/50 p-4 rounded-xl border-2 border-rose-300 shadow-sm space-y-2'
+        ? 'bg-amber-50/50 p-4 rounded-xl border-2 border-amber-300 shadow-sm space-y-2'
         : 'bg-white/70 p-2.5 rounded-lg border border-slate-200 space-y-1 text-slate-500';
       card.innerHTML = `
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-2 text-xs">
-            ${differs ? '<span class="bg-rose-600 text-white font-bold px-2 py-0.5 rounded">⚡ Differs</span>' : '<span class="text-slate-400 px-1">✓ Matched</span>'}
+            ${differs ? '<span class="bg-amber-500 text-white font-bold px-2 py-0.5 rounded">◇ Read differently</span>' : '<span class="text-slate-400 px-1">✓ Matched</span>'}
             <span class="font-bold text-slate-800">${escapeHtml(dName)} (p.${l.page})</span>
             <span class="text-xs text-slate-500">${l.type === 'second_order' ? '🟩 2nd Order' : '🟦 1st Order'}</span>
           </div>
@@ -369,12 +369,12 @@ function renderComparisonTabContent() {
         <div class="grid grid-cols-2 gap-3 text-xs">
           <div class="p-2.5 rounded bg-indigo-50/40 border border-indigo-200">
             <div class="font-bold text-indigo-900 mb-1">👤 My Extraction (@${escapeHtml(l.by || state.reviewerId)})</div>
-            ${l.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-rose-800 bg-rose-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(l.note)}</div>` : ''}
+            ${l.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(l.note)}</div>` : ''}
             <div class="italic text-slate-600">"${escapeHtml(l.text)}"</div>
           </div>
           <div class="p-2.5 rounded bg-teal-50/40 border border-teal-200">
             <div class="font-bold text-teal-900 mb-1">🤝 Peer Extraction (@${escapeHtml(p.by || cmp.peerReviewer)})</div>
-            ${p.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-rose-800 bg-rose-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(p.note)}</div>` : ''}
+            ${p.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(p.note)}</div>` : ''}
             <div class="italic text-slate-600">"${escapeHtml(p.text)}"</div>
           </div>
         </div>
@@ -434,7 +434,7 @@ function renderComparisonTabContent() {
   const tab = state.activeCompareTab;
   const bk = getCompareBuckets(cmp);
   if (tab === 'divergent') {
-    renderMatched(bk.divergent, 'No divergent interpretations — matched constructs are aligned.');
+    renderMatched(bk.divergent, 'Nothing read differently so far — matched constructs are aligned.');
   } else if (tab === 'unique') {
     if (cmp.peerOnlyAnnos.length === 0 && cmp.localOnlyAnnos.length === 0) {
       container.innerHTML = `<div class="p-10 text-center text-xs text-slate-400 bg-white rounded-xl border border-slate-200">No unique extractions — both reviewers' constructs overlap.</div>`;
@@ -460,7 +460,7 @@ function renderComparisonTabContent() {
       ['Outcome of relating studies (Item 12)', state.loa.relateOutcome, peerLoa.relateOutcome], ['Studies synthesized (Item 15)', state.loa.synthStudies, peerLoa.synthStudies],
       ['Where the model applies (Item 16)', state.loa.modelContext, peerLoa.modelContext]
     ].filter(r => (r[1] || r[2]));
-    const linkLine = (l, inOther) => `<div>${inOther ? '✓' : '<span class="text-rose-600 font-bold">≠</span>'} ${escapeHtml(l.from)} <b style="color:${(LINK_TYPES[l.type] || LINK_TYPES.leads).color}">${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym}</b> ${escapeHtml(l.to)}${l.note ? ` <span class="text-slate-400">— ${escapeHtml(l.note)}</span>` : ''}</div>`;
+    const linkLine = (l, inOther) => `<div>${inOther ? '✓' : '<span class="text-slate-500 font-bold">◇</span>'} ${escapeHtml(l.from)} <b style="color:${(LINK_TYPES[l.type] || LINK_TYPES.leads).color}">${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym}</b> ${escapeHtml(l.to)}${l.note ? ` <span class="text-slate-400">— ${escapeHtml(l.note)}</span>` : ''}</div>`;
     const loaSection = document.createElement('div');
     loaSection.className = 'bg-white p-4 rounded-xl border border-orange-200 space-y-2.5';
     loaSection.innerHTML = `
@@ -479,7 +479,7 @@ function renderComparisonTabContent() {
         <div class="p-2 rounded bg-indigo-50/40 border border-indigo-200"><div class="font-bold text-indigo-900 mb-1">My relations (${myLinks.length})</div>${myLinks.map(l => linkLine(l, peerKeys.has(teamLinkKey(l)))).join('') || '<div class="text-slate-400">none</div>'}</div>
         <div class="p-2 rounded bg-teal-50/40 border border-teal-200"><div class="font-bold text-teal-900 mb-1">Peer relations (${peerModel.links.length})</div>${peerModel.links.map(l => linkLine(l, myKeys.has(teamLinkKey(l)))).join('') || '<div class="text-slate-400">none</div>'}</div>
       </div>
-      <div class="text-[11px] text-slate-400">✓ = in both models · ≠ = only in this model</div>`;
+      <div class="text-[11px] text-slate-400">✓ = in both models · ◇ = only in this model</div>`;
     loaSection.querySelector('.cmp-keep-both').onclick = async () => {
       const models = Array.isArray(state.loa.teamModels) ? state.loa.teamModels : [];
       const mine = snapshotCurrentModel(state.reviewerId || 'Reviewer', 'local');

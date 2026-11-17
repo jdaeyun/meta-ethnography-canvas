@@ -279,7 +279,7 @@ function buildAppendixHtml() {
 
   return `
     <div class="mb-3">
-      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Appendix A. Methodological Audit Trail, Team Concordance & Reflexive Synthesis Log</h3>
+      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Appendix A. Methodological Audit Trail, Team Perspectives & Reflexive Synthesis Log</h3>
       <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Chronological record of interpretive decisions, reviewer concordance, GRADE-CERQual judgements, and researcher reflexivity (eMERGe items 9, 11, 13, 15 and 18).</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
@@ -468,11 +468,12 @@ function getMethodSections() {
 
   const firstName = docCount > 0 ? escapeHtml(getDisplayName(state.docs[0])) : '[first study]';
   const strategy = getOrderStrategy();
+  const orderWhy = (state.loa.orderRationale || '').trim() ? escapeHtml(state.loa.orderRationale.trim()) : '';
   const orderHtml = strategy === 'index'
-    ? `Studies were ordered for translation, designating <b>${firstName}</b> as the index paper. ${PH('why this study was chosen as the index paper')}`
+    ? `Studies were ordered for translation, designating <b>${firstName}</b> as the index paper. ${orderWhy || PH('why this study was chosen as the index paper')}`
     : strategy === 'chronological'
       ? `Studies were translated in chronological order of publication, beginning with <b>${firstName}</b>, each study being compared with the synthesis of the studies before it.`
-      : `Studies were translated in the order shown in Table 1, beginning with <b>${firstName}</b>. ${PH('rationale for this translation order')}`;
+      : `Studies were translated in the order shown in Table 1, beginning with <b>${firstName}</b>. ${orderWhy || PH('rationale for this translation order')}`;
   const seedHtml = seedCount > 0
     ? ` The second-order constructs of the first study (${firstName}) were used to seed the initial third-order rows, which were then refined as further studies were translated into them.`
     : '';
@@ -664,7 +665,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
     });
   } else if (state.activePubTable === 'table2') {
     md += `### Table 2. Meta-Ethnographic Translation and Synthesis Table\n\n`;
-    md += `| 3rd Order Construct | Translation Type | Concordance | Translation Summary (A) | 3rd Order Interpretation (B) | 2nd Order Constructs | 1st Order Quotes | Studies | CERQual Confidence |\n`;
+    md += `| 3rd Order Construct | Translation Type | Team Status | Translation Summary (A) | 3rd Order Interpretation (B) | 2nd Order Constructs | 1st Order Quotes | Studies | CERQual Confidence |\n`;
     md += `|---|---|---|---|---|---|---|---|---|\n`;
     const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
     state.clusters.forEach(c => {
@@ -1106,7 +1107,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
-          children: [new TextRun({ text: "Appendix A. Methodological Audit Trail, Team Concordance & Reflexive Synthesis Log", bold: true, font: "Times New Roman", size: 24 })],
+          children: [new TextRun({ text: "Appendix A. Methodological Audit Trail, Team Perspectives & Reflexive Synthesis Log", bold: true, font: "Times New Roman", size: 24 })],
           spacing: { after: 140 }
         }),
         new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: appRows })
@@ -1126,7 +1127,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
 document.getElementById('exportCsvBtn').addEventListener('click', () => {
   const rows = [
-    ['3rd Order Construct', 'Translation Type', '3rd Order Concordance', 'CERQual Confidence', 'CERQual Explanation', 'Step A: Translation Summary', 'Step B: 3rd Order Interpretation', 'StudyOrder', 'Study', 'Title', 'Setting', 'Participants', 'Methodology', 'Appraisal Tool', 'Quality Rating', 'Conceptual Depth (Richness)', 'Study Context Note', 'Study Overview / Key Metaphors', 'Funder', 'Same Primary Study As', '2nd Order Reviewer', '2nd Order Summary', '2nd Order Raw Text', '2nd Order Nuance Memo (Private)', '2nd Order Concordance', 'Cluster-Specific Comment', 'Linked 1st Order Quotes', 'Page']
+    ['3rd Order Construct', 'Translation Type', '3rd Order Team Status', 'CERQual Confidence', 'CERQual Explanation', 'Step A: Translation Summary', 'Step B: 3rd Order Interpretation', 'StudyOrder', 'Study', 'Title', 'Setting', 'Participants', 'Methodology', 'Appraisal Tool', 'Quality Rating', 'Conceptual Depth (Richness)', 'Study Context Note', 'Study Overview / Key Metaphors', 'Funder', 'Same Primary Study As', '2nd Order Reviewer', '2nd Order Summary', '2nd Order Raw Text', '2nd Order Nuance Memo (Private)', '2nd Order Team Status', 'Cluster-Specific Comment', 'Linked 1st Order Quotes', 'Page']
   ];
 
   const seconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);

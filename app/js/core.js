@@ -188,6 +188,16 @@ async function dbGetAll(store) {
     req.onerror = () => reject(tx.error);
   });
 }
+// Keys only (no values): lets us compare stored PDFs without loading any PDF bytes into memory
+async function dbGetAllKeys(store) {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAllKeys();
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = () => reject(tx.error);
+  });
+}
 async function dbDelete(store, key) {
   const db = await initDB();
   return new Promise((resolve, reject) => {
@@ -292,7 +302,8 @@ class ScriptStandardFontDataFactory {     // same interface as PDF.js' DOMStanda
   }
 }
 function pdfjsDocumentOptions() {
-  const opts = { cMapUrl: PDFJS_BASE + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS_BASE + 'standard_fonts/' };
+  // isEvalSupported:false = mitigation for CVE-2024-4367 (arbitrary JS via a crafted PDF font) in pdfjs-dist <= 4.1.x, which includes the bundled 3.11.174.
+  const opts = { cMapUrl: PDFJS_BASE + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS_BASE + 'standard_fonts/', isEvalSupported: false };
   if (IS_FILE_PROTOCOL) Object.assign(opts, { useWorkerFetch: false, CMapReaderFactory: ScriptCMapReaderFactory, StandardFontDataFactory: ScriptStandardFontDataFactory });
   return opts;
 }
@@ -452,8 +463,10 @@ function normalizeCluster(c) {
   if (typeof c.cerqualExplanation !== 'string') c.cerqualExplanation = '';
   if (typeof c.seedConfirmed !== 'boolean') c.seedConfirmed = false;
   if (typeof c.translationSummary !== 'string') c.translationSummary = ''; // Step A (Phase 5): how the studies' concepts translate into one another
+  if (typeof c.reflexiveNote !== 'string') c.reflexiveNote = '';           // optional: how the reviewer's own position shapes this interpretation
   if (typeof c.synthesisNote !== 'string') c.synthesisNote = '';           // Step B: the reviewer's 3rd order construct (definition & interpretation)
   ['cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote'].forEach(k => { if (typeof c[k] !== 'string') c[k] = ''; });
+  delete c.translationType; // removed: a row's reciprocal / refutational character is derived from its cells (clusterTranslationType)
   return c;
 }
 

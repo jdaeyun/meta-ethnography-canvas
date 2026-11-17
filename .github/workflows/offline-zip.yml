@@ -5,6 +5,11 @@ name: Attach offline ZIP to release
 on:
   release:
     types: [published]
+  workflow_dispatch:          # started by the "Sync version and publish release" workflow (a release made with GITHUB_TOKEN triggers nothing by itself)
+    inputs:
+      tag:
+        description: Release tag to attach the ZIP to (e.g. v1.4.0)
+        required: true
 
 permissions:
   contents: write   # needed to upload a file to the release
@@ -14,12 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Build the ZIP
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           # The file name stays the same in every release, so the website can always link to
           # .../releases/latest/download/meta-ethnography-canvas-offline.zip ; the folder inside carries the version.
-          NAME="meta-ethnography-canvas-offline-${GITHUB_REF_NAME}"
+          NAME="meta-ethnography-canvas-offline-${TAG}"
           mkdir -p "dist/$NAME"
           cp -r me_canvas.html demo.html app CITATION.cff "dist/$NAME/"
           [ -f LICENSE ] && cp LICENSE "dist/$NAME/"
@@ -30,4 +39,5 @@ jobs:
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" "$ZIP" --clobber
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: gh release upload "$TAG" "$ZIP" --clobber

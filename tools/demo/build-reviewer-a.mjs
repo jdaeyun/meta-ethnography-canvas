@@ -50,7 +50,7 @@ for (const row of ROWS) {
   const idx = await p.evaluate((cid) => state.clusters.findIndex(c => c.id === cid), row.cid);
   const tr = p.locator('tr:has(.cluster-title)').nth(idx);
   await tr.locator('.cluster-title').fill(row.title); await tr.locator('.cluster-title').blur();
-  await tr.locator('.cluster-type').selectOption(row.type);
+  // (row type is derived from the per-cell relations set below; there is no per-row selector any more)
   await tr.locator('.cluster-trans').fill(row.stepA); await tr.locator('.cluster-trans').blur();
   await tr.locator('.cluster-note').fill(row.stepB); await tr.locator('.cluster-note').blur();
   await p.waitForTimeout(400);

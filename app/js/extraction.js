@@ -129,7 +129,7 @@ function updateSidebar() {
         <!-- Team Concordance / Co-Reviewer Agreement (Shown in Team Mode or when non-pending) -->
         <details class="bg-indigo-50/40 border border-indigo-200/70 rounded p-1.5 ${showConcUI ? '' : 'hidden'}" ${(sec.concordanceStatus !== 'pending' || sec.concordanceNote) ? 'open' : ''}>
           <summary class="text-xs font-semibold text-indigo-900 cursor-pointer select-none flex items-center justify-between">
-            <span>🤝 Team Agreement</span>
+            <span>🤝 Team Perspectives</span>
             <span class="text-[11px] font-normal text-indigo-600">(Logs to Trail)</span>
           </summary>
           <div class="mt-1.5 space-y-1.5">
@@ -138,7 +138,7 @@ function updateSidebar() {
               <select class="sec-conc-status flex-1 text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
                 <option value="pending" ${sec.concordanceStatus === 'pending' ? 'selected' : ''}>⏳ Pending Review</option>
                 <option value="discuss" ${sec.concordanceStatus === 'discuss' ? 'selected' : ''}>💬 Needs Discussion</option>
-                <option value="agreed" ${sec.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed / Verified</option>
+                <option value="agreed" ${sec.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed (for now)</option>
               </select>
             </div>
             <input type="text" class="sec-conc-note w-full text-xs border border-slate-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-indigo-500" placeholder="Team discussion note (press Enter to save to Audit Trail)..." value="${escapeHtml(sec.concordanceNote)}">
@@ -238,7 +238,7 @@ function updateSidebar() {
 
       await recordAuditLog({
         category: 'concordance',
-        action: `2nd Order Concordance Updated (${getDisplayName(activeDoc)}, p.${sec.page})`,
+        action: `2nd Order Team Perspective Updated (${getDisplayName(activeDoc)}, p.${sec.page})`,
         detail: `Construct: ${sec.note || '"' + sec.text.slice(0, 60) + '..."'}${newNote ? '\nConsensus Note: ' + newNote : ''}`,
         fromVal: `${oldStatus.toUpperCase()}${oldNote ? ' (' + oldNote + ')' : ''}`,
         toVal: `${newStatus.toUpperCase()}${newNote ? ' (' + newNote + ')' : ''}`

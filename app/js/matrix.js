@@ -57,7 +57,6 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
     id: 'cl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     by: state.reviewerId || 'Reviewer',
     thirdOrderTitle: initialTitle,
-    translationType: 'reciprocal',
     translationSummary: '',
     synthesisNote: '',
     concordanceStatus: 'pending',
@@ -531,11 +530,25 @@ function nextVisibleIdx(idx) {
   return -1;
 }
 
+let matrixRowObserver = null;
+const matrixRowHeights = {};
+
 function renderMatrixTable() {
+  if (matrixRowObserver) { matrixRowObserver.disconnect(); matrixRowObserver = null; }
   const t = document.getElementById('matrixTable');
   const scrollParent = t ? t.parentElement : null;
   const prevTop = scrollParent ? scrollParent.scrollTop : 0;
   const prevLeft = scrollParent ? scrollParent.scrollLeft : 0;
+  // Anchor = the first row visible now. After the rebuild, scroll so this same row sits at the same place on screen,
+  // however the heights of not-yet-built rows were estimated.
+  let anchorId = null, anchorOffset = 0;
+  if (scrollParent && scrollParent.clientHeight > 0) {
+    const ptop = scrollParent.getBoundingClientRect().top;
+    for (const r of t.querySelectorAll('tbody > tr[data-cluster-id]')) {
+      const rect = r.getBoundingClientRect();
+      if (rect.bottom > ptop + 1) { anchorId = r.dataset.clusterId; anchorOffset = rect.top - ptop; break; }
+    }
+  }
   t.innerHTML = '';
   t.classList.toggle('matrix-compact', Boolean(state.matrixCompactMode));
 
@@ -549,7 +562,7 @@ function renderMatrixTable() {
   htr.innerHTML = `
     <th>
       <div class="text-xs font-bold text-slate-800">3rd Order Theme (Your Synthesis)</div>
-      <div class="text-xs font-normal text-slate-500 mt-0.5">Use the tabs below each theme title to switch between Synthesis, CERQual, and Team Agreement</div>
+      <div class="text-xs font-normal text-slate-500 mt-0.5">Use the tabs below each theme title to switch between Synthesis, CERQual, and Team Perspectives</div>
     </th>
   `;
 
@@ -646,14 +659,34 @@ function renderMatrixTable() {
     return;
   }
 
-  visibleClusters.forEach(cluster => {
+  // One pass over the annotations: (row id | study id) -> its 2nd Order constructs, so each cell does not rescan everything
+  const cellIndex = new Map();
+  state.annotations.forEach(a => {
+    if (a.type !== 'second_order') return;
+    normalizeAnnotation(a).clusterIds.forEach(cid => {
+      const key = cid + '|' + a.docId;
+      const list = cellIndex.get(key);
+      if (list) list.push(a); else cellIndex.set(key, [a]);
+    });
+  });
+
+  // Rows are built lazily: only rows near the viewport get their (heavy) content; the rest are light placeholders
+  // that are filled in as they scroll into view. This keeps big projects (dozens of studies) responsive.
+  const compactKey = state.matrixCompactMode ? 'c' : 'n';
+  const knownHeights = Object.values(matrixRowHeights).filter(h => typeof h === 'number' && h > 0);
+  const avgRowHeight = knownHeights.length ? knownHeights.reduce((x, y) => x + y, 0) / knownHeights.length : 320;
+  const eagerLimit = prevTop + (scrollParent ? scrollParent.clientHeight : 900) + 1200;
+  let estimatedBottom = 0;
+  const anchorIdx = anchorId ? visibleClusters.findIndex(c => c.id === anchorId) : -1;
+  const viewH = scrollParent ? scrollParent.clientHeight : 900;
+  let sinceAnchor = 0;
+  const lazyRows = new Map();
+
+  visibleClusters.forEach((cluster, rowIdx) => {
     normalizeCluster(cluster);
-    const cBadge = getConcordanceBadgeMeta(cluster.concordanceStatus);
-    const cqBadge = getCerqualBadgeMeta(cluster.cerqualConfidence);
-    const stats = computeClusterEvidenceStats(cluster.id);
-    const activeSubTab = state.clusterActiveTabs[cluster.id] || 'synthesis';
 
     const tr = document.createElement('tr');
+    tr.dataset.clusterId = cluster.id;
     tr.className = 'matrix-row-drop transition';
 
     tr.addEventListener('dragover', e => {
@@ -678,6 +711,12 @@ function renderMatrixTable() {
         renderMatrixView();
       }
     });
+
+    const buildRowBody = () => {
+    const cBadge = getConcordanceBadgeMeta(cluster.concordanceStatus);
+    const cqBadge = getCerqualBadgeMeta(cluster.cerqualConfidence);
+    const stats = computeClusterEvidenceStats(cluster.id);
+    const activeSubTab = state.clusterActiveTabs[cluster.id] || 'synthesis';
 
     const tdMeta = document.createElement('td');
     tdMeta.innerHTML = `
@@ -719,6 +758,10 @@ function renderMatrixTable() {
             <label class="block text-xs font-bold text-indigo-900 mb-0.5" title="The 3rd order construct is the reviewer's own interpretation, derived from the translation in Step A. It should say something that no single study says on its own.">Step B · 3rd Order Construct: Definition & Interpretation <span class="font-normal text-indigo-700">(derived from Step A)</span></label>
             <div class="cl-stepb-warn text-[11px] text-amber-700 font-semibold mb-0.5 ${(cluster.synthesisNote && !cluster.translationSummary) ? '' : 'hidden'}">⚠ Step A is empty. A 3rd order construct should be derived from the translation, not written directly from the grouped cards.</div>
             <textarea class="cluster-note w-full text-[13px] border border-indigo-300 rounded p-1.5 h-20 resize-y bg-white focus:outline-none focus:border-indigo-600 font-normal" placeholder="Your construct in your own words: what it means (definition), and what the translation shows that goes beyond any single study (interpretation).">${escapeHtml(cluster.synthesisNote)}</textarea>
+          </div>
+          <div class="rounded border border-amber-200 bg-amber-50/40 p-1.5">
+            <label class="block text-xs font-bold text-amber-900 mb-0.5" title="Optional. In qualitative research the interpreter is part of the analysis: say, in a line or two, how your own background or position may have shaped this construct. Recorded in the Audit Trail as a reflexive memo.">Reflexive note <span class="font-normal text-amber-700">(optional: how does my position shape this reading?)</span></label>
+            <textarea class="cluster-reflex w-full text-[13px] border border-amber-300 rounded p-1.5 h-12 resize-y bg-white focus:outline-none focus:border-amber-600 font-normal" placeholder="e.g., As a former ward nurse I may over-read “alone” as isolation...">${escapeHtml(cluster.reflexiveNote)}</textarea>
           </div>
           <div class="text-xs text-slate-400 flex items-center justify-between pt-0.5">
             <span>Contributing: ${stats.contributingDocs.length ? escapeHtml(stats.contributingDocs.map(d => getDisplayName(d)).join('; ')) : 'no 2nd order constructs mapped yet'}</span>
@@ -781,7 +824,7 @@ function renderMatrixTable() {
             <select class="cl-conc-status text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
               <option value="pending" ${cluster.concordanceStatus === 'pending' ? 'selected' : ''}>⏳ Pending</option>
               <option value="discuss" ${cluster.concordanceStatus === 'discuss' ? 'selected' : ''}>💬 Needs Discussion</option>
-              <option value="agreed" ${cluster.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed</option>
+              <option value="agreed" ${cluster.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed (for now)</option>
             </select>
           </div>
           <div>
@@ -913,6 +956,25 @@ function renderMatrixTable() {
       }
     });
 
+    let initialReflex = cluster.reflexiveNote || '';
+    const reflexEl = tdMeta.querySelector('.cluster-reflex');
+    reflexEl.addEventListener('input', e => { cluster.reflexiveNote = e.target.value; debouncedSaveCluster(); });
+    bindPendingCommit(reflexEl, async () => {
+      const oldVal = initialReflex;
+      const newVal = reflexEl.value.trim();
+      if (oldVal === newVal) return;
+      initialReflex = newVal;
+      cluster.reflexiveNote = newVal;
+      await dbPut('clusters', cluster);
+      await recordAuditLog({
+        clusterIds: [cluster.id],
+        category: 'reflexive_memo',
+        action: `Reflexive note on "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+        fromVal: oldVal || '(Empty)',
+        toVal: newVal || '(Empty)'
+      });
+    });
+
     const updateClusterConcordance = async () => {
       const oldStatus = cluster.concordanceStatus;
       const oldNote = cluster.concordanceNote;
@@ -932,7 +994,7 @@ function renderMatrixTable() {
       await recordAuditLog({
         clusterIds: [cluster.id],
         category: 'concordance',
-        action: `3rd Order Cluster Concordance Updated ("${cluster.thirdOrderTitle || 'Untitled Row'}")`,
+        action: `3rd Order Team Perspective Updated ("${cluster.thirdOrderTitle || 'Untitled Row'}")`,
         detail: newNote ? `Reviewer Consensus / Discussion Note: ${newNote}` : 'Updated agreement status.',
         fromVal: `${oldStatus.toUpperCase()}${oldNote ? ' (' + oldNote + ')' : ''}`,
         toVal: `${newStatus.toUpperCase()}${newNote ? ' (' + newNote + ')' : ''}`
@@ -1035,11 +1097,7 @@ function renderMatrixTable() {
     state.docs.forEach(doc => {
       if (state.hiddenStudyIds.has(doc.id)) return;
       const td = document.createElement('td');
-      const cellConstructs = state.annotations.filter(a =>
-        a.type === 'second_order' &&
-        normalizeAnnotation(a).clusterIds.includes(cluster.id) &&
-        a.docId === doc.id
-      );
+      const cellConstructs = cellIndex.get(cluster.id + '|' + doc.id) || [];
 
       if (cellConstructs.length === 0) {
         td.innerHTML = `<div class="h-full min-h-[120px] rounded border border-dashed border-slate-200 flex items-center justify-center text-[13px] text-slate-300 select-none">Drop 2nd Order here</div>`;
@@ -1282,12 +1340,64 @@ function renderMatrixTable() {
       tr.appendChild(td);
     });
 
+    };  // end buildRowBody
+
+    const rowHeightKey = cluster.id + ':' + compactKey;
+    const estHeight = matrixRowHeights[rowHeightKey] || avgRowHeight;
+    let buildNow;
+    if (anchorIdx >= 0) {
+      buildNow = rowIdx >= anchorIdx - 1 && sinceAnchor <= viewH + 1200;
+      if (rowIdx >= anchorIdx - 1) sinceAnchor += estHeight;
+    } else {
+      buildNow = estimatedBottom <= eagerLimit;
+    }
+    if (buildNow) {
+      buildRowBody();
+    } else {
+      const ph = document.createElement('td');
+      ph.colSpan = visibleDocCount() + 1;
+      ph.innerHTML = `<div class="text-xs text-slate-300 italic p-3" style="height:${Math.round(estHeight)}px">${escapeHtml(cluster.thirdOrderTitle || 'Untitled row')} …</div>`;
+      tr.appendChild(ph);
+      lazyRows.set(tr, buildRowBody);
+    }
+    estimatedBottom += estHeight;
+    // Remember the real height of built rows so placeholders (and scroll restore) are accurate next time
+    if (!lazyRows.has(tr)) requestAnimationFrame(() => { if (tr.isConnected && tr.offsetHeight > 0) matrixRowHeights[rowHeightKey] = tr.offsetHeight; });
+    tr._rowHeightKey = rowHeightKey;
     tbody.appendChild(tr);
   });
 
   t.appendChild(tbody);
+  if (lazyRows.size > 0 && 'IntersectionObserver' in window) {
+    matrixRowObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        const row = entry.target;
+        if (!entry.isIntersecting || !lazyRows.has(row)) return;
+        const build = lazyRows.get(row);
+        lazyRows.delete(row);
+        matrixRowObserver.unobserve(row);
+        const pRect = scrollParent ? scrollParent.getBoundingClientRect() : null;
+        const rect0 = row.getBoundingClientRect();
+        const startsAboveView = !!pRect && rect0.top < pRect.top;
+        row.replaceChildren();
+        build();
+        if (startsAboveView) scrollParent.scrollTop += row.getBoundingClientRect().height - rect0.height;
+        requestAnimationFrame(() => { if (row.isConnected && row.offsetHeight > 0) matrixRowHeights[row._rowHeightKey] = row.offsetHeight; });
+      });
+    }, { root: scrollParent || null, rootMargin: '1200px 0px 1200px 0px' });
+    lazyRows.forEach((_, row) => matrixRowObserver.observe(row));
+  } else {
+    lazyRows.forEach((build, row) => { row.replaceChildren(); build(); });
+  }
   if (scrollParent) {
-    scrollParent.scrollTop = prevTop;
+    scrollParent.style.overflowAnchor = 'none'; // we compensate ourselves (Safari has no scroll anchoring; avoid double correction elsewhere)
+    const anchorRow = anchorId ? tbody.querySelector(`tr[data-cluster-id="${CSS.escape(anchorId)}"]`) : null;
+    if (anchorRow) {
+      const pos = anchorRow.getBoundingClientRect().top - scrollParent.getBoundingClientRect().top + scrollParent.scrollTop;
+      scrollParent.scrollTop = pos - anchorOffset;
+    } else {
+      scrollParent.scrollTop = prevTop;
+    }
     scrollParent.scrollLeft = prevLeft;
   }
 }
