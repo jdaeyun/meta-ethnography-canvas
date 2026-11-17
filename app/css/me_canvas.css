@@ -56,3 +56,14 @@
 
 /* Textareas grown by app.js (autoGrowTextareas): cap the height, then scroll inside */
 textarea.auto-grow { max-height: 60vh; overflow-y: auto; }
+
+/* Tab 2: the 3rd Order Theme column folded to a narrow strip */
+.theme-head-strip, .theme-fold-strip { display: none; }
+.matrix-table.matrix-theme-folded thead th:first-child,
+.matrix-table.matrix-theme-folded td:first-child { width: 52px; min-width: 52px; max-width: 52px; padding: 0.5rem 0.2rem; text-align: center; }
+.matrix-theme-folded .theme-head-full, .matrix-theme-folded td:first-child > .theme-full { display: none; }
+.matrix-theme-folded .theme-head-strip { display: inline-block; }
+.matrix-theme-folded .theme-fold-strip { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer; height: 100%; }
+.matrix-theme-folded .theme-strip-num { font-size: 11px; font-weight: 700; color: #4338ca; }
+.matrix-theme-folded .theme-strip-title { writing-mode: vertical-rl; max-height: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; color: #334155; }
+.matrix-theme-folded .matrix-context-row td:first-child > * { display: none; }

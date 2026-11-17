@@ -11,6 +11,15 @@ document.getElementById('toggleContextRow').addEventListener('change', (e) => {
   state.showContextRow = e.target.checked;
   renderMatrixTable();
 });
+// Fold the 3rd Order Theme column to a narrow strip (more room for the study columns); the setting is remembered
+state.matrixThemeFolded = lsGet('me_theme_folded') === 'true';
+function setThemeFolded(folded) {
+  flushAllPendingSaves();
+  state.matrixThemeFolded = folded;
+  lsSet('me_theme_folded', folded ? 'true' : 'false');
+  renderMatrixTable();
+}
+
 document.getElementById('matrixCompactToggle').addEventListener('change', (e) => {
   state.matrixCompactMode = e.target.checked;
   const t = document.getElementById('matrixTable');
@@ -551,6 +560,7 @@ function renderMatrixTable() {
   }
   t.innerHTML = '';
   t.classList.toggle('matrix-compact', Boolean(state.matrixCompactMode));
+  t.classList.toggle('matrix-theme-folded', Boolean(state.matrixThemeFolded));
 
   if (state.docs.length === 0) {
     t.innerHTML = '<tr><td class="p-6 text-sm text-slate-500">Add PDF studies in the Extract View first.</td></tr>';
@@ -561,10 +571,18 @@ function renderMatrixTable() {
   const htr = document.createElement('tr');
   htr.innerHTML = `
     <th>
-      <div class="text-xs font-bold text-slate-800">3rd Order Theme (Your Synthesis)</div>
-      <div class="text-xs font-normal text-slate-500 mt-0.5">Use the tabs below each theme title to switch between Synthesis, CERQual, and Team Perspectives</div>
+      <div class="theme-head-full flex items-start justify-between gap-2">
+        <div>
+          <div class="text-xs font-bold text-slate-800">3rd Order Theme (Your Synthesis)</div>
+          <div class="text-xs font-normal text-slate-500 mt-0.5">Use the tabs below each theme title to switch between Synthesis, CERQual, and Team Perspectives</div>
+        </div>
+        <button type="button" class="theme-fold-btn shrink-0 px-1.5 py-0.5 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 cursor-pointer text-xs" title="Fold this column to a narrow strip (more room for the studies)">◀</button>
+      </div>
+      <button type="button" class="theme-head-strip theme-unfold-btn px-1 py-0.5 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 cursor-pointer text-xs" title="Expand the theme column">▶</button>
     </th>
   `;
+  htr.querySelector('.theme-fold-btn').onclick = () => setThemeFolded(true);
+  htr.querySelector('.theme-unfold-btn').onclick = () => setThemeFolded(false);
 
   state.docs.forEach((d, idx) => {
     if (state.hiddenStudyIds.has(d.id)) return;
@@ -672,7 +690,7 @@ function renderMatrixTable() {
 
   // Rows are built lazily: only rows near the viewport get their (heavy) content; the rest are light placeholders
   // that are filled in as they scroll into view. This keeps big projects (dozens of studies) responsive.
-  const compactKey = state.matrixCompactMode ? 'c' : 'n';
+  const compactKey = (state.matrixCompactMode ? 'c' : 'n') + (state.matrixThemeFolded ? 'f' : 'w'); // row heights differ per layout
   const knownHeights = Object.values(matrixRowHeights).filter(h => typeof h === 'number' && h > 0);
   const avgRowHeight = knownHeights.length ? knownHeights.reduce((x, y) => x + y, 0) / knownHeights.length : 320;
   const eagerLimit = prevTop + (scrollParent ? scrollParent.clientHeight : 900) + 1200;
@@ -863,6 +881,11 @@ function renderMatrixTable() {
       };
     });
 
+    // Narrow strip shown instead of the full panel when the column is folded (row number + title, click to expand)
+    tdMeta.firstElementChild.classList.add('theme-full');
+    tdMeta.insertAdjacentHTML('beforeend', `<div class="theme-fold-strip" title="${escapeHtml(cluster.thirdOrderTitle || 'Untitled row')} (click to expand)"><span class="theme-strip-num">#${state.clusters.indexOf(cluster) + 1}</span><span class="theme-strip-title">${escapeHtml(cluster.thirdOrderTitle || 'Untitled row')}</span></div>`);
+    tdMeta.querySelector('.theme-fold-strip').onclick = () => setThemeFolded(false);
+
     const historyBtn = tdMeta.querySelector('.cl-history-btn');
     if (historyBtn) historyBtn.onclick = () => {
       setActiveTab('audit');
@@ -880,6 +903,8 @@ function renderMatrixTable() {
 
     tdMeta.querySelector('.cluster-title').addEventListener('input', e => {
       cluster.thirdOrderTitle = e.target.value.trim();
+      const stripTitle = tdMeta.querySelector('.theme-strip-title');
+      if (stripTitle) stripTitle.textContent = cluster.thirdOrderTitle || 'Untitled row';
       debouncedSaveCluster();
     });
 

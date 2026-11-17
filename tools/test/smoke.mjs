@@ -274,6 +274,34 @@ await group('Research Aim drawer scrolls; study storyline is visible; site versi
   await p.context().close();
 });
 
+await group('Theme column folds to a strip', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const width = () => p.evaluate(() => document.querySelector('#matrixTable tbody tr[data-cluster-id] td:first-child').getBoundingClientRect().width);
+  const wide = await width();
+  await p.click('.theme-fold-btn'); await p.waitForTimeout(500);
+  const narrow = await width();
+  check('folded column is a narrow strip', wide >= 380 && narrow <= 60, `wide=${Math.round(wide)} narrow=${Math.round(narrow)}`);
+  check('strip shows the row number and title', (await p.locator('.theme-strip-num').first().innerText()) === '#1' && (await p.locator('.theme-strip-title').first().innerText()).length > 0);
+  check('full panel is hidden while folded', await p.evaluate(() => document.querySelector('#matrixTable .theme-full').offsetParent === null));
+  const dropped = await p.evaluate(async () => {
+    const target = state.clusters[state.clusters.length - 1];
+    const sec = state.annotations.find(a => a.type === 'second_order' && !(a.clusterIds || []).includes(target.id));
+    const tr = document.querySelector(`#matrixTable tr[data-cluster-id="${target.id}"]`);
+    const dt = new DataTransfer(); dt.setData('text/sec-id', sec.id);
+    tr.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    tr.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 800));
+    return state.annotations.find(a => a.id === sec.id).clusterIds.includes(target.id);
+  });
+  check('cards can still be dropped on a folded row', dropped);
+  check('folded state survives a re-render and is remembered', await p.evaluate(() => { renderMatrixView(); return document.getElementById('matrixTable').classList.contains('matrix-theme-folded') && lsGet('me_theme_folded') === 'true'; }));
+  await p.click('.theme-unfold-btn'); await p.waitForTimeout(500);
+  check('expands again', (await width()) >= 380);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Safety and accessibility', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const p = await ctx.newPage(); p.on('dialog', d => d.accept());
