@@ -1445,11 +1445,6 @@ async function offerRichnessTieOrdering() {
 
 document.getElementById('richTieKeepBtn').addEventListener('click', closeRichnessTieModal);
 document.getElementById('richTieCloseBtn').addEventListener('click', closeRichnessTieModal);
-document.getElementById('richTieByYearBtn').addEventListener('click', () => {
-  if (!richTieWork) return;
-  richTieWork.forEach(g => g.docs.sort((a, b) => (parseInt(a.year, 10) || 9999) - (parseInt(b.year, 10) || 9999)));
-  renderRichnessTieModal();
-});
 document.getElementById('richTieApplyBtn').addEventListener('click', async () => {
   if (!richTieWork) return;
   const oldOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
