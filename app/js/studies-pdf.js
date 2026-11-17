@@ -14,10 +14,15 @@ document.getElementById('pdfFileInput').addEventListener('change', async (e) => 
 
 async function handleFiles(files) {
   let lastAffectedId = null;
+  // While the "reconnect your PDFs" window is open, only reconnect files by name; unmatched files are reported, not added as new studies
+  const reconnectModal = document.getElementById('missingPdfModal');
+  const reconnectMode = !!reconnectModal && !reconnectModal.classList.contains('hidden');
+  const unmatched = [];
   for (const file of files) {
-    const buffer = await file.arrayBuffer();
     // Check if a study stub with the same filename already exists (e.g. from JSON restore)
     const existingStub = state.docs.find(d => d.name && d.name.toLowerCase() === file.name.toLowerCase() && !d.hasBinary);
+    if (!existingStub && reconnectMode) { unmatched.push(file.name); continue; }
+    const buffer = await file.arrayBuffer();
     if (existingStub) {
       existingStub.hasBinary = true;
       await dbPut('pdf_binaries', { id: existingStub.id, data: buffer });
@@ -52,7 +57,7 @@ async function handleFiles(files) {
     lastAffectedId = doc.id;
   }
   renderStudyList();
-  if (typeof refreshMissingPdfModal === 'function') refreshMissingPdfModal();
+  if (typeof refreshMissingPdfModal === 'function') refreshMissingPdfModal(unmatched);
   if (lastAffectedId) switchStudy(lastAffectedId);
 }
 

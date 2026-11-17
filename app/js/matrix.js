@@ -531,6 +531,9 @@ function nextVisibleIdx(idx) {
   return -1;
 }
 
+let matrixRowObserver = null;
+const matrixRowHeights = {};
+
 function renderMatrixTable() {
   const t = document.getElementById('matrixTable');
   const scrollParent = t ? t.parentElement : null;
@@ -646,12 +649,29 @@ function renderMatrixTable() {
     return;
   }
 
+  // One pass over the annotations: (row id | study id) -> its 2nd Order constructs, so each cell does not rescan everything
+  const cellIndex = new Map();
+  state.annotations.forEach(a => {
+    if (a.type !== 'second_order') return;
+    normalizeAnnotation(a).clusterIds.forEach(cid => {
+      const key = cid + '|' + a.docId;
+      const list = cellIndex.get(key);
+      if (list) list.push(a); else cellIndex.set(key, [a]);
+    });
+  });
+
+  // Rows are built lazily: only rows near the viewport get their (heavy) content; the rest are light placeholders
+  // that are filled in as they scroll into view. This keeps big projects (dozens of studies) responsive.
+  if (matrixRowObserver) { matrixRowObserver.disconnect(); matrixRowObserver = null; }
+  const compactKey = state.matrixCompactMode ? 'c' : 'n';
+  const knownHeights = Object.values(matrixRowHeights).filter(h => typeof h === 'number' && h > 0);
+  const avgRowHeight = knownHeights.length ? knownHeights.reduce((x, y) => x + y, 0) / knownHeights.length : 320;
+  const eagerLimit = prevTop + (scrollParent ? scrollParent.clientHeight : 900) + 1200;
+  let estimatedBottom = 0;
+  const lazyRows = new Map();
+
   visibleClusters.forEach(cluster => {
     normalizeCluster(cluster);
-    const cBadge = getConcordanceBadgeMeta(cluster.concordanceStatus);
-    const cqBadge = getCerqualBadgeMeta(cluster.cerqualConfidence);
-    const stats = computeClusterEvidenceStats(cluster.id);
-    const activeSubTab = state.clusterActiveTabs[cluster.id] || 'synthesis';
 
     const tr = document.createElement('tr');
     tr.className = 'matrix-row-drop transition';
@@ -678,6 +698,12 @@ function renderMatrixTable() {
         renderMatrixView();
       }
     });
+
+    const buildRowBody = () => {
+    const cBadge = getConcordanceBadgeMeta(cluster.concordanceStatus);
+    const cqBadge = getCerqualBadgeMeta(cluster.cerqualConfidence);
+    const stats = computeClusterEvidenceStats(cluster.id);
+    const activeSubTab = state.clusterActiveTabs[cluster.id] || 'synthesis';
 
     const tdMeta = document.createElement('td');
     tdMeta.innerHTML = `
@@ -1035,11 +1061,7 @@ function renderMatrixTable() {
     state.docs.forEach(doc => {
       if (state.hiddenStudyIds.has(doc.id)) return;
       const td = document.createElement('td');
-      const cellConstructs = state.annotations.filter(a =>
-        a.type === 'second_order' &&
-        normalizeAnnotation(a).clusterIds.includes(cluster.id) &&
-        a.docId === doc.id
-      );
+      const cellConstructs = cellIndex.get(cluster.id + '|' + doc.id) || [];
 
       if (cellConstructs.length === 0) {
         td.innerHTML = `<div class="h-full min-h-[120px] rounded border border-dashed border-slate-200 flex items-center justify-center text-[13px] text-slate-300 select-none">Drop 2nd Order here</div>`;
@@ -1282,10 +1304,44 @@ function renderMatrixTable() {
       tr.appendChild(td);
     });
 
+    };  // end buildRowBody
+
+    const rowHeightKey = cluster.id + ':' + compactKey;
+    const estHeight = matrixRowHeights[rowHeightKey] || avgRowHeight;
+    if (estimatedBottom <= eagerLimit) {
+      buildRowBody();
+    } else {
+      const ph = document.createElement('td');
+      ph.colSpan = visibleDocCount() + 1;
+      ph.innerHTML = `<div class="text-xs text-slate-300 italic p-3" style="height:${Math.round(estHeight)}px">${escapeHtml(cluster.thirdOrderTitle || 'Untitled row')} …</div>`;
+      tr.appendChild(ph);
+      lazyRows.set(tr, buildRowBody);
+    }
+    estimatedBottom += estHeight;
+    // Remember the real height of built rows so placeholders (and scroll restore) are accurate next time
+    if (!lazyRows.has(tr)) requestAnimationFrame(() => { if (tr.isConnected && tr.offsetHeight > 0) matrixRowHeights[rowHeightKey] = tr.offsetHeight; });
+    tr._rowHeightKey = rowHeightKey;
     tbody.appendChild(tr);
   });
 
   t.appendChild(tbody);
+  if (lazyRows.size > 0 && 'IntersectionObserver' in window) {
+    matrixRowObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        const row = entry.target;
+        if (!entry.isIntersecting || !lazyRows.has(row)) return;
+        const build = lazyRows.get(row);
+        lazyRows.delete(row);
+        matrixRowObserver.unobserve(row);
+        row.replaceChildren();
+        build();
+        requestAnimationFrame(() => { if (row.isConnected && row.offsetHeight > 0) matrixRowHeights[row._rowHeightKey] = row.offsetHeight; });
+      });
+    }, { root: scrollParent || null, rootMargin: '1200px 0px 1200px 0px' });
+    lazyRows.forEach((_, row) => matrixRowObserver.observe(row));
+  } else {
+    lazyRows.forEach((build, row) => { row.replaceChildren(); build(); });
+  }
   if (scrollParent) {
     scrollParent.scrollTop = prevTop;
     scrollParent.scrollLeft = prevLeft;

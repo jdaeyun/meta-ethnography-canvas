@@ -913,6 +913,11 @@
       <div class="p-5 space-y-3 text-xs text-slate-700">
         <p>Backup files do not contain the PDFs themselves. Select or drop the original PDF files to reconnect them to your highlights. They are matched by <strong>file name</strong>, so keep the original names.</p>
         <ul id="missingPdfList" class="space-y-1 max-h-64 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50 font-mono text-[13px]"></ul>
+        <div id="missingPdfUnmatched" class="hidden rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-800">
+          <div class="font-bold mb-1">Not matched (skipped): no missing study has this file name</div>
+          <ul id="missingPdfUnmatchedList" class="space-y-1 max-h-32 overflow-y-auto font-mono text-[13px]"></ul>
+          <div class="mt-1 text-[11px] text-amber-700">Rename the file to exactly match a name in the list above, then select it again.</div>
+        </div>
         <div class="flex items-center justify-end space-x-2 pt-1">
           <button id="missingPdfLaterBtn" class="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md cursor-pointer">Later</button>
           <button id="missingPdfSelectBtn" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1"><i class="ph ph-folder-open"></i><span>Select PDF files...</span></button>

@@ -302,9 +302,15 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
 });
 
 // ---- After a restore: list the studies whose PDF is not stored in this browser and offer to import them ----
-function refreshMissingPdfModal() {
+function refreshMissingPdfModal(unmatched = null) {
   const modal = document.getElementById('missingPdfModal');
   if (!modal || modal.classList.contains('hidden')) return;
+  const box = document.getElementById('missingPdfUnmatched');
+  if (Array.isArray(unmatched)) {
+    box.classList.toggle('hidden', unmatched.length === 0);
+    document.getElementById('missingPdfUnmatchedList').innerHTML = unmatched
+      .map(n => `<li class="truncate" title="${escapeHtml(n)}">• ${escapeHtml(n)}</li>`).join('');
+  }
   const missing = state.docs.filter(d => !d.hasBinary);
   if (missing.length === 0) { closeMissingPdfModal(); showSnackbar('All PDFs reconnected.'); return; }
   document.getElementById('missingPdfList').innerHTML = missing
@@ -314,6 +320,7 @@ function showMissingPdfModal() {
   const modal = document.getElementById('missingPdfModal');
   modal.classList.remove('hidden');
   modal.classList.add('flex');
+  document.getElementById('missingPdfUnmatched').classList.add('hidden');
   refreshMissingPdfModal();
 }
 function closeMissingPdfModal() {
