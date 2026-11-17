@@ -759,6 +759,10 @@ function renderMatrixTable() {
             <div class="cl-stepb-warn text-[11px] text-amber-700 font-semibold mb-0.5 ${(cluster.synthesisNote && !cluster.translationSummary) ? '' : 'hidden'}">⚠ Step A is empty. A 3rd order construct should be derived from the translation, not written directly from the grouped cards.</div>
             <textarea class="cluster-note w-full text-[13px] border border-indigo-300 rounded p-1.5 h-20 resize-y bg-white focus:outline-none focus:border-indigo-600 font-normal" placeholder="Your construct in your own words: what it means (definition), and what the translation shows that goes beyond any single study (interpretation).">${escapeHtml(cluster.synthesisNote)}</textarea>
           </div>
+          <div class="rounded border border-amber-200 bg-amber-50/40 p-1.5">
+            <label class="block text-xs font-bold text-amber-900 mb-0.5" title="Optional. In qualitative research the interpreter is part of the analysis: say, in a line or two, how your own background or position may have shaped this construct. Recorded in the Audit Trail as a reflexive memo.">Reflexive note <span class="font-normal text-amber-700">(optional: how does my position shape this reading?)</span></label>
+            <textarea class="cluster-reflex w-full text-[13px] border border-amber-300 rounded p-1.5 h-12 resize-y bg-white focus:outline-none focus:border-amber-600 font-normal" placeholder="e.g., As a former ward nurse I may over-read “alone” as isolation...">${escapeHtml(cluster.reflexiveNote)}</textarea>
+          </div>
           <div class="text-xs text-slate-400 flex items-center justify-between pt-0.5">
             <span>Contributing: ${stats.contributingDocs.length ? escapeHtml(stats.contributingDocs.map(d => getDisplayName(d)).join('; ')) : 'no 2nd order constructs mapped yet'}</span>
           </div>
@@ -820,7 +824,7 @@ function renderMatrixTable() {
             <select class="cl-conc-status text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
               <option value="pending" ${cluster.concordanceStatus === 'pending' ? 'selected' : ''}>⏳ Pending</option>
               <option value="discuss" ${cluster.concordanceStatus === 'discuss' ? 'selected' : ''}>💬 Needs Discussion</option>
-              <option value="agreed" ${cluster.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed</option>
+              <option value="agreed" ${cluster.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed (for now)</option>
             </select>
           </div>
           <div>
@@ -950,6 +954,25 @@ function renderMatrixTable() {
           toVal: newNote
         });
       }
+    });
+
+    let initialReflex = cluster.reflexiveNote || '';
+    const reflexEl = tdMeta.querySelector('.cluster-reflex');
+    reflexEl.addEventListener('input', e => { cluster.reflexiveNote = e.target.value; debouncedSaveCluster(); });
+    bindPendingCommit(reflexEl, async () => {
+      const oldVal = initialReflex;
+      const newVal = reflexEl.value.trim();
+      if (oldVal === newVal) return;
+      initialReflex = newVal;
+      cluster.reflexiveNote = newVal;
+      await dbPut('clusters', cluster);
+      await recordAuditLog({
+        clusterIds: [cluster.id],
+        category: 'reflexive_memo',
+        action: `Reflexive note on "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+        fromVal: oldVal || '(Empty)',
+        toVal: newVal || '(Empty)'
+      });
     });
 
     const updateClusterConcordance = async () => {

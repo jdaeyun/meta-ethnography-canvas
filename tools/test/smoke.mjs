@@ -1,0 +1,253 @@
+// Smoke tests for Meta-Ethnography Canvas (Playwright + Chromium). Run: npm test
+// First time on a machine: npx playwright install chromium
+// Serves the repository folder on a local port and drives the ?demo project (its own IndexedDB, so nothing real is touched).
+import { chromium } from 'playwright';
+import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.pdf': 'application/pdf', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.bcmap': 'application/octet-stream', '.pfb': 'application/octet-stream', '.ttc': 'application/octet-stream' };
+
+const server = http.createServer((req, res) => {
+  const file = path.join(ROOT, decodeURIComponent(new URL(req.url, 'http://x').pathname));
+  if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end(); return; }
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+  fs.createReadStream(file).pipe(res);
+});
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const BASE = `http://127.0.0.1:${server.address().port}/me_canvas.html`;
+
+const browser = await chromium.launch();
+let failures = 0, passes = 0;
+const check = (name, ok, extra = '') => { if (ok) { passes++; console.log(`  ok   ${name}`); } else { failures++; console.log(`  FAIL ${name} ${extra}`); } };
+
+async function openDemo(url = BASE + '?demo') {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const page = await ctx.newPage();
+  page.pageErrors = [];
+  page.on('pageerror', e => page.pageErrors.push(e.message));
+  page.on('dialog', d => d.accept());
+  await page.goto(url);
+  await page.waitForFunction(() => typeof state !== 'undefined' && state.docs && state.docs.length > 0, null, { timeout: 20000 });
+  await page.waitForTimeout(800);
+  return page;
+}
+const tab = (p, t) => p.evaluate(x => setActiveTab(x), t);
+const logCount = p => p.evaluate(() => state.logs.length);
+const group = async (name, fn) => {
+  console.log(`\n${name}`);
+  try { await fn(); } catch (e) { failures++; console.log(`  FAIL ${name}: ${e.message.split('\n')[0]}`); }
+};
+
+await group('Text edits are saved AND audit-logged even without blur (tab switch)', async () => {
+  const p = await openDemo();
+  const cases = [
+    ['3rd order title', async () => p.locator('.cluster-title').first().fill('Test title')],
+    ['Step A', async () => p.locator('.cluster-trans').first().fill('Step A text')],
+    ['Step B', async () => p.locator('.cluster-note').first().fill('Step B text')],
+    ['2nd order label', async () => p.locator('.sec-label-input').first().fill('Test label')],
+    ['reflexive note', async () => p.locator('.cluster-reflex').first().fill('My position shapes this.')],
+    ['CERQual explanation', async () => { await p.locator('.cl-subtab-btn[data-subtab=cerqual]').first().click(); await p.locator('.cq-exp').first().fill('CQ text'); }],
+    ['row team note', async () => { await p.locator('.cl-subtab-btn[data-subtab=concordance]').first().click(); await p.locator('.cl-conc-note').first().fill('team note'); }],
+    ['cell note', async () => { await p.locator('.sec-comment-view').first().click(); await p.locator('.sec-comment-input:visible').fill('cell note'); }]
+  ];
+  for (const [name, act] of cases) {
+    await tab(p, 'matrix'); await p.waitForTimeout(500);
+    const before = await logCount(p);
+    await act();
+    await tab(p, 'audit'); await p.waitForTimeout(400);
+    check(`${name} -> 1 log entry`, (await logCount(p)) - before === 1);
+  }
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Row type is derived from cells; no per-row selector', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  check('no .cluster-type selector', (await p.locator('.cluster-type').count()) === 0);
+  check('no translationType stored on rows', await p.evaluate(() => state.clusters.every(c => !('translationType' in c))));
+  check('mixed row detected', await p.evaluate(() => state.clusters.some(c => clusterTranslationType(c) === 'mixed')));
+  await p.context().close();
+});
+
+await group('Restore keeps PDFs out of memory-heavy paths and matches by id / file name', async () => {
+  const p = await openDemo();
+  await p.evaluate(() => { window.__pdfReads = 0; const o = dbGetAll; window.dbGetAll = async s => { if (s === 'pdf_binaries') window.__pdfReads++; return o(s); }; });
+  const payload = renamed => p.evaluate(rn => {
+    const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: state.logs, loa: state.loa, projectCode: state.projectCode, version: DB_VERSION }));
+    if (rn) { const m = {}; d.docs.forEach((x, i) => { m[x.id] = 'nw_' + i; x.id = 'nw_' + i; }); d.annotations.forEach(a => { a.docId = m[a.docId] || a.docId; }); d.logs.push({ noKey: true }); }
+    return JSON.stringify(d);
+  }, renamed);
+  const restore = async json => { await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500); };
+  const keys = () => p.evaluate(async () => (await dbGetAllKeys('pdf_binaries')).sort());
+  const orig = await keys();
+  await restore(await payload(false));
+  check('same-id restore keeps all PDFs', JSON.stringify(await keys()) === JSON.stringify(orig) && await p.evaluate(() => state.docs.every(d => d.hasBinary)));
+  const before = await p.evaluate(() => ({ d: state.docs.length, a: state.annotations.length, l: state.logs.length }));
+  await restore(await payload(true)); // contains a log without id: the restore must fail and roll back
+  const after = await p.evaluate(() => ({ d: state.docs.length, a: state.annotations.length, l: state.logs.length }));
+  check('failed restore rolls back', JSON.stringify(before) === JSON.stringify(after));
+  check('rollback leaves the original PDFs only', JSON.stringify(await keys()) === JSON.stringify(orig));
+  check('never reads all PDFs at once', (await p.evaluate(() => window.__pdfReads)) === 0);
+  await p.context().close();
+});
+
+await group('Missing-PDF dialog after restore; unmatched files are reported', async () => {
+  const p = await openDemo();
+  const json = await p.evaluate(() => JSON.stringify({ docs: state.docs.map(d => ({ ...d, hasBinary: false })), annotations: state.annotations, clusters: state.clusters, logs: state.logs, loa: state.loa, projectCode: state.projectCode, version: DB_VERSION }));
+  await p.evaluate(async () => { for (const k of await dbGetAllKeys('pdf_binaries')) await dbDelete('pdf_binaries', k); });
+  await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) });
+  await p.waitForTimeout(2500);
+  check('dialog lists 4 missing PDFs', (await p.locator('#missingPdfList li').count()) === 4);
+  const demoDir = path.join(ROOT, 'app', 'demo');
+  const pdfs = fs.readdirSync(demoDir).filter(f => f.endsWith('.pdf')).map(f => path.join(demoDir, f));
+  const wrong = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mec-')), 'wrong-name.pdf');
+  fs.copyFileSync(pdfs[0], wrong);
+  const docsBefore = await p.evaluate(() => state.docs.length);
+  await p.setInputFiles('#pdfFileInput', [wrong, pdfs[1]]); await p.waitForTimeout(2000);
+  check('unmatched file is listed', (await p.locator('#missingPdfUnmatchedList li').allInnerTexts()).join().includes('wrong-name.pdf'));
+  check('unmatched file is not added as a study', (await p.evaluate(() => state.docs.length)) === docsBefore);
+  check('one PDF reconnected', (await p.locator('#missingPdfList li').count()) === 3);
+  await p.setInputFiles('#pdfFileInput', pdfs.filter(f => f !== pdfs[1])); await p.waitForTimeout(2500);
+  check('dialog closes when all are reconnected', await p.evaluate(() => document.getElementById('missingPdfModal').classList.contains('hidden')));
+  await p.context().close();
+});
+
+await group('Rich★ sort: richness only, ties keep order, dialog for ties', async () => {
+  const p = await openDemo();
+  const order = () => p.evaluate(() => state.docs.map(d => d.id));
+  await p.evaluate(() => { state.docs.forEach(d => { d.richness = 'Rich'; d.quality = 'Low'; }); state.docs[3].quality = 'High'; });
+  const start = await order();
+  await p.click('#sortStudiesRichBtn'); await p.waitForTimeout(500);
+  check('quality does not change the order', JSON.stringify(await order()) === JSON.stringify(start));
+  check('tie dialog opens', await p.evaluate(() => !document.getElementById('richTieModal').classList.contains('hidden')));
+  await p.locator('.tie-down').first().click();
+  await p.fill('#richTieReason', 'closest to the question');
+  await p.click('#richTieApplyBtn'); await p.waitForTimeout(500);
+  const manual = await order();
+  check('manual order saved', JSON.stringify(manual) !== JSON.stringify(start));
+  check('reason is reused in the Methods text', await p.evaluate(() => getMethodSections().some(s => (s.html || '').includes('closest to the question'))));
+  await p.click('#sortStudiesRichBtn'); await p.waitForTimeout(500);
+  await p.click('#richTieKeepBtn');
+  check('next sort keeps the manual order', JSON.stringify(await order()) === JSON.stringify(manual));
+  await p.evaluate(() => { state.docs.forEach(d => { d.richness = ''; d.quality = ''; }); });
+  await p.click('#sortStudiesRichBtn'); await p.waitForTimeout(400);
+  check('unrated studies are not offered as a tie', await p.evaluate(() => document.getElementById('richTieModal').classList.contains('hidden')));
+  await p.context().close();
+});
+
+await group('Backup: timestamped file name and reminder badge', async () => {
+  const p = await openDemo();
+  await p.evaluate(async () => { await dbPut('meta', state.loa); });
+  check('badge shows after a change', await p.evaluate(() => !document.getElementById('backupReminder').classList.contains('hidden')));
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#backupJsonBtn')]);
+  check('file name ends with date_time to the second', /_\d{4}-\d{2}-\d{2}_\d{6}\.json$/.test(dl.suggestedFilename()), dl.suggestedFilename());
+  await p.waitForTimeout(300);
+  check('badge clears after a backup', await p.evaluate(() => document.getElementById('backupReminder').classList.contains('hidden')));
+  await p.context().close();
+});
+
+await group('Matrix with many studies: lazy rows keep the scroll position', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  await p.evaluate(() => {
+    const baseAnn = state.annotations.filter(a => a.type === 'second_order'), baseDocs = state.docs.slice(0, 4);
+    const docs = [], anns = [], cls = [];
+    for (let i = 0; i < 30; i++) cls.push(normalizeCluster({ id: 'c' + i, thirdOrderTitle: 'Theme ' + i }));
+    for (let d = 0; d < 30; d++) {
+      const doc = normalizeDoc({ ...baseDocs[d % 4], id: 'd' + d, name: 'S' + d + '.pdf' }); docs.push(doc);
+      for (let k = 0; k < 20; k++) {
+        const a = normalizeAnnotation({ ...JSON.parse(JSON.stringify(baseAnn[k % baseAnn.length])), id: `a${d}_${k}`, docId: doc.id, text: 'Lorem ipsum '.repeat(10 + (k * 7) % 40), note: '', parentIds: [] });
+        a.clusterIds = [cls[(d * 3 + k) % 30].id]; a.clusterRelations = {}; a.clusterComments = {}; anns.push(a);
+      }
+    }
+    Object.assign(state, { docs, annotations: anns, clusters: cls }); renderMatrixView();
+  });
+  await p.waitForTimeout(500);
+  const built = await p.locator('#matrixTable .cluster-title').count();
+  check('only some rows are built at first', built > 0 && built < 30, `built=${built}`);
+  const drift = await p.evaluate(async () => {
+    const c = document.getElementById('matrixTable').parentElement, wait = ms => new Promise(r => setTimeout(r, ms));
+    let worst = 0;
+    c.scrollTop = c.scrollHeight; await wait(400);
+    for (let i = 0; i < 25; i++) { // creep upward: placeholders above become real rows
+      const ptop = c.getBoundingClientRect().top;
+      const ref = [...document.querySelectorAll('#matrixTable tbody > tr[data-cluster-id]')].find(r => r.querySelector('.cluster-title') && r.getBoundingClientRect().bottom > ptop + 120);
+      if (!ref) break;
+      const before = ref.getBoundingClientRect().top; c.scrollTop -= 150; await wait(160);
+      worst = Math.max(worst, Math.abs((ref.getBoundingClientRect().top - before) - 150));
+    }
+    for (const frac of [0.3, 0.6, 1]) { // re-render at several positions
+      c.scrollTop = (c.scrollHeight - c.clientHeight) * frac; await wait(400);
+      const ptop = c.getBoundingClientRect().top;
+      const ref = [...document.querySelectorAll('#matrixTable tbody > tr[data-cluster-id]')].find(r => r.getBoundingClientRect().bottom > ptop + 1);
+      const id = ref.dataset.clusterId, off = ref.getBoundingClientRect().top - ptop;
+      renderMatrixView(); await wait(500);
+      const r2 = document.querySelector(`#matrixTable tr[data-cluster-id="${id}"]`);
+      worst = Math.max(worst, Math.abs((r2.getBoundingClientRect().top - c.getBoundingClientRect().top) - off));
+    }
+    return worst;
+  });
+  check('scroll drift <= 5px', drift <= 5, `drift=${Math.round(drift)}`);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Line of Argument map supports encompasses / metaphor relations', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  const r = await p.evaluate(() => {
+    const ids = state.clusters.map(c => c.id);
+    state.loa.links = [{ id: 'l1', from: ids[0], to: ids[1], type: 'encompasses', note: '' }, { id: 'l2', from: ids[1], to: ids[2], type: 'metaphor', note: '' }];
+    const out = {};
+    for (const lay of ['circle', 'flow']) { const s = buildConceptMapSvg('t', 640, 360, lay); out[lay] = { drawn: s.includes('encompasses') && s.includes('metaphor'), bothEnds: /marker-start="url\(#t-(ah|fl)-(encompasses|metaphor)\)"/.test(s) }; }
+    out.key = teamLinkKey({ from: 'a', to: 'b', type: 'metaphor' }) !== teamLinkKey({ from: 'b', to: 'a', type: 'metaphor' });
+    return out;
+  });
+  check('circle layout draws both', r.circle.drawn);
+  check('flow layout draws both', r.flow.drawn);
+  check('directed relations have a single arrow head', !r.circle.bothEnds && !r.flow.bothEnds);
+  check('team comparison keeps the direction', r.key);
+  await p.context().close();
+});
+
+await group('Safety and accessibility', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const p = await ctx.newPage(); p.on('dialog', d => d.accept());
+  await p.goto(BASE + '?demo'); await p.waitForFunction(() => typeof state !== 'undefined' && state.docs.length > 0); await p.waitForTimeout(800);
+  check('PDF.js eval and XFA are off', await p.evaluate(() => { const o = pdfjsDocumentOptions(); return o.isEvalSupported === false; }));
+  check('single tab: no warning', await p.evaluate(() => document.getElementById('multiTabBanner').classList.contains('hidden')));
+  const p2 = await ctx.newPage(); await p2.goto(BASE + '?demo'); await p2.waitForTimeout(2500);
+  check('second tab: warning in both tabs', await p.evaluate(() => !document.getElementById('multiTabBanner').classList.contains('hidden')) && await p2.evaluate(() => !document.getElementById('multiTabBanner').classList.contains('hidden')));
+  await p2.close(); await p.waitForTimeout(500);
+  check('warning clears when the other tab closes', await p.evaluate(() => document.getElementById('multiTabBanner').classList.contains('hidden')));
+  await p.focus('#backupJsonBtn');
+  await p.evaluate(() => { const m = document.getElementById('richTieModal'); m.classList.remove('hidden'); m.classList.add('flex'); });
+  await p.waitForTimeout(200);
+  check('focus moves into a modal', await p.evaluate(() => document.getElementById('richTieModal').contains(document.activeElement)));
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+  check('Esc closes it and focus returns', await p.evaluate(() => document.getElementById('richTieModal').classList.contains('hidden') && document.activeElement.id === 'backupJsonBtn'));
+  for (const t of ['extract', 'matrix', 'audit', 'pub']) {
+    await tab(p, t); await p.waitForTimeout(500);
+    const bad = await p.evaluate(() => [...document.querySelectorAll('button')].filter(b => !(b.textContent || '').trim() && !b.getAttribute('aria-label')).length);
+    check(`icon-only buttons have names (${t} tab)`, bad === 0, `missing=${bad}`);
+  }
+  await ctx.close();
+});
+
+await group('Offline edition (file://) starts without errors and renders PDFs', async () => {
+  const p = await openDemo('file://' + path.join(ROOT, 'me_canvas.html') + '?demo');
+  await p.waitForTimeout(2500);
+  check('PDF pages rendered', (await p.locator('#pdfPagesWrapper canvas').count()) > 0);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await browser.close();
+server.close();
+console.log(`\n${passes} passed, ${failures} failed`);
+process.exit(failures ? 1 : 0);

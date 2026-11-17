@@ -468,11 +468,12 @@ function getMethodSections() {
 
   const firstName = docCount > 0 ? escapeHtml(getDisplayName(state.docs[0])) : '[first study]';
   const strategy = getOrderStrategy();
+  const orderWhy = (state.loa.orderRationale || '').trim() ? escapeHtml(state.loa.orderRationale.trim()) : '';
   const orderHtml = strategy === 'index'
-    ? `Studies were ordered for translation, designating <b>${firstName}</b> as the index paper. ${PH('why this study was chosen as the index paper')}`
+    ? `Studies were ordered for translation, designating <b>${firstName}</b> as the index paper. ${orderWhy || PH('why this study was chosen as the index paper')}`
     : strategy === 'chronological'
       ? `Studies were translated in chronological order of publication, beginning with <b>${firstName}</b>, each study being compared with the synthesis of the studies before it.`
-      : `Studies were translated in the order shown in Table 1, beginning with <b>${firstName}</b>. ${PH('rationale for this translation order')}`;
+      : `Studies were translated in the order shown in Table 1, beginning with <b>${firstName}</b>. ${orderWhy || PH('rationale for this translation order')}`;
   const seedHtml = seedCount > 0
     ? ` The second-order constructs of the first study (${firstName}) were used to seed the initial third-order rows, which were then refined as further studies were translated into them.`
     : '';

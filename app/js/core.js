@@ -463,6 +463,7 @@ function normalizeCluster(c) {
   if (typeof c.cerqualExplanation !== 'string') c.cerqualExplanation = '';
   if (typeof c.seedConfirmed !== 'boolean') c.seedConfirmed = false;
   if (typeof c.translationSummary !== 'string') c.translationSummary = ''; // Step A (Phase 5): how the studies' concepts translate into one another
+  if (typeof c.reflexiveNote !== 'string') c.reflexiveNote = '';           // optional: how the reviewer's own position shapes this interpretation
   if (typeof c.synthesisNote !== 'string') c.synthesisNote = '';           // Step B: the reviewer's 3rd order construct (definition & interpretation)
   ['cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote'].forEach(k => { if (typeof c[k] !== 'string') c[k] = ''; });
   delete c.translationType; // removed: a row's reciprocal / refutational character is derived from its cells (clusterTranslationType)

@@ -37,6 +37,8 @@ Node.js LTS required. `npm install` (exact versions from package.json / package-
 Re-run `npm run css` after using a Tailwind class that appears nowhere else. Write class names in full
 (no string concatenation such as 'bg-' + color) so the Tailwind scanner can see them.
 `npm run serve` serves the folder at http://localhost:8080 for testing. node_modules/ is not committed.
+`npm test` runs the Playwright smoke tests (tools/test/smoke.mjs: audit logging, restore, lazy matrix rows, dialogs, file://) against the ?demo project;
+install the browser once with `npx playwright install chromium`. Run it after changing app behaviour and extend it with the change.
 
 ## Demo (?demo)
 
@@ -84,6 +86,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   (save + `recordAuditLog`) then also runs on tab switch, matrix re-render and page leave, so a saved text never lacks its log entry.
 - Tab 2 rows are built lazily (`renderMatrixTable`): only rows near the viewport have content. Do not query row DOM across the whole table.
   Scroll position is kept by an anchor row (`data-cluster-id`) and corrected when a placeholder above the viewport is built; overflow-anchor is off on purpose.
+- Stance: this is a qualitative (Big Q) tool. Differences between reviewers are readings to discuss, not errors; agreement is provisional
+  ("Agreed (for now)"); quality appraisal is never a ranking criterion; the Index Paper is a reasoned choice by the reviewer, not a sort result.
 - A row's Reciprocal / Refutational character is derived from its cells (`clusterTranslationType()`); there is no per-row setting.
 - Escape every user value interpolated into HTML with `escapeHtml()`.
 - Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`);

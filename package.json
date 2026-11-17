@@ -7,13 +7,15 @@
     "css": "tailwindcss -c tailwind.config.js -i tools/tailwind.input.css -o app/vendor/tailwind/tailwind.css --minify",
     "build": "npm run vendor && npm run css",
     "serve": "http-server . -p 8080 -c-1",
-    "sync-version": "node tools/sync-version.mjs"
+    "sync-version": "node tools/sync-version.mjs",
+    "test": "node tools/test/smoke.mjs"
   },
   "devDependencies": {
     "@phosphor-icons/web": "2.1.1",
     "docx": "8.5.0",
     "http-server": "14.1.1",
     "pdfjs-dist": "3.11.174",
+    "playwright": "1.63.0",
     "tailwindcss": "3.4.17"
   }
 }

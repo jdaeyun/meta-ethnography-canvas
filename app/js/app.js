@@ -414,3 +414,82 @@ window.ondrop = async e => {
     if (pdfs.length > 0) await handleFiles(pdfs);
   }
 };
+
+// ========================================================
+// SAFETY & ACCESSIBILITY HELPERS
+// ========================================================
+// ---- Same project open in two tabs: writes would silently overwrite each other, so warn in both tabs ----
+(function watchOtherTabs() {
+  if (!('BroadcastChannel' in window)) return;
+  const banner = document.getElementById('multiTabBanner');
+  if (!banner) return;
+  const ch = new BroadcastChannel('mec-tabs-' + DB_NAME);
+  const me = Math.random().toString(36).slice(2);
+  const others = new Set();
+  const refresh = () => { banner.classList.toggle('hidden', others.size === 0); banner.classList.toggle('flex', others.size > 0); };
+  ch.onmessage = e => {
+    const m = e.data;
+    if (!m || m.from === me) return;
+    if (m.type === 'hello') { others.add(m.from); ch.postMessage({ type: 'present', from: me }); }
+    else if (m.type === 'present') others.add(m.from);
+    else if (m.type === 'bye') others.delete(m.from);
+    refresh();
+  };
+  ch.postMessage({ type: 'hello', from: me });
+  window.addEventListener('pagehide', () => { try { ch.postMessage({ type: 'bye', from: me }); } catch (err) { /* channel closed */ } });
+  document.getElementById('multiTabDismissBtn')?.addEventListener('click', () => { banner.classList.add('hidden'); banner.classList.remove('flex'); });
+})();
+
+// ---- Modals: Esc closes (except the required Reviewer ID dialog), focus moves in and returns, Tab stays inside ----
+(function modalAccessibility() {
+  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn' };
+  const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'reviewerLoginModal'];
+  const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  const returnTo = {};
+  const visible = id => { const m = document.getElementById(id); return m && !m.classList.contains('hidden') ? m : null; };
+  MODALS.forEach(id => {
+    const m = document.getElementById(id);
+    if (!m) return;
+    let wasOpen = !m.classList.contains('hidden');
+    new MutationObserver(() => {
+      const open = !m.classList.contains('hidden');
+      if (open && !wasOpen) {
+        returnTo[id] = document.activeElement;
+        const first = Array.from(m.querySelectorAll(FOCUSABLE)).find(el => el.offsetParent !== null);
+        if (first) setTimeout(() => first.focus(), 0);
+      } else if (!open && wasOpen && returnTo[id] && document.contains(returnTo[id])) {
+        try { returnTo[id].focus(); } catch (err) { /* element gone */ }
+      }
+      wasOpen = open;
+    }).observe(m, { attributes: true, attributeFilter: ['class'] });
+  });
+  document.addEventListener('keydown', e => {
+    const openId = MODALS.slice().reverse().find(visible);
+    if (!openId) return;
+    if (e.key === 'Escape' && CLOSE_BTN[openId]) { e.preventDefault(); document.getElementById(CLOSE_BTN[openId])?.click(); return; }
+    if (e.key === 'Tab') {
+      const items = Array.from(document.getElementById(openId).querySelectorAll(FOCUSABLE)).filter(el => el.offsetParent !== null);
+      if (items.length === 0) return;
+      const first = items[0], last = items[items.length - 1];
+      if (!items.includes(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+})();
+
+// ---- Icon-only buttons get an accessible name from their tooltip ----
+(function labelIconButtons() {
+  const label = root => {
+    const btns = root.matches && root.matches('button') ? [root] : [];
+    root.querySelectorAll && root.querySelectorAll('button:not([aria-label])').forEach(b => btns.push(b));
+    btns.forEach(b => {
+      if (b.hasAttribute('aria-label')) return;
+      const hasText = (b.textContent || '').replace(/\s+/g, '').length > 0;
+      if (!hasText && b.title) b.setAttribute('aria-label', b.title);
+    });
+  };
+  label(document.body);
+  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) label(n); })))
+    .observe(document.body, { childList: true, subtree: true });
+})();
