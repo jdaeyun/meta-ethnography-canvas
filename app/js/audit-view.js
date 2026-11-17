@@ -148,7 +148,7 @@ function renderAuditTimeline() {
       ${log.detail ? `<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(log.detail)}</div>` : ''}
       ${diffHtml}
       <div class="pt-1">
-        <textarea rows="1" class="rationale-input w-full text-[13px] border border-dashed border-slate-300 rounded px-2 py-1 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-none text-slate-700 resize-none" placeholder="+ Add reason for this decision...">${escapeHtml(log.rationale || '')}</textarea>
+        <textarea rows="${Math.min(6, (log.rationale || '').split('\n').length)}" class="lazy-grow rationale-input w-full text-[13px] border border-dashed border-slate-300 rounded px-2 py-1 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-none text-slate-700 resize-none" placeholder="+ Add reason for this decision...">${escapeHtml(log.rationale || '')}</textarea>
       </div>
     `;
 

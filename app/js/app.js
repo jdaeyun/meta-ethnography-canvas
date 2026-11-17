@@ -524,11 +524,12 @@ window.ondrop = async e => {
   };
   const initIn = root => {
     if (root.nodeType !== 1) return;
-    if (root.tagName === 'TEXTAREA') init(root);
-    root.querySelectorAll && root.querySelectorAll('textarea').forEach(init);
+    // .lazy-grow boxes (e.g. the many audit-trail reason boxes) start growing only once they are focused
+    if (root.tagName === 'TEXTAREA' && !root.classList.contains('lazy-grow')) init(root);
+    root.querySelectorAll && root.querySelectorAll('textarea:not(.lazy-grow)').forEach(init);
   };
-  document.addEventListener('input', e => { if (e.target.tagName === 'TEXTAREA') schedule(e.target); });
-  document.addEventListener('focusin', e => { if (e.target.tagName === 'TEXTAREA') schedule(e.target); });
+  document.addEventListener('input', e => { if (e.target.tagName === 'TEXTAREA') { init(e.target); schedule(e.target); } });
+  document.addEventListener('focusin', e => { if (e.target.tagName === 'TEXTAREA') { init(e.target); schedule(e.target); } });
   initIn(document.body);
   new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(initIn))).observe(document.body, { childList: true, subtree: true });
   // Called by the matrix right after it builds rows, so row heights are final before the scroll position is fixed
