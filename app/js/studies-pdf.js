@@ -666,6 +666,7 @@ function populateMetaEditInputs() {
     .map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(getDisplayName(d))}</option>`).join('');
   compSel.value = (doc.companionOf && state.docs.some(d => d.id === doc.companionOf)) ? doc.companionOf : '';
   document.getElementById('metaAppraisalTool').value = doc.appraisalTool || 'CASP';
+  renderAppraisalDomains(doc);
   document.getElementById('metaQuality').value = doc.quality || '';
   document.getElementById('metaRichness').value = doc.richness || '';
   document.getElementById('metaContextNote').value = doc.contextNote || '';
@@ -748,6 +749,70 @@ async function saveCurrentMeta() {
   updateDocHeaderUI();
   if (prevOverview !== doc.studyOverview) updateSidebar();
 }
+
+// ---- Domain judgements for CASP / JBI (eMERGe Part 3). Saved and logged as they change, independently of "Save Info". ----
+function renderAppraisalDomains(doc) {
+  const box = document.getElementById('metaDomainBox');
+  const list = document.getElementById('metaDomainList');
+  const tool = document.getElementById('metaAppraisalTool').value || doc.appraisalTool;
+  const c = APPRAISAL_CHECKLISTS[tool];
+  box.classList.toggle('hidden', !c);
+  list.innerHTML = '';
+  if (!c) return;
+  const items = appraisalItemsOf(doc, tool);
+  const updateStatus = () => {
+    const done = c.items.filter(it => it.open ? !!(items[it.id] && items[it.id].note) : !!(items[it.id] && items[it.id].a)).length;
+    document.getElementById('metaDomainStatus').textContent = `· ${c.name} · ${done === c.items.length ? 'all domains answered' : `${c.items.length - done} domain(s) not answered yet`}`;
+  };
+  updateStatus();
+  const logChange = async (it, field, from, to) => {
+    await recordAuditLog({
+      category: 'context_appraisal',
+      action: `Appraisal (${tool} ${it.id.toUpperCase()}) for ${getDisplayName(doc)}: ${field === 'a' ? 'judgement' : 'reason'} ${from ? 'changed' : 'recorded'}`,
+      detail: it.text,
+      fromVal: from || '',
+      toVal: to || ''
+    });
+  };
+  c.items.forEach((it, i) => {
+    const cur = items[it.id] || {};
+    const row = document.createElement('div');
+    row.className = 'text-xs';
+    row.innerHTML = `
+      <div class="text-slate-700 leading-snug"><b>${i + 1}.</b> ${escapeHtml(it.text)}</div>
+      <div class="flex items-center gap-1.5 mt-0.5">
+        ${it.open ? '' : `<select class="dom-a border border-slate-300 bg-white rounded px-1 py-0.5 text-xs focus:outline-none focus:border-indigo-500">
+          <option value="">—</option>${c.answers.map(([v, l]) => `<option value="${v}" ${cur.a === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+        </select>`}
+        <input type="text" class="dom-note flex-1 border border-slate-300 bg-white rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-indigo-500" placeholder="${it.open ? 'Your answer, in words' : 'Why (what you saw in the paper)'}" value="${escapeHtml(cur.note || '')}">
+      </div>`;
+    const sel = row.querySelector('.dom-a');
+    if (sel) sel.onchange = async () => {
+      const prev = (items[it.id] || {}).a || '';
+      items[it.id] = { ...(items[it.id] || {}), a: sel.value };
+      await dbPut('docs', doc);
+      await logChange(it, 'a', appraisalAnswerLabel(tool, prev), appraisalAnswerLabel(tool, sel.value));
+      updateStatus();
+    };
+    const note = row.querySelector('.dom-note');
+    let committed = cur.note || '';
+    bindPendingCommit(note, async () => {
+      const next = note.value.trim();
+      if (next === committed) return;
+      const prev = committed;
+      committed = next;
+      items[it.id] = { ...(items[it.id] || {}), note: next };
+      await dbPut('docs', doc);
+      await logChange(it, 'note', prev, next);
+      updateStatus();
+    });
+    list.appendChild(row);
+  });
+}
+document.getElementById('metaAppraisalTool').addEventListener('change', () => {
+  const doc = state.docs.find(d => d.id === state.activeDocId);
+  if (doc) renderAppraisalDomains(doc);
+});
 
 // Companion papers (eMERGe item 10): text describing linked accounts of the same primary study
 function companionText(d) {

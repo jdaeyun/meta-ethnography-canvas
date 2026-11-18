@@ -18,6 +18,44 @@ document.querySelectorAll('.pub-tab-btn').forEach(btn => {
   });
 });
 
+// ---- Table 1b (/1c): the judgement on each domain of the appraisal tool, per study (eMERGe Part 3) ----
+// One table per checklist in use. Cells hold the judgement and the reviewer's reason; nothing is summed or ranked.
+function getAppraisalDomainSpecs() {
+  const tools = Object.keys(APPRAISAL_CHECKLISTS).filter(t => state.docs.some(d => normalizeDoc(d).appraisalTool === t && hasAppraisalDomains(d)));
+  return tools.map((tool, ti) => {
+    const c = APPRAISAL_CHECKLISTS[tool];
+    const docs = state.docs.filter(d => d.appraisalTool === tool && hasAppraisalDomains(d));
+    const letter = String.fromCharCode(98 + ti); // b, c
+    return {
+      title: `Table 1${letter}. Methodological Strengths and Limitations of Included Studies: ${c.name}`,
+      caption: `Judgement on each domain of the ${c.name}, with the reviewers' reasons. The answers are a record of judgements and were not added up into a score (eMERGe Part 3, France et al., 2019). Source: ${c.cite}`,
+      headers: ['Study', ...c.items.map((_, i) => `Q${i + 1}`)],
+      widths: [12, ...c.items.map(() => 88 / c.items.length)],
+      rows: docs.map(d => {
+        const items = appraisalItemsOf(d, tool);
+        return [getDisplayName(d), ...c.items.map(it => {
+          const v = items[it.id] || {};
+          const label = it.open ? '' : appraisalAnswerLabel(tool, v.a);
+          return [label, v.note].filter(Boolean).join(' — ') || '-';
+        })];
+      }),
+      key: c.items.map((it, i) => `Q${i + 1}. ${it.text}`)
+    };
+  });
+}
+function buildAppraisalDomainsHtml() {
+  return getAppraisalDomainSpecs().map(spec => `
+    <div class="mb-3" style="margin-top:28px;">
+      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">${escapeHtml(spec.title)}</h3>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">${escapeHtml(spec.caption)}</p>
+    </div>
+    <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
+      <thead><tr>${spec.headers.map((h, i) => `<th style="width:${spec.widths[i]}%;">${escapeHtml(h)}</th>`).join('')}</tr></thead>
+      <tbody>${spec.rows.map(r => '<tr>' + r.map((c, i) => i === 0 ? `<td><b>${escapeHtml(c)}</b></td>` : `<td>${escapeHtml(c)}</td>`).join('') + '</tr>').join('')}</tbody>
+    </table>
+    <p style="font-family: Georgia, serif; font-size: 10.5px; color: #475569; margin-top:6px;">${spec.key.map(escapeHtml).join('<br>')}</p>`).join('');
+}
+
 function buildTable1Html() {
   let rowsHtml = '';
   state.docs.forEach((d, idx) => {
@@ -61,6 +99,7 @@ function buildTable1Html() {
         ${rowsHtml || '<tr><td colspan="9">No studies added yet.</td></tr>'}
       </tbody>
     </table>
+    ${buildAppraisalDomainsHtml()}
   `;
 }
 
@@ -458,9 +497,20 @@ function getEmergeChecklist() {
       [19, 'Recommendations and conclusions', 'Implications for policy, practice and/or theory', A('Author to complete (Discussion)')] ] },
     { name: 'Part 3\nExtensions (not common to every meta-ethnography)', items: [
       ['Ext. 1', 'Format and content of the output', 'e.g., abstract and other output formats', A('Author to complete (supplementary eMERGe extension)')],
-      ['Ext. 2', 'Methodological strengths and limitations of primary studies', 'Rationale for (not) appraising, the tool, the judgement on each domain for each study, and how the appraisal was used', (loa.appraisalPolicy || loa.appraisalUse)
-        ? (state.docs.some(d => d.quality) ? P('Appraisal policy / use → Methods Summary; overall ratings → Table 1. eMERGe also asks for a table of the judgement on each domain of the tool for each study: add it outside the app') : P('Appraisal policy / use → Methods Summary; no per-study ratings recorded'))
-        : (state.docs.some(d => d.quality) ? P('Ratings in Table 1; describe the appraisal policy and its use in the drawer') : A('Author to complete: use the Appraisal fields in Research Aim & Overall Model'))],
+      ['Ext. 2', 'Methodological strengths and limitations of primary studies', 'Rationale for (not) appraising, the tool, the judgement on each domain for each study, and how the appraisal was used', (() => {
+        const hasPolicy = !!(loa.appraisalPolicy || loa.appraisalUse);
+        const appraised = state.docs.filter(d => d.quality || hasAppraisalDomains(d));
+        if (!hasPolicy && appraised.length === 0) return A('Author to complete: use the Appraisal fields in Research Aim & Overall Model');
+        const noChecklist = appraised.filter(d => !APPRAISAL_CHECKLISTS[d.appraisalTool]);
+        const incomplete = appraised.filter(d => APPRAISAL_CHECKLISTS[d.appraisalTool] && !appraisalDomainsComplete(d));
+        const missing = [];
+        if (!hasPolicy) missing.push('describe the appraisal policy and its use in the drawer');
+        if (appraised.length === 0) missing.push('no study appraised yet');
+        if (incomplete.length) missing.push(`${incomplete.length} stud(ies) with domains not answered yet`);
+        if (noChecklist.length) missing.push(`domain table for ${[...new Set(noChecklist.map(d => d.appraisalTool))].join(', ')} to add outside the app`);
+        return missing.length ? P('Appraisal policy / use → Methods Summary; domain judgements → Table 1b; still: ' + missing.join('; '))
+          : R('Appraisal policy / use → Methods Summary; judgement on each domain → Table 1b');
+      })()],
       ['Ext. 3', 'GRADE-CERQual confidence in review findings', 'Confidence in each finding, with all four components incl. methodological limitations, in a Summary of Qualitative Findings table (guidance for applying CERQual to a line of argument / theory is still to be developed)', nCl === 0 ? A('No 3rd order constructs yet') : (assessed === nCl ? R('Table 3') : (assessed > 0 ? P('Table 3 (some findings are still unrated)') : A('No finding assessed yet')))] ] }
   ];
   const rows = [];
@@ -489,7 +539,7 @@ function getMethodSections() {
   const polHtml = state.loa.appraisalPolicy ? escapeHtml(state.loa.appraisalPolicy) + ' ' : '';
   const useHtml = state.loa.appraisalUse ? escapeHtml(state.loa.appraisalUse) : PH('how appraisal results were used, e.g., whether studies were excluded or weighted');
   const qualityHtml = anyQuality
-    ? polHtml + `The methodological quality of each included study was appraised${toolStr ? ' using <b>' + escapeHtml(toolStr) + '</b>' : ' ' + PH('appraisal tool')}; the ratings are reported in Table 1.${anyRichness ? ' Conceptual richness of each study was also recorded (Table 1).' : ''} ${useHtml}`
+    ? polHtml + `The methodological quality of each included study was appraised${toolStr ? ' using <b>' + escapeHtml(toolStr) + '</b>' : ' ' + PH('appraisal tool')}; ${getAppraisalDomainSpecs().length ? ' the judgement on each domain of the tool, with reasons, is reported for each study in Table 1b' + (getAppraisalDomainSpecs().length > 1 ? '–1c' : '') + ', and the reviewers\' overall judgements in Table 1. The checklist answers were not added up into a score.' : ' the overall judgements are reported in Table 1.'}${anyRichness ? ' Conceptual richness of each study was also recorded (Table 1).' : ''} ${useHtml}`
     : (state.loa.appraisalPolicy ? polHtml + useHtml : PH('whether and how the quality of the included studies was appraised, and how appraisal was used'));
 
   const synthHtml = state.loa.synthStudies ? ' Studies included in the line-of-argument synthesis: ' + escapeHtml(state.loa.synthStudies) + '.' : '';
@@ -725,6 +775,12 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
     state.docs.forEach((d, idx) => {
       const name = getDisplayName(d) + (idx === 0 ? ` *${firstStudyMeta().short}*` : '');
       md += `| **${cleanMd(name)}** | ${cleanMd(d.title || d.name)} | ${cleanMd(d.setting)} | ${cleanMd(d.participants)} | ${cleanMd(d.methodology)} | ${cleanMd(getAppraisalDisplayString(d))} | ${cleanMd(d.richness)} | ${cleanMd(d.contextNote)} | ${cleanMd(funderLinkedText(d))} |\n`;
+    });
+    getAppraisalDomainSpecs().forEach(spec => {
+      md += `\n### ${spec.title}\n\n*${spec.caption}*\n\n`;
+      md += `| ${spec.headers.map(cleanMd).join(' | ')} |\n|${spec.headers.map(() => '---').join('|')}|\n`;
+      spec.rows.forEach(r => { md += `| **${cleanMd(r[0])}** | ${r.slice(1).map(cleanMd).join(' | ')} |\n`; });
+      md += `\n${spec.key.join('  \n')}\n`;
     });
   } else if (state.activePubTable === 'table2') {
     md += `### Table 2. Meta-Ethnographic Translation and Synthesis Table\n\n`;
@@ -1123,6 +1179,16 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           spacing: { after: 140 }
         }),
         widthTable(t1Rows, [11, 15, 10, 10, 13, 10, 9, 12, 10]),
+        ...getAppraisalDomainSpecs().flatMap(spec => [
+          new Paragraph({ children: [new PageBreak()] }),
+          new Paragraph({ children: [new TextRun({ text: spec.title, bold: true, font: "Times New Roman", size: 24 })], spacing: { after: 80 } }),
+          new Paragraph({ children: [new TextRun({ text: spec.caption, italics: true, font: "Times New Roman", size: 18 })], spacing: { after: 140 } }),
+          widthTable([
+            new TableRow({ tableHeader: true, children: spec.headers.map(h => makeCell(h, { isHeader: true })) }),
+            ...spec.rows.map((r, i) => new TableRow({ children: r.map((c, ci) => makeCell(c, { isLastRow: i === spec.rows.length - 1, bold: ci === 0 })) }))
+          ], spec.widths),
+          ...spec.key.map(k => new Paragraph({ children: [new TextRun({ text: k, font: "Times New Roman", size: 18 })], spacing: { before: 40 } }))
+        ]),
 
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
