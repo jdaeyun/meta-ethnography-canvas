@@ -183,7 +183,9 @@ function getTable3Mode() {
   const v = (() => { try { return lsGet('me_table3_mode'); } catch (e) { return null; } })();
   return TABLE3_MODES[v] ? v : 'combined';
 }
-const CERQUAL_CAVEAT = 'GRADE-CERQual was applied to the third-order constructs. Its developers note that further work is needed on applying the approach to more interpretive outputs such as those of meta-ethnography (Lewin et al., 2018).';
+// eMERGe Part 3 (France et al., 2019): CERQual can in principle be applied both to the synthesised themes / concepts of phases 3–5
+// and to the broader concepts or theory of phase 6; guidance for the latter is still to be developed.
+const CERQUAL_CAVEAT = 'GRADE-CERQual was applied to the third-order constructs, not to the line of argument. The eMERGe guidance notes that CERQual can in principle be applied both to the themes and concepts synthesised through translation and to the broader concepts or theory of a meta-ethnography, but that guidance for the latter is still to be developed (France et al., 2019); the CERQual developers likewise note that further work is needed for more interpretive outputs (Lewin et al., 2018).';
 function getTable3Specs(mode = getTable3Mode()) {
   const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
   const rows = state.clusters.map(c => {
@@ -456,10 +458,10 @@ function getEmergeChecklist() {
       [19, 'Recommendations and conclusions', 'Implications for policy, practice and/or theory', A('Author to complete (Discussion)')] ] },
     { name: 'Part 3\nExtensions (not common to every meta-ethnography)', items: [
       ['Ext. 1', 'Format and content of the output', 'e.g., abstract and other output formats', A('Author to complete (supplementary eMERGe extension)')],
-      ['Ext. 2', 'Methodological strengths and limitations of primary studies', 'Whether/how included studies were appraised and how the appraisal was used', (loa.appraisalPolicy || loa.appraisalUse)
-        ? (state.docs.some(d => d.quality) ? R('Appraisal policy / use → Methods Summary; ratings → Table 1') : P('Appraisal policy / use → Methods Summary; no per-study ratings recorded'))
+      ['Ext. 2', 'Methodological strengths and limitations of primary studies', 'Rationale for (not) appraising, the tool, the judgement on each domain for each study, and how the appraisal was used', (loa.appraisalPolicy || loa.appraisalUse)
+        ? (state.docs.some(d => d.quality) ? P('Appraisal policy / use → Methods Summary; overall ratings → Table 1. eMERGe also asks for a table of the judgement on each domain of the tool for each study: add it outside the app') : P('Appraisal policy / use → Methods Summary; no per-study ratings recorded'))
         : (state.docs.some(d => d.quality) ? P('Ratings in Table 1; describe the appraisal policy and its use in the drawer') : A('Author to complete: use the Appraisal fields in Research Aim & Overall Model'))],
-      ['Ext. 3', 'GRADE-CERQual confidence in review findings', 'GRADE-CERQual assessment of each finding (CERQual developers note further work is needed for interpretive outputs such as meta-ethnography)', nCl === 0 ? A('No 3rd order constructs yet') : (assessed === nCl ? R('Table 3') : (assessed > 0 ? P('Table 3 (some findings are still unrated)') : A('No finding assessed yet')))] ] }
+      ['Ext. 3', 'GRADE-CERQual confidence in review findings', 'Confidence in each finding, with all four components incl. methodological limitations, in a Summary of Qualitative Findings table (guidance for applying CERQual to a line of argument / theory is still to be developed)', nCl === 0 ? A('No 3rd order constructs yet') : (assessed === nCl ? R('Table 3') : (assessed > 0 ? P('Table 3 (some findings are still unrated)') : A('No finding assessed yet')))] ] }
   ];
   const rows = [];
   phases.forEach(ph => ph.items.forEach((it, i) => rows.push({
@@ -549,7 +551,7 @@ function getMethodSections() {
   const relOutHtml = state.loa.relateOutcome ? ' ' + escapeHtml(state.loa.relateOutcome) : '';
 
   const cqHtml = cqAnyAssessed
-    ? `Confidence in ${cqAllAssessed ? 'each' : cqCount + ' of the ' + nCl} synthesized third-order finding${cqAllAssessed && nCl === 1 ? '' : 's'} was assessed using the GRADE-CERQual approach (Lewin et al., 2018) across four components (methodological limitations, coherence, adequacy of data, and relevance); each judgement is reported with its explanation in Table 3.${cqAllAssessed ? '' : ' The remaining findings were not assessed.'} The CERQual developers note that further work is needed on applying the approach to more interpretive synthesis outputs such as those of meta-ethnography (Lewin et al., 2018). ${PH('how GRADE-CERQual was adapted to, or applied to, the interpretive findings of this meta-ethnography')}`
+    ? `Confidence in ${cqAllAssessed ? 'each' : cqCount + ' of the ' + nCl} synthesized third-order finding${cqAllAssessed && nCl === 1 ? '' : 's'} was assessed using the GRADE-CERQual approach (Lewin et al., 2018) across four components (methodological limitations, coherence, adequacy of data, and relevance); each judgement is reported with its explanation in Table 3.${cqAllAssessed ? '' : ' The remaining findings were not assessed.'} CERQual was applied to the third-order constructs and not to the line of argument: the eMERGe guidance notes that guidance on applying CERQual to the broader concepts or theory of a meta-ethnography is still to be developed (France et al., 2019), and the CERQual developers likewise note that further work is needed for more interpretive outputs (Lewin et al., 2018). ${PH('how GRADE-CERQual was applied to the interpretive findings of this meta-ethnography')}`
     : PH('whether and how GRADE-CERQual was applied; no finding has been assessed yet');
 
   const linksHtml = getLoaLinks().length
