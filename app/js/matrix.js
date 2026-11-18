@@ -1345,7 +1345,7 @@ function renderMatrixTable() {
             if (oldLabel !== newLabel) {
               initialSecLabel = newLabel;
               await recordAuditLog({
-                clusterIds: sec.clusterIds,
+                clusterIds: liveClusterIds(sec),
                 category: 'matrix_mapping',
                 action: `Updated 2nd Order Summary Label (${getDisplayName(doc)})`,
                 fromVal: oldLabel || '(None)',

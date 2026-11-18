@@ -212,14 +212,14 @@ function getTable3Specs(mode = getTable3Mode()) {
     title: mode === 'both' ? 'Table 3b. GRADE-CERQual Evidence Profile' : 'Table 3. GRADE-CERQual Evidence Profile',
     caption: 'Judgement and explanation for each CERQual component behind the overall confidence in each finding (Lewin et al., 2018). ' + CERQUAL_CAVEAT,
     headers: ['Review Finding (3rd Order Construct)', 'Studies Contributing', 'Methodological Limitations', 'Coherence', 'Adequacy of Data', 'Relevance', 'Overall Confidence', 'Explanation'],
-    widths: [18, 12, 12, 12, 12, 12, 8, 14],
+    widths: [17, 12, 12, 12, 12, 12, 10, 13],
     rows: rows.map(r => [{ title: r.finding.title }, r.studies, r.lim, r.coh, r.adeq, r.rel, { strong: r.conf }, r.expl])
   };
   const combined = {
     title: 'Table 3. GRADE-CERQual Summary of Qualitative Findings (SoQF) & Evidence Profile',
     caption: 'Assessment of confidence in each 3rd order review finding across Methodological Limitations, Coherence, Adequacy, and Relevance (Lewin et al., 2018). ' + CERQUAL_CAVEAT,
     headers: ['Summary of Review Finding (3rd Order Construct)', 'Studies Contributing to the Finding', 'Methodological Limitations', 'Coherence', 'Adequacy of Data', 'Relevance', 'Overall CERQual Confidence', 'Explanation of CERQual Assessment'],
-    widths: [24, 12, 10, 10, 10, 10, 8, 16],
+    widths: [22, 12, 10, 10, 10, 10, 10, 16],
     rows: rows.map(r => [r.finding, r.studies, r.lim, r.coh, r.adeq, r.rel, { strong: r.conf }, r.expl])
   };
   if (mode === 'soqf') return [soqf];
@@ -818,19 +818,33 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
 
 document.getElementById('downloadWordDocBtn').addEventListener('click', async () => {
   if (typeof docx === 'undefined') {
-    alert('The docx library could not be loaded from CDN. Please check your internet connection.');
+    alert('The bundled Word library (app/vendor/docx/index.umd.js) failed to load. Check that the app/vendor folder is next to me_canvas.html (offline edition: extract the whole ZIP), then reload the page.');
     return;
   }
 
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-    WidthType, BorderStyle, PageOrientation, PageBreak
+    WidthType, BorderStyle, PageOrientation, PageBreak, TableLayoutType
   } = docx;
 
   const borderTopBottomThick = { style: BorderStyle.SINGLE, size: 12, color: "0F172A" };
   const borderHeaderBottom = { style: BorderStyle.SINGLE, size: 8, color: "0F172A" };
   const borderRowLight = { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" };
   const borderNone = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+
+  // Column widths: without them docx.js writes a 100-twip grid, which LibreOffice / Google Docs (and Word with
+  // autofit off) show as hair-thin columns. Widths are percentages of the landscape A4 text width.
+  const TEXT_WIDTH_TWIPS = 16838 - 2 * 1440;
+  function widthTable(rows, pcts) {
+    const total = pcts.reduce((a, b) => a + b, 0) || 1;
+    const twips = pcts.map(p => Math.round(TEXT_WIDTH_TWIPS * p / total));
+    return new Table({ width: { size: TEXT_WIDTH_TWIPS, type: WidthType.DXA }, columnWidths: twips, layout: TableLayoutType.FIXED, rows });
+  }
+  // Even widths for the study columns of Table 2b; the first and last columns keep a fixed share
+  function gridPcts(nStudies) {
+    const first = nStudies > 8 ? 18 : 24, last = 10;
+    return [first, ...Array(nStudies).fill((100 - first - last) / Math.max(1, nStudies)), last];
+  }
 
   function makeCell(childrenOrText, { isHeader = false, isLastRow = false, bold = false } = {}) {
     const paragraphs = Array.isArray(childrenOrText)
@@ -1005,7 +1019,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
       ...(si > 0 ? [new Paragraph({ children: [new PageBreak()] })] : []),
       new Paragraph({ children: [new TextRun({ text: spec.title, bold: true, font: "Times New Roman", size: 24 })], spacing: { after: 80 } }),
       new Paragraph({ children: [new TextRun({ text: spec.caption, italics: true, font: "Times New Roman", size: 18 })], spacing: { after: 140 } }),
-      new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: trs })
+      widthTable(trs, spec.widths)
     ];
   });
 
@@ -1087,9 +1101,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           children: [new TextRun({ text: "eMERGe Reporting Checklist Mapping", bold: true, font: "Times New Roman", size: 24 })],
           spacing: { before: 240, after: 140 }
         }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
+        widthTable([
             new TableRow({ tableHeader: true, children: ['Phase', 'Item', 'What to report', 'Status in this project'].map(h => makeCell(h, { isHeader: true })) }),
             ...getEmergeChecklist().map((r, i, arr) => {
               const last = i === arr.length - 1;
@@ -1101,22 +1113,21 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
                 makeCell(st, { bold: r.level !== 'partial', isLastRow: last })
               ] });
             })
-          ]
-        }),
+          ], [18, 22, 30, 30]),
         new Paragraph({ children: [new PageBreak()] }),
 
         new Paragraph({
           children: [new TextRun({ text: `Table 1. Characteristics and Critical Appraisal of Included Studies (${state.docs.length} studies)`, bold: true, font: "Times New Roman", size: 24 })],
           spacing: { after: 140 }
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: t1Rows }),
+        widthTable(t1Rows, [11, 15, 10, 10, 13, 10, 9, 12, 10]),
 
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
           children: [new TextRun({ text: "Table 2. Meta-Ethnographic Translation and Synthesis of 1st, 2nd, and 3rd Order Constructs", bold: true, font: "Times New Roman", size: 24 })],
           spacing: { after: 140 }
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: t2Rows }),
+        widthTable(t2Rows, [16, 20, 24, 20, 10, 10]),
         ...(state.loa.relateProcess || state.loa.relateOutcome ? [
           new Paragraph({
             children: [
@@ -1169,7 +1180,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           children: [new TextRun({ text: "Table 2b. Concept-by-Study Contribution Matrix (◆ = study #1, which establishes the rows; ● = Reciprocal, ⚡ = Refutational)", bold: true, font: "Times New Roman", size: 24 })],
           spacing: { after: 140 }
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: t2bRows }),
+        widthTable(t2bRows, gridPcts(state.docs.length)),
 
         new Paragraph({ children: [new PageBreak()] }),
         ...t3Blocks,
@@ -1179,7 +1190,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           children: [new TextRun({ text: "Appendix A. Methodological Audit Trail, Team Perspectives & Reflexive Synthesis Log", bold: true, font: "Times New Roman", size: 24 })],
           spacing: { after: 140 }
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: appRows }),
+        widthTable(appRows, [11, 8, 11, 32, 18, 20]),
 
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
@@ -1188,10 +1199,10 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
         }),
         new Paragraph({ children: [new TextRun({ text: ntSpec.caption, italics: true, font: "Times New Roman", size: 20 })], spacing: { after: 140 } }),
         ...(ntSpec.rows.length
-          ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
+          ? [widthTable([
               new TableRow({ tableHeader: true, children: ntSpec.headers.map(h => makeCell(h, { isHeader: true })) }),
               ...ntSpec.rows.map((r, i) => new TableRow({ children: r.map(c => makeCell(c, { isLastRow: i === ntSpec.rows.length - 1 })) }))
-            ] })]
+            ], ntSpec.widths)]
           : [new Paragraph({ children: [new TextRun({ text: 'Every extracted second-order construct was translated into at least one third-order construct.', font: "Times New Roman", size: 20 })] })])
       ]
     }]

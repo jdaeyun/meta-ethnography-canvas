@@ -94,7 +94,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     }
 
     let replaceCleanly = true;
-    const mergeReport = { docs: 0, annotations: 0, clusters: 0, logs: 0, filled: 0, conflicts: [] };
+    const mergeReport = { docs: 0, annotations: 0, clusters: 0, logs: 0, filled: 0, tidied: 0, conflicts: [] };
     if (hasExistingWork) {
       if (currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode) {
         const confirmCleanSwitch = confirm(
@@ -210,6 +210,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       // with different content, the LOCAL version is kept and the item is listed (and logged) as a conflict.
       // Map backup doc IDs -> local doc IDs (a filename match keeps the LOCAL id, so PDF binaries and local constructs stay attached)
       const mergeDocIdMap = {};
+      const addedAnnoIds = new Set();
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);
         const existing = state.docs.find(x => x.id === d.id) ||
@@ -238,6 +239,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         }
         await dbPut('annotations', a);
         state.annotations.push(a);
+        addedAnnoIds.add(a.id);
         mergeReport.annotations++;
       }
       for (const rawC of (data.clusters || [])) {
@@ -250,6 +252,21 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         await dbPut('clusters', c);
         state.clusters.push(c);
         mergeReport.clusters++;
+      }
+      // Items added from the backup may point to rows or 2nd Order constructs that are not in this project: drop those references
+      const liveRows = new Set(state.clusters.map(c => c.id));
+      const liveSecs = new Set(state.annotations.filter(a => a.type === 'second_order').map(a => a.id));
+      for (const a of state.annotations.filter(x => addedAnnoIds.has(x.id))) {
+        let changed = false;
+        if (a.type === 'second_order') {
+          const keep = a.clusterIds.filter(id => liveRows.has(id));
+          if (keep.length !== a.clusterIds.length) { a.clusterIds = keep; changed = true; }
+          ['clusterRelations', 'clusterComments'].forEach(k => Object.keys(a[k] || {}).forEach(id => { if (!liveRows.has(id)) { delete a[k][id]; changed = true; } }));
+        } else if (a.type === 'first_order') {
+          const keep = quoteParentIds(a).filter(id => liveSecs.has(id));
+          if (keep.length !== a.parentIds.length) { a.parentIds = keep; changed = true; }
+        }
+        if (changed) { mergeReport.tidied++; await dbPut('annotations', a); }
       }
       for (const l of (data.logs || [])) {
         if (state.logs.find(x => x.id === l.id)) continue;
@@ -300,6 +317,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         category: 'project_data',
         action: 'Merged a JSON backup into the project',
         detail: `Backup file: ${src}. Added ${mergeReport.docs} studies, ${mergeReport.annotations} constructs/quotes, ${mergeReport.clusters} 3rd Order rows, ${mergeReport.logs} audit entries.`
+          + (mergeReport.tidied ? ` ${mergeReport.tidied} added item(s) pointed to rows or constructs not in this project; those links were dropped.` : '')
           + (mergeReport.conflicts.length ? `\nKept the local version of ${mergeReport.conflicts.length} item(s) that differ in the backup:\n` + mergeReport.conflicts.map(x => '• ' + x).join('\n') : '')
       });
     }

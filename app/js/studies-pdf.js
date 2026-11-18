@@ -227,7 +227,20 @@ async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
   const secsOf = docId => state.annotations.filter(a => a.type === 'second_order' && a.docId === docId).map(normalizeAnnotation);
   const prevSecs = secsOf(prevId), nowSecs = secsOf(nowDoc.id);
   const live = new Set(state.clusters.map(c => c.id));
-  const affected = state.clusters.filter(c => [...prevSecs, ...nowSecs].some(s => s.clusterIds.includes(c.id)));
+  // A row whose flag started from the study that is #1 again (moved back, or a deletion undone) is back on the basis it was
+  // built on: its flag is cleared instead of renewed.
+  const reverted = state.clusters.filter(c => c.baselineChange && c.baselineChange.fromDocId === nowDoc.id);
+  for (const c of reverted) { delete c.baselineChange; await dbPut('clusters', c); }
+  if (reverted.length) {
+    await recordAuditLog({
+      category: 'study_order',
+      action: `Study #1 is ${getDisplayName(nowDoc)} again: ${reverted.length} row(s) are back on the basis they were built on`,
+      detail: `Re-reading flag cleared for: ${reverted.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
+      clusterIds: reverted.map(c => c.id)
+    });
+  }
+  const revertedIds = new Set(reverted.map(c => c.id));
+  const affected = state.clusters.filter(c => !revertedIds.has(c.id) && [...prevSecs, ...nowSecs].some(s => s.clusterIds.includes(c.id)));
   if (affected.length === 0) return;
   // Relations the new #1 study had as a translated study: they are kept but no longer shown or exported (a baseline has none)
   let hiddenRefut = 0;
@@ -235,7 +248,9 @@ async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
   const prevCells = prevSecs.reduce((n, s) => n + s.clusterIds.filter(id => live.has(id)).length, 0);
   const at = Date.now();
   for (const c of affected) {
-    c.baselineChange = { at, fromDocId: prevId, fromName: prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) };
+    // Chained changes (A → B → C) keep the study the row was originally built on
+    const orig = c.baselineChange;
+    c.baselineChange = { at, fromDocId: orig ? orig.fromDocId : prevId, fromName: orig ? orig.fromName : prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) };
     await dbPut('clusters', c);
   }
   await recordAuditLog({
@@ -1152,20 +1167,29 @@ const pdfSearchState = {
   lastQuery: ''
 };
 
+// Bound to the PDF it started with: if the user opens another study meanwhile (the old PDF is destroyed),
+// stop quietly and never store one paper's text under another paper's id.
 async function ensurePdfTextIndex() {
-  if (!state.activePdfDoc || !state.activeDocId) return [];
-  if (pdfSearchState.docId === state.activeDocId && pdfSearchState.pageTexts.length > 0) {
+  const pdfDoc = state.activePdfDoc, docId = state.activeDocId;
+  if (!pdfDoc || !docId) return [];
+  if (pdfSearchState.docId === docId && pdfSearchState.pageTexts.length > 0) {
     return pdfSearchState.pageTexts;
   }
-  const numPages = state.activePdfDoc.numPages;
   const pageTexts = [];
-  for (let i = 1; i <= numPages; i++) {
-    const page = await state.activePdfDoc.getPage(i);
-    const tc = await page.getTextContent();
-    const joined = tc.items.map(item => item.str).join(' ').normalize('NFC').toLowerCase();
-    pageTexts.push({ pageNum: i, text: joined });
+  try {
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      if (state.activePdfDoc !== pdfDoc) return null;
+      const page = await pdfDoc.getPage(i);
+      const tc = await page.getTextContent();
+      const joined = tc.items.map(item => item.str).join(' ').normalize('NFC').toLowerCase();
+      pageTexts.push({ pageNum: i, text: joined });
+    }
+  } catch (e) {
+    if (state.activePdfDoc !== pdfDoc) return null; // destroyed by a study switch
+    throw e;
   }
-  pdfSearchState.docId = state.activeDocId;
+  if (state.activePdfDoc !== pdfDoc) return null;
+  pdfSearchState.docId = docId;
   pdfSearchState.pageTexts = pageTexts;
   return pageTexts;
 }
@@ -1198,6 +1222,7 @@ async function runPdfSearch(query, direction = 1) {
   statusEl.textContent = '...';
   statusEl.classList.remove('hidden');
   const pages = await ensurePdfTextIndex();
+  if (!pages) return; // another study was opened while indexing
   const matchedPages = [];
   pages.forEach(p => {
     if (p.text.includes(q)) matchedPages.push(p.pageNum);
@@ -1331,7 +1356,7 @@ async function autoExtractCitationFromPdf() {
     }
 
     const rawDate = (xmp && (xmp.get('prism:publicationDate') || xmp.get('dc:date') || xmp.get('xap:CreateDate'))) || info.CreationDate || '';
-    const dateMatch = String(rawDate).match(/(?<!\d)(19[89]\d|20[0-3]\d)(?!\d)/);
+    const dateMatch = String(rawDate).match(/(?:^|\D)(19[89]\d|20[0-3]\d)(?!\d)/);
     if (dateMatch) detectedYear = dateMatch[1];
   } catch (e) {
     console.warn('Metadata read warning:', e);
@@ -1376,7 +1401,7 @@ async function autoExtractCitationFromPdf() {
 
     // 2a. Find Year from Page 1 header/footer text if not yet found (or refine)
     const fullPage1Text = lines.map(l => l.text).join(' ');
-    const yearMatches = fullPage1Text.match(/(?<!\d)(19[89]\d|20[0-2]\d)(?!\d)/g);
+    const yearMatches = (fullPage1Text.match(/(?:^|\D)(19[89]\d|20[0-2]\d)(?!\d)/g) || []).map(m => m.replace(/^\D/, ''));
     if (yearMatches && yearMatches.length > 0) {
       // Prefer year near copyright/received/published keywords
       const pubContextMatch = fullPage1Text.match(/(?:published|accepted|received|©|copyright|\()\s*(?:[a-z]+\s+\d{1,2},?\s*)?(19[89]\d|20[0-2]\d)/i);
@@ -1427,7 +1452,7 @@ async function autoExtractCitationFromPdf() {
 
   // Stage 3: Filename fallback
   if (!detectedYear && doc.name) {
-    const fnYear = doc.name.match(/(?<!\d)(19[89]\d|20[0-2]\d)(?!\d)/);
+    const fnYear = doc.name.match(/(?:^|\D)(19[89]\d|20[0-2]\d)(?!\d)/);
     if (fnYear) detectedYear = fnYear[1];
   }
   if (!detectedAuthor && doc.name) {

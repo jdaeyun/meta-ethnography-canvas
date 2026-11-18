@@ -31,8 +31,14 @@ function clearUndoStack() {
   updateUndoButtonUI();
 }
 
+// One undo at a time: a fast second Ctrl+Z waits for nothing and is ignored while the first is still writing
+let undoBusy = false;
 async function performUndo() {
-  if (state.undoStack.length === 0) return;
+  if (undoBusy || state.undoStack.length === 0) return;
+  undoBusy = true;
+  try { await performUndoStep(); } finally { undoBusy = false; }
+}
+async function performUndoStep() {
   const last = state.undoStack.pop();
   updateUndoButtonUI();
 

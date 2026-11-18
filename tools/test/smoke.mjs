@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.pdf': 'application/pdf', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.bcmap': 'application/octet-stream', '.pfb': 'application/octet-stream', '.ttc': 'application/octet-stream' };
@@ -37,7 +38,9 @@ async function openDemo(url = BASE + '?demo') {
 }
 const tab = (p, t) => p.evaluate(x => setActiveTab(x), t);
 const logCount = p => p.evaluate(() => state.logs.length);
+// ONLY="part of a group name" npm test  — run just the matching groups
 const group = async (name, fn) => {
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return;
   console.log(`\n${name}`);
   try { await fn(); } catch (e) { failures++; console.log(`  FAIL ${name}: ${e.message.split('\n')[0]}`); }
 };
@@ -477,6 +480,85 @@ await group('Refutation map gathers the ⚡ cards by study', async () => {
   check('the map opens and lists pairs and studies', txt.includes('Studies in tension') && txt.includes('By study') && txt.includes('contrasts with'));
   await p.locator('.refut-row-link').first().click(); await p.waitForTimeout(500);
   check('a row link closes the map and goes to the row', await p.evaluate(() => document.getElementById('refutMapModal').classList.contains('hidden')));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+// Reads one file out of a .docx (zip) without extra tools: local file header -> raw deflate
+function readZipEntry(buf, name) {
+  for (let i = 0; i < buf.length - 30; i++) {
+    if (buf.readUInt32LE(i) !== 0x04034b50) continue;
+    const method = buf.readUInt16LE(i + 8), csize = buf.readUInt32LE(i + 18), nlen = buf.readUInt16LE(i + 26), xlen = buf.readUInt16LE(i + 28);
+    const fname = buf.toString('utf8', i + 30, i + 30 + nlen);
+    const start = i + 30 + nlen + xlen;
+    if (fname === name) { const data = buf.subarray(start, start + csize); return (method === 8 ? zlib.inflateRawSync(data) : data).toString('utf8'); }
+    i = start + csize - 1;
+  }
+  return '';
+}
+
+await group('Review fixes: peer rows by title, merge links, PDF search race, Word widths, older browsers, undo', async () => {
+  const p = await openDemo();
+  // Peer construct placed in a row that exists here under another id but the same title
+  const placed = await p.evaluate(async () => {
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, reviewerId: 'Peer' }));
+    const row = peer.clusters[0], oldId = row.id; row.id = 'peer_row_x'; row.thirdOrderTitle = '  ' + row.thirdOrderTitle.toUpperCase() + ' ';
+    const sec = peer.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId));
+    sec.id = 'peer_new_sec'; sec.text = 'A passage only the peer extracted, about something else entirely'; sec.clusterIds = ['peer_row_x'];
+    sec.clusterRelations = { peer_row_x: 'refutational' }; sec.clusterComments = { peer_row_x: 'peer reason' };
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    const item = state.peerComparison.peerOnlyAnnos.find(x => x.peerAnno.id === 'peer_new_sec');
+    await importPeerConstruct(item, 'discuss');
+    const got = state.annotations.find(a => a.text === sec.text);
+    return { ids: got.clusterIds, rel: got.clusterRelations[oldId], cmt: got.clusterComments[oldId], oldId };
+  });
+  check('a peer construct keeps its row when the row exists here under the same title', placed.ids.length === 1 && placed.ids[0] === placed.oldId && placed.rel === 'refutational' && placed.cmt === 'peer reason');
+  // MERGE: an added quote / construct pointing to things not in this project loses those links
+  const json = await p.evaluate(() => {
+    const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode }));
+    const s = d.annotations.find(a => a.type === 'second_order' && a.clusterIds.length);
+    d.annotations.push({ ...s, id: 'm_sec', clusterIds: [s.clusterIds[0], 'ghost_row'], clusterRelations: { ghost_row: 'refutational' }, clusterComments: { ghost_row: 'x' } });
+    const f = d.annotations.find(a => a.type === 'first_order');
+    d.annotations.push({ ...f, id: 'm_quote', parentIds: ['ghost_sec', s.id] });
+    return JSON.stringify(d);
+  });
+  p.removeAllListeners('dialog'); p.on('dialog', d => d.type() === 'confirm' ? d.dismiss() : d.accept());
+  await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
+  const tidy = await p.evaluate(() => { const s = state.annotations.find(a => a.id === 'm_sec'), q = state.annotations.find(a => a.id === 'm_quote'); return { c: s.clusterIds, r: Object.keys(s.clusterRelations), q: q.parentIds }; });
+  check('merged items keep only links to rows and constructs that exist', tidy.c.length === 1 && !tidy.r.includes('ghost_row') && tidy.q.length === 1 && tidy.q[0] !== 'ghost_sec', JSON.stringify(tidy));
+  p.removeAllListeners('dialog'); p.on('dialog', d => d.accept());
+  // PDF search: switching study while indexing never stores one paper's text under another
+  await tab(p, 'extract'); await p.waitForTimeout(500);
+  const race = await p.evaluate(async () => {
+    const a = state.docs[0].id, b = state.docs[1].id;
+    await switchStudy(a);
+    pdfSearchState.docId = null; pdfSearchState.pageTexts = [];
+    const pending = ensurePdfTextIndex();
+    await switchStudy(b);
+    // A page request on the destroyed PDF may never settle; that is harmless as long as nothing is stored
+    const r = await Promise.race([pending.catch(e => 'threw: ' + e.message), new Promise(res => setTimeout(() => res('pending'), 3000))]);
+    return { r: r === null || r === 'pending' ? null : (typeof r === 'string' ? r : 'array'), stored: pdfSearchState.docId };
+  });
+  check('switching study during PDF search indexing stops quietly', race.r === null || (race.r === 'array' && race.stored !== null), JSON.stringify(race));
+  check('the index is never filed under the wrong study', race.stored === null || race.stored === (await p.evaluate(() => state.docs[0].id)));
+  // Word export: every table has a real column grid
+  await tab(p, 'pub'); await p.waitForTimeout(400);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
+  const xml = readZipEntry(fs.readFileSync(await dl.path()), 'word/document.xml');
+  const cols = [...xml.matchAll(/<w:gridCol w:w="(\d+)"/g)].map(m => +m[1]);
+  check('Word tables have column widths (no 100-twip grid)', cols.length > 20 && cols.every(w => w > 300), `min=${Math.min(...cols)} n=${cols.length}`);
+  check('Word tables use a fixed layout', (xml.match(/<w:tblLayout w:type="fixed"\/>/g) || []).length >= 6);
+  // Older browsers: no regex lookbehind anywhere in the app scripts
+  const lookbehind = fs.readdirSync(path.join(ROOT, 'app/js')).filter(f => /\(\?<[=!]/.test(fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')));
+  check('no regex lookbehind (older Safari cannot parse it)', lookbehind.length === 0, lookbehind.join(', '));
+  // Undo: a second Ctrl+Z while the first is running is ignored; undoing a #1 deletion clears the re-reading flags
+  await tab(p, 'extract'); await p.waitForTimeout(400);
+  await p.locator('#studyList .del').first().click(); await p.waitForTimeout(1000);
+  const flaggedAfterDelete = await p.evaluate(() => state.clusters.filter(c => c.baselineChange).length);
+  const n = await p.evaluate(async () => { pushUndoAction({ type: 'delete_log', label: 'x', log: { id: 'log_dummy', action: 'x', timestamp: 1 } }); state.undoStack.reverse(); const a = performUndo(); const b = performUndo(); await Promise.all([a, b]); return state.undoStack.length; });
+  check('a fast second undo is ignored while the first runs', n === 1);
+  const flaggedAfterUndo = await p.evaluate(() => state.clusters.filter(c => c.baselineChange).length);
+  check('undoing the deletion of #1 clears the re-reading flags it caused', flaggedAfterDelete > 0 && flaggedAfterUndo === 0, `${flaggedAfterDelete} -> ${flaggedAfterUndo}`);
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });

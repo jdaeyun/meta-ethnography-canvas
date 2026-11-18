@@ -1,4 +1,4 @@
-/* Meta-Ethnography Canvas — styles (Tailwind is loaded from CDN; these are the app-specific rules) */
+/* Meta-Ethnography Canvas — styles (Tailwind comes from the bundled app/vendor/tailwind/tailwind.css; these are the app-specific rules) */
 
 .page-container { position: relative; margin: 0 auto 24px auto; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); background-color: white; }
 .textLayer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; opacity: 1; line-height: 1.0; }

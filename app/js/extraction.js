@@ -201,7 +201,7 @@ function updateSidebar() {
       sec.note = newNote;
       await dbPut('annotations', sec);
       await recordAuditLog({
-        clusterIds: sec.clusterIds,
+        clusterIds: liveClusterIds(sec), // rows that still exist; none for an unplaced construct
         category: 'matrix_mapping',
         action: `Updated 2nd Order Summary Label (${getDisplayName(state.docs.find(d => d.id === sec.docId))})`,
         fromVal: oldNote || '(None)',
