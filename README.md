@@ -19,7 +19,7 @@ It puts two jobs in one place: coding full-text PDFs, and comparing studies in a
 Nothing to install and no account needed. Open it in a desktop browser:
 
 * **👉 [Launch Meta-Ethnography Canvas (`me_canvas.html`)](https://jdaeyun.github.io/meta-ethnography-canvas/me_canvas.html)**
-* **🧪 [Try the demo (AI-generated sample project)](https://jdaeyun.github.io/meta-ethnography-canvas/me_canvas.html?demo)** — four fictional papers and a finished two-reviewer analysis. It uses its own storage and does not touch your projects.
+* **🧪 [Try the demo (AI-generated sample project)](https://jdaeyun.github.io/meta-ethnography-canvas/me_canvas.html?demo)** — four fictional papers and a two-reviewer analysis, with a few judgements deliberately left open to show how the app records them. It uses its own storage and does not touch your projects.
 * **📘 [1. Overview & Motivation](https://jdaeyun.github.io/meta-ethnography-canvas/index.html)**
 * **🛠️ [2. Step-by-Step User Manual](https://jdaeyun.github.io/meta-ethnography-canvas/manual.html)**
 * **🎓 [3. Meta-Ethnography 101 & eMERGe Mapping](https://jdaeyun.github.io/meta-ethnography-canvas/meta-ethnography-101.html)**

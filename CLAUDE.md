@@ -46,7 +46,9 @@ install the browser once with `npx playwright install chromium`. Run it after ch
 never call `localStorage` directly). All demo content is AI-generated and fictional and must stay labelled as such.
 To rebuild: `node tools/demo/make-pdfs.mjs app/demo` + `python3 tools/demo/set-pdf-metadata.py app/demo`, then drive the app with
 `tools/demo/build-reviewer-b.mjs` and `build-reviewer-a.mjs` (Playwright; they make the merged backup), then
-`node tools/demo/build-demo-data.mjs <backup.json>`.
+`node tools/demo/enrich-demo.mjs <backup.json> <enriched.json>` (adds worked examples of the newer features: unjudged placements,
+empty-cell statuses, within-study relationships, CASP judgements, a not-translated reason, the start choice), then
+`node tools/demo/build-demo-data.mjs <enriched.json>`. To change only those examples, run both steps on `app/demo/AI-GENERATED_demo-project.json`.
 
 ## Offline edition (file://)
 

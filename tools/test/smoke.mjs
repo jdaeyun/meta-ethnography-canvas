@@ -409,8 +409,9 @@ await group('Constructs not translated: reason in the pool, Appendix B, Methods;
   const p = await openDemo();
   await p.evaluate(async () => { const s = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId)); s.clusterIds = []; await dbPut('annotations', s); });
   await tab(p, 'matrix'); await p.waitForTimeout(600);
-  await p.locator('.pool-nt summary').first().click();
-  await p.locator('.pool-nt-input').first().fill('Outside the review question');
+  await p.evaluate(() => document.querySelectorAll('.pool-nt').forEach(d => { d.open = true; }));
+  const ntIdx = await p.evaluate(() => [...document.querySelectorAll('.pool-nt-input')].findIndex(x => !x.value));
+  await p.locator('.pool-nt-input').nth(ntIdx).fill('Outside the review question');
   await tab(p, 'pub'); await p.waitForTimeout(400);
   check('the reason is saved and logged', await p.evaluate(() => state.annotations.some(a => a.notTranslatedNote === 'Outside the review question') && state.logs[0].action.includes('not translated')));
   await p.locator('[data-pub=appendix]').click(); await p.waitForTimeout(300);
@@ -648,14 +649,15 @@ await group('Translation: placements start unjudged; empty cells can say why; ro
   await p.waitForTimeout(400);
   check('the relationships box sits right under the study overview', await p.evaluate(() => { const l = document.getElementById('annotationsList'); return l.children[1] && l.children[1].classList.contains('study-links'); }));
   await p.evaluate(() => { document.querySelector('.study-links').open = true; });
-  await p.locator('.study-links .cl-type').selectOption('contradicts');
+  const linksBefore = await p.evaluate(id => (state.docs.find(d => d.id === id).conceptLinks || []).length, docId);
+  await p.locator('.study-links .cl-type').selectOption('mutual');
   await p.locator('.study-links .cl-note').fill('p.6: the authors set these against each other');
   await p.locator('.study-links .cl-add').click(); await p.waitForTimeout(400);
-  check('a relationship is saved and logged', await p.evaluate(id => state.docs.find(d => d.id === id).conceptLinks.length === 1 && state.logs[0].action.startsWith('Recorded how two concepts relate'), docId));
+  check('a relationship is saved and logged', await p.evaluate(x => state.docs.find(d => d.id === x.docId).conceptLinks.length === x.linksBefore + 1 && state.logs[0].action.startsWith('Recorded how two concepts relate'), { docId, linksBefore }));
   await tab(p, 'pub'); await p.locator('[data-pub=appendix]').click(); await p.waitForTimeout(300);
   check('Appendix C lists it', (await p.locator('#pubPreviewContainer').innerText()).includes('Appendix C. Relationships between Concepts within Each Study'));
   await tab(p, 'matrix'); await p.waitForTimeout(500);
-  check('Tab 2 context row shows it', (await p.locator('.matrix-context-row').innerText()).includes('How its concepts relate (1)'));
+  check('Tab 2 context row shows it', (await p.locator('.matrix-context-row').innerText()).includes(`How its concepts relate (${linksBefore + 1})`));
   // A new project asks how to start the rows
   await p.evaluate(() => { state.clusters = []; delete state.loa.seedChoice; renderMatrixView(); });
   await p.waitForTimeout(300);
@@ -663,6 +665,28 @@ await group('Translation: placements start unjudged; empty cells can say why; ro
   await p.click('#seedChoiceManualBtn'); await p.waitForTimeout(500);
   check('choosing an empty matrix is recorded, logged and places nothing', await p.evaluate(() => state.loa.seedChoice === 'manual' && state.clusters.length === 0 && state.logs[0].toVal === 'Empty matrix' && !document.getElementById('autoSeedIndexToggle').checked));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Demo shows a worked example of each newer feature', async () => {
+  const p = await openDemo();
+  const r = await p.evaluate(() => ({
+    unjudged: state.annotations.some(a => a.type === 'second_order' && liveClusterIds(a).some(id => secRelation(a, id) === 'unjudged')),
+    other: state.clusters.some(c => Object.values(c.cellStatus || {}).some(v => v.status === 'other_aspect')),
+    absent: state.clusters.some(c => Object.values(c.cellStatus || {}).some(v => v.status === 'absent')),
+    links: state.docs.filter(d => (d.conceptLinks || []).length).length,
+    casp: state.docs.every(d => appraisalDomainsComplete(d)),
+    nt: state.annotations.some(a => a.notTranslatedNote),
+    seed: state.loa.seedChoice
+  }));
+  check('a placement not yet judged (○)', r.unjudged);
+  check('empty cells: different aspect (◇) and not addressed (—)', r.other && r.absent);
+  check('within-study relationships in several studies', r.links >= 3);
+  check('CASP judgements for every study', r.casp);
+  check('a reason for a construct left out of every row', r.nt);
+  check('the start choice is recorded', r.seed === 'manual');
+  const notice = fs.readFileSync(path.join(ROOT, 'app/demo/demo-data.js'), 'utf8').slice(0, 200);
+  check('demo data stays labelled AI-generated', notice.includes('AI-GENERATED FICTIONAL DEMO DATA'));
   await p.context().close();
 });
 
