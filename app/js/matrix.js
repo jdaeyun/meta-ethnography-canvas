@@ -98,10 +98,20 @@ async function assignSecondOrderToCluster(sec, cluster) {
   if (sec.clusterIds.includes(cluster.id)) return;
   sec.clusterIds.push(cluster.id);
   if (!sec.clusterRelations) sec.clusterRelations = {};
-  if (!sec.clusterRelations[cluster.id]) {
-    sec.clusterRelations[cluster.id] = 'reciprocal';
-  }
+  // No relation is assumed: the placement starts as "not yet judged" (see secRelation)
   await dbPut('annotations', sec);
+  // The study now has a construct in this row, so an earlier "not addressed / different aspect" note no longer applies
+  normalizeCluster(cluster);
+  const prevStatus = emptyCellInfo(cluster, sec.docId);
+  if (prevStatus) {
+    delete cluster.cellStatus[sec.docId];
+    await dbPut('clusters', cluster);
+    await recordAuditLog({
+      clusterIds: [cluster.id], category: 'relating_studies',
+      action: `Cleared "${prevStatus.label}" for ${getDisplayName(state.docs.find(d => d.id === sec.docId))} in "${cluster.thirdOrderTitle || 'Untitled Row'}": a construct was placed there`,
+      detail: prevStatus.note || '', fromVal: prevStatus.label, toVal: 'Construct placed'
+    });
+  }
 
   const doc = state.docs.find(d => d.id === sec.docId);
   await recordAuditLog({
@@ -121,7 +131,7 @@ async function removeSecondOrderFromCluster(sec, cluster) {
     label: `Unassign "${(sec.note || sec.text).slice(0, 28)}" from "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
     secId: sec.id,
     clusterId: cluster.id,
-    prevRelation: sec.clusterRelations ? sec.clusterRelations[cluster.id] : 'reciprocal',
+    prevRelation: sec.clusterRelations ? sec.clusterRelations[cluster.id] : undefined,
     prevComment: sec.clusterComments ? sec.clusterComments[cluster.id] : ''
   });
   sec.clusterIds = sec.clusterIds.filter(id => id !== cluster.id);
@@ -178,10 +188,12 @@ function computeClusterEvidenceStats(clusterId) {
 
 function renderMatrixView() {
   flushAllPendingSaves();
+  syncSeedToggle();
   renderStudyVisibilityBar();
   renderSecondOrderPool();
   renderMatrixTable();
-  if (state.autoSeedIndex && !divMatrix.classList.contains('hidden')) {
+  if (!divMatrix.classList.contains('hidden') && seedChoice() === null) maybeAskSeedChoice();
+  if (seedChoice() === 'seed' && !divMatrix.classList.contains('hidden')) {
     seedIndexPaperRows().then(changed => {
       if (changed) {
         renderLoaClusterChips();
@@ -195,7 +207,7 @@ function renderMatrixView() {
 // ---- Index Paper auto-placement: each 2nd Order construct of the Index Paper (#1) becomes an initial 3rd Order row, once ----
 let indexSeedBusy = false;
 async function seedIndexPaperRows() {
-  if (!state.autoSeedIndex || indexSeedBusy || state.docs.length === 0) return false;
+  if (seedChoice() !== 'seed' || indexSeedBusy || state.docs.length === 0) return false;
   indexSeedBusy = true;
   try {
     const indexDoc = state.docs[0];
@@ -239,12 +251,64 @@ async function seedIndexPaperRows() {
   }
 }
 
+// ---- How the rows start is a project-level choice about method, asked once and recorded (loa.seedChoice) ----
+// 'seed' = study #1's constructs become provisional rows; 'manual' = the reviewer creates every row. null = not decided yet.
+function seedChoice() {
+  const v = state.loa && state.loa.seedChoice;
+  if (v === 'seed' || v === 'manual') return v;
+  // Projects that already have rows were started one way or the other: read it from the rows, without asking
+  if (state.clusters.length) return state.clusters.some(c => c.autoSeeded) ? 'seed' : 'manual';
+  return null;
+}
+async function setSeedChoice(choice, why = '', reason = '') {
+  const prev = seedChoice();
+  state.loa = { ...state.loa, id: 'loa_main', seedChoice: choice, updatedAt: Date.now() };
+  await dbPut('meta', state.loa);
+  autoSeedToggleEl.checked = choice === 'seed';
+  if (prev !== choice || reason) {
+    await recordAuditLog({
+      category: 'translation_process',
+      action: choice === 'seed' ? 'Rows start from study #1: its 2nd Order constructs become provisional 3rd Order rows' : 'Rows are created by the reviewer: study #1 is not placed automatically',
+      detail: reason || '',
+      fromVal: prev === 'seed' ? 'Start from study #1' : prev === 'manual' ? 'Empty matrix' : '(not decided)',
+      toVal: choice === 'seed' ? 'Start from study #1' : 'Empty matrix',
+      rationale: why
+    });
+  }
+}
+let seedAskOpen = false;
+function maybeAskSeedChoice() {
+  if (seedAskOpen || !state.docs.length) return;
+  const first = state.docs[0];
+  if (!state.annotations.some(a => a.type === 'second_order' && a.docId === first.id)) return; // nothing to place yet
+  seedAskOpen = true;
+  document.getElementById('seedChoiceFirst').textContent = getDisplayName(first);
+  document.getElementById('seedChoiceWhy').value = '';
+  const m = document.getElementById('seedChoiceModal');
+  m.classList.remove('hidden'); m.classList.add('flex');
+}
+function closeSeedChoice() {
+  const m = document.getElementById('seedChoiceModal');
+  m.classList.add('hidden'); m.classList.remove('flex');
+  seedAskOpen = false;
+}
+async function chooseSeed(choice) {
+  const why = document.getElementById('seedChoiceWhy').value.trim();
+  closeSeedChoice();
+  await setSeedChoice(choice, why);
+  renderMatrixView();
+}
+document.getElementById('seedChoiceSeedBtn').addEventListener('click', () => chooseSeed('seed'));
+document.getElementById('seedChoiceManualBtn').addEventListener('click', () => chooseSeed('manual'));
+document.getElementById('seedChoiceCloseBtn').addEventListener('click', closeSeedChoice); // decide later: asked again next time
+
 const autoSeedToggleEl = document.getElementById('autoSeedIndexToggle');
-autoSeedToggleEl.checked = state.autoSeedIndex;
-autoSeedToggleEl.addEventListener('change', () => {
-  state.autoSeedIndex = autoSeedToggleEl.checked;
-  lsSet('me_auto_seed_index', String(state.autoSeedIndex));
-  if (state.autoSeedIndex) renderMatrixView();
+autoSeedToggleEl.checked = false; // set from the project once it is loaded (syncSeedToggle)
+function syncSeedToggle() { autoSeedToggleEl.checked = seedChoice() === 'seed'; }
+autoSeedToggleEl.addEventListener('change', async () => {
+  const why = (prompt(`${autoSeedToggleEl.checked ? 'Start rows from study #1' : 'Stop placing study #1 automatically'}: why? (optional — recorded in the audit trail)`) || '').trim();
+  await setSeedChoice(autoSeedToggleEl.checked ? 'seed' : 'manual', why);
+  if (autoSeedToggleEl.checked) renderMatrixView();
 });
 
 // ---- Paper visibility (focus mode for Tab 2) ----
@@ -569,6 +633,53 @@ function nextVisibleIdx(idx) {
 let matrixRowObserver = null;
 const matrixRowHeights = {};
 
+// ---- Empty cell: nothing placed. Record whether the study was checked and does not address the row,
+// or addresses a different aspect of the topic (Phase 4: the third way studies relate) ----
+function buildEmptyCell(cluster, doc) {
+  normalizeCluster(cluster);
+  const info = emptyCellInfo(cluster, doc.id);
+  const wrap = document.createElement('div');
+  wrap.className = `empty-cell h-full min-h-[120px] rounded border border-dashed ${info ? (info.status === 'other_aspect' ? 'border-sky-300 bg-sky-50/40' : 'border-slate-300 bg-slate-50') : 'border-slate-200'} flex flex-col items-center justify-center gap-1.5 p-1.5 text-[13px] text-slate-400`;
+  wrap.innerHTML = `
+    ${info ? `<div class="text-lg leading-none ${info.status === 'other_aspect' ? 'text-sky-700' : 'text-slate-500'}" aria-hidden="true">${info.symbol}</div>` : '<div class="select-none text-slate-300">Drop 2nd Order here</div>'}
+    <select class="empty-status matrix-card-detail max-w-full text-[11px] border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-600" title="Nothing of this study is in this row. Was it checked?">
+      <option value="">Not yet checked</option>
+      ${Object.entries(EMPTY_CELL_STATUS).map(([k, v]) => `<option value="${k}" ${info && info.status === k ? 'selected' : ''}>${v.symbol} ${escapeHtml(v.label)}</option>`).join('')}
+    </select>
+    ${info ? `<input type="text" class="empty-note matrix-card-detail w-full text-[11px] border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-700" placeholder="${info.status === 'other_aspect' ? 'Which aspect? (feeds the line of argument)' : 'Why (optional)'}" value="${escapeHtml(info.note || '')}">` : ''}`;
+  const sel = wrap.querySelector('.empty-status');
+  sel.addEventListener('mousedown', e => e.stopPropagation());
+  sel.onchange = async () => {
+    const prev = emptyCellInfo(cluster, doc.id);
+    if (sel.value) cluster.cellStatus[doc.id] = { status: sel.value, note: prev ? prev.note || '' : '' };
+    else delete cluster.cellStatus[doc.id];
+    await dbPut('clusters', cluster);
+    await recordAuditLog({
+      clusterIds: [cluster.id], category: 'relating_studies',
+      action: `${getDisplayName(doc)} in "${cluster.thirdOrderTitle || 'Untitled Row'}": ${sel.value ? EMPTY_CELL_STATUS[sel.value].label : 'not yet checked'}`,
+      fromVal: prev ? prev.label : 'Not yet checked', toVal: sel.value ? EMPTY_CELL_STATUS[sel.value].label : 'Not yet checked'
+    });
+    wrap.replaceWith(buildEmptyCell(cluster, doc));
+  };
+  const note = wrap.querySelector('.empty-note');
+  if (note) {
+    let committed = (info && info.note) || '';
+    bindPendingCommit(note, async () => {
+      const next = note.value.trim();
+      if (next === committed || !cluster.cellStatus[doc.id]) return;
+      const prev = committed; committed = next;
+      cluster.cellStatus[doc.id].note = next;
+      await dbPut('clusters', cluster);
+      await recordAuditLog({
+        clusterIds: [cluster.id], category: 'relating_studies',
+        action: `Note on ${getDisplayName(doc)} in "${cluster.thirdOrderTitle || 'Untitled Row'}" (${EMPTY_CELL_STATUS[cluster.cellStatus[doc.id].status].label})`,
+        fromVal: prev, toVal: next
+      });
+    });
+  }
+  return wrap;
+}
+
 function renderMatrixTable() {
   if (matrixRowObserver) { matrixRowObserver.disconnect(); matrixRowObserver = null; }
   const t = document.getElementById('matrixTable');
@@ -661,6 +772,7 @@ function renderMatrixTable() {
           ${d.studyOverview
             ? `<details class="text-xs bg-violet-50/70 border border-violet-200 rounded p-1 mt-1"><summary class="font-semibold text-violet-900 cursor-pointer select-none">📖 Storyline & key metaphors</summary><div class="mt-1 text-slate-700 whitespace-pre-wrap leading-snug">${escapeHtml(d.studyOverview)}</div></details>`
             : '<div class="text-[11px] text-slate-400 italic mt-1">No study overview yet (Tab 1 → Edit Study Info)</div>'}
+          ${(() => { const ls = studyConceptLinks(d); return ls.length ? `<details class="text-xs bg-white border border-violet-200 rounded p-1 mt-1"><summary class="font-semibold text-violet-900 cursor-pointer select-none">🔗 How its concepts relate (${ls.length})</summary><ul class="mt-1 space-y-0.5 text-slate-700">${ls.map(l => `<li>${escapeHtml(conceptLinkText(l))}${l.note ? ` <span class="text-slate-500">— ${escapeHtml(l.note)}</span>` : ''}</li>`).join('')}</ul></details>` : ''; })()}
         </div>
       `;
       ctxTr.appendChild(td);
@@ -785,7 +897,7 @@ function renderMatrixTable() {
         
         ${cluster.baselineChange ? `<div class="cl-baseline-warn rounded border border-amber-400 bg-amber-50 p-1.5 text-[11px] text-amber-900 leading-snug">
           <div class="font-bold">⚠ Study #1 changed after this row was built</div>
-          <div>${escapeHtml(cluster.baselineChange.fromName || 'The former #1')} → <b>${escapeHtml(cluster.baselineChange.toName)}</b>, which now establishes this row (its own Reciprocal / Refutational judgements are not shown). ${escapeHtml(cluster.baselineChange.fromName || 'The former #1')} is now translated into the row: check whether its cards here are Reciprocal or Refutational, and whether the title still holds.</div>
+          <div>${escapeHtml(cluster.baselineChange.fromName || 'The former #1')} → <b>${escapeHtml(cluster.baselineChange.toName)}</b>, which now establishes this row (its own Reciprocal / Refutational judgements are not shown). ${escapeHtml(cluster.baselineChange.fromName || 'The former #1')} is now translated into the row: judge whether its cards here are Reciprocal or Refutational, and whether the title still holds.</div>
           <button type="button" class="cl-baseline-ok mt-1 px-1.5 py-0.5 rounded border border-amber-400 bg-white font-semibold cursor-pointer hover:bg-amber-100">Re-read · mark as reviewed</button>
         </div>` : ''}
 
@@ -1173,7 +1285,7 @@ function renderMatrixTable() {
       const cellConstructs = cellIndex.get(cluster.id + '|' + doc.id) || [];
 
       if (cellConstructs.length === 0) {
-        td.innerHTML = `<div class="h-full min-h-[120px] rounded border border-dashed border-slate-200 flex items-center justify-center text-[13px] text-slate-300 select-none">Drop 2nd Order here</div>`;
+        td.appendChild(buildEmptyCell(cluster, doc));
       } else {
         const cellWrap = document.createElement('div');
         cellWrap.className = 'space-y-2.5';
@@ -1183,12 +1295,14 @@ function renderMatrixTable() {
           const otherClustersCount = sec.clusterIds.length - 1;
           const cellComment = (sec.clusterComments && sec.clusterComments[cluster.id]) || '';
           const isBaselineCell = isBaselineDocId(sec.docId);
-          const cellRelation = isBaselineCell ? 'baseline' : ((sec.clusterRelations && sec.clusterRelations[cluster.id]) || 'reciprocal');
+          const cellRelation = secRelation(sec, cluster.id);
           const relMeta = getCellRelationMeta(cellRelation);
           const secBadge = getConcordanceBadgeMeta(sec.concordanceStatus);
           const showConcUI = state.teamMode || sec.concordanceStatus !== 'pending' || Boolean(sec.concordanceNote);
 
-          const cellPlaceholder = cellRelation === 'refutational' ? 'Explain how this study contrasts or disagrees in this row...' : 'Note on how this concept fits into this theme...';
+          const placeholderFor = rel => rel === 'refutational' ? 'Explain how this study contrasts or disagrees in this row...'
+            : rel === 'unjudged' ? 'Read it against the row: does it translate into it (reciprocal) or contrast with it (refutational)?' : 'Note on how this concept fits into this theme...';
+          const cellPlaceholder = placeholderFor(cellRelation);
 
           const card = document.createElement('div');
           card.className = `matrix-cell-card ${relMeta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
@@ -1221,9 +1335,9 @@ function renderMatrixTable() {
               <div class="flex items-center flex-wrap gap-1">
                 ${isBaselineCell
                   ? `<span class="text-[11px] font-bold px-1.5 py-0.5 rounded border ${relMeta.badgeCls}" title="Study #1 establishes this row; reciprocal / refutational relations are assigned to the studies translated into it.">${relMeta.label}</span>`
-                  : `<button type="button" class="rel-toggle-btn text-[11px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition ${relMeta.badgeCls}" title="Click to toggle between Reciprocal (Convergent) and Refutational (Deviant / Contradictory) role in this row">
-                  ${relMeta.label}
-                </button>`}
+                  : `<select class="rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${relMeta.badgeCls}" title="How this study's construct relates to the row: not yet judged, Reciprocal (translates into it) or Refutational (contrasts with it)">
+                  ${CELL_RELATIONS.map(r => `<option value="${r}" ${r === cellRelation ? 'selected' : ''}>${escapeHtml(getCellRelationMeta(r).label)}</option>`).join('')}
+                </select>`}
                 <button type="button" class="jump-pdf-btn text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 px-2.5 py-0.5 rounded-md shadow-sm cursor-pointer transition flex items-center space-x-1 transform hover:-translate-y-0.5" title="Open PDF & jump to page ${sec.page} in ${escapeHtml(getDisplayName(doc))}"><i class="ph ph-file-pdf"></i><span>PDF p.${sec.page}</span><i class="ph ph-arrow-square-out"></i></button>
                 <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
                 <span class="text-[11px] px-1 py-0.2 rounded border ${secBadge.cls} ${showConcUI ? '' : 'hidden'}">${secBadge.label}</span>
@@ -1287,39 +1401,37 @@ function renderMatrixTable() {
             toggleCellQuoteEdit(false);
           };
 
-          const relToggleBtn = card.querySelector('.rel-toggle-btn');
-          if (relToggleBtn) relToggleBtn.onclick = async (e) => {
-            e.stopPropagation();
-            if (!sec.clusterRelations) sec.clusterRelations = {};
-            const prevRel = sec.clusterRelations[cluster.id] || 'reciprocal';
-            const nextRel = prevRel === 'reciprocal' ? 'refutational' : 'reciprocal';
-            sec.clusterRelations[cluster.id] = nextRel;
-            await dbPut('annotations', sec);
+          const relSelect = card.querySelector('.rel-select');
+          if (relSelect) {
+            relSelect.addEventListener('mousedown', e => e.stopPropagation());
+            relSelect.onchange = async (e) => {
+              e.stopPropagation();
+              if (!sec.clusterRelations) sec.clusterRelations = {};
+              const prevRel = secRelation(sec, cluster.id);
+              const nextRel = relSelect.value;
+              if (nextRel === prevRel) return;
+              sec.clusterRelations[cluster.id] = nextRel;
+              await dbPut('annotations', sec);
 
-            const nextMeta = getCellRelationMeta(nextRel);
-            card.className = `matrix-cell-card ${nextMeta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
-            const btnEl = card.querySelector('.rel-toggle-btn');
-            btnEl.className = `rel-toggle-btn text-[11px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition ${nextMeta.badgeCls}`;
-            btnEl.textContent = nextMeta.label;
-            const cmtInput = card.querySelector('.sec-comment-input');
-            const nextPlaceholder = nextRel === 'refutational'
-              ? 'Explain how this study contrasts or disagrees in this row...'
-              : 'Note on how this concept fits into this theme...';
-            if (cmtInput) {
-              cmtInput.placeholder = nextPlaceholder;
-              const cmtView = card.querySelector('.sec-comment-view');
-              if (cmtView && !cmtInput.value.trim()) cmtView.textContent = nextPlaceholder;
-            }
-
-            await recordAuditLog({
-              clusterIds: [cluster.id],
-              category: 'third_order',
-              action: `Marked Construct as ${nextRel.toUpperCase()} in "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-              detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note || '"' + sec.text.slice(0, 65) + '..."'}`,
-              fromVal: prevRel,
-              toVal: nextRel
-            });
-          };
+              const nextMeta = getCellRelationMeta(nextRel);
+              card.className = `matrix-cell-card ${nextMeta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
+              relSelect.className = `rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${nextMeta.badgeCls}`;
+              const cmtInput = card.querySelector('.sec-comment-input');
+              if (cmtInput) {
+                cmtInput.placeholder = placeholderFor(nextRel);
+                const cmtView = card.querySelector('.sec-comment-view');
+                if (cmtView && !cmtInput.value.trim()) cmtView.textContent = placeholderFor(nextRel);
+              }
+              await recordAuditLog({
+                clusterIds: [cluster.id],
+                category: 'third_order',
+                action: `Judged construct as ${getCellRelationMeta(nextRel).label.replace(/^\S+\s/, '')} in "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+                detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note || '"' + sec.text.slice(0, 65) + '..."'}`,
+                fromVal: getCellRelationMeta(prevRel).label,
+                toVal: getCellRelationMeta(nextRel).label
+              });
+            };
+          }
 
           card.querySelector('.rev-badge-btn').onclick = (e) => {
             e.stopPropagation();
@@ -1580,7 +1692,7 @@ function buildRefutationMap() {
     const docIds = [...new Set(inRow.map(s => s.docId))];
     const refuting = docIds.filter(id => inRow.some(s => s.docId === id && isSecRefutational(s, c.id)));
     if (!refuting.length) return;
-    const holders = docIds.filter(id => !refuting.includes(id)); // #1 and the reciprocal studies
+    const holders = docIds.filter(id => !refuting.includes(id) && inRow.some(s => s.docId === id && ['baseline', 'reciprocal'].includes(secRelation(s, c.id)))); // #1 and the reciprocal studies
     refuting.forEach(rid => {
       if (!byStudy.has(rid)) byStudy.set(rid, []);
       byStudy.get(rid).push({

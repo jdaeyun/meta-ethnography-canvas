@@ -257,7 +257,7 @@ async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
     category: 'study_order',
     action: `Study #1 changed: the translation in ${affected.length} 3rd Order row(s) needs re-reading`,
     detail: `#1 was ${prevName || 'another study'}; it is now ${getDisplayName(nowDoc)}, which now establishes these rows.`
-      + (prevCells ? ` ${prevName || 'The former #1'} is now translated into ${prevCells} cell(s); its cards there show as Reciprocal until you judge them.` : '')
+      + (prevCells ? ` ${prevName || 'The former #1'} is now translated into ${prevCells} cell(s); its cards there have no reciprocal / refutational judgement as a translated study unless one was recorded before: judge them.` : '')
       + (hiddenRefut ? ` ${hiddenRefut} Refutational judgement(s) of ${getDisplayName(nowDoc)} are no longer shown, because study #1 has no relation of its own.` : '')
       + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
     fromVal: `#1: ${prevName}`,

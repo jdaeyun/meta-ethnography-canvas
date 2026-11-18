@@ -612,6 +612,60 @@ await group('Appraisal: CASP 2024 judgement on each question, never a score; no 
   check('no JBI checklist wording in the app', !appText.includes('congruity between the stated philosophical perspective'));
 });
 
+await group('Translation: placements start unjudged; empty cells can say why; rows start by an explicit choice; within-study links', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  check('a project that already has rows is not asked (choice read from its rows)', await p.evaluate(() => seedChoice() === (state.clusters.some(c => c.autoSeeded) ? 'seed' : 'manual') && document.getElementById('seedChoiceModal').classList.contains('hidden')));
+  // A new placement is not yet judged
+  const placed = await p.evaluate(async () => {
+    const c = state.clusters[0];
+    const sec = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && !a.clusterIds.includes(c.id));
+    await assignSecondOrderToCluster(sec, c); renderMatrixView();
+    return { rel: secRelation(sec, c.id), sym: contribSymbol([sec], c.id), id: sec.id, cid: c.id, label: clusterTranslationLabel(c) };
+  });
+  check('a new placement starts as "not yet judged" (○)', placed.rel === 'unjudged' && placed.sym === '○' && placed.label.includes('not yet judged'));
+  await p.waitForTimeout(500);
+  const idx = await p.evaluate(cid => [...document.querySelectorAll(`tr[data-cluster-id="${cid}"] .rel-select`)].findIndex(x => x.value === 'unjudged'), placed.cid);
+  const sel = p.locator(`tr[data-cluster-id="${placed.cid}"] .rel-select`).nth(idx);
+  await sel.selectOption('reciprocal'); await p.waitForTimeout(300);
+  check('judging it is saved and logged', await p.evaluate(x => secRelation(state.annotations.find(a => a.id === x.id), x.cid) === 'reciprocal' && state.logs[0].toVal.includes('Reciprocal') && state.logs[0].fromVal.includes('Not yet judged'), placed));
+  // Empty cell: different aspect
+  const empty = p.locator('.empty-cell .empty-status').first();
+  await empty.selectOption('other_aspect'); await p.waitForTimeout(300);
+  await p.locator('.empty-cell .empty-note').first().fill('Discusses night handover, not staffing');
+  await tab(p, 'pub'); await p.waitForTimeout(300);
+  check('empty-cell status and note are saved and logged', await p.evaluate(() => state.clusters.some(c => Object.values(c.cellStatus).some(v => v.status === 'other_aspect' && v.note === 'Discusses night handover, not staffing')) && state.logs.some(l => l.category === 'relating_studies')));
+  await p.locator('[data-pub=table2_grid]').click(); await p.waitForTimeout(300);
+  const g = await p.locator('#pubPreviewContainer').innerText();
+  check('Table 2b shows ◇ and the full legend', g.includes('◇') && g.includes('○ = placed, relation not yet judged') && g.includes('blank = not yet checked'));
+  await p.locator('[data-pub=table2]').click(); await p.waitForTimeout(300);
+  check('Table 2 names the study that addresses a different aspect', (await p.locator('#pubPreviewContainer').innerText()).includes('Addresses a different aspect of the topic:'));
+  await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  check('Methods mentions the different-aspect cells', (await p.locator('#pubPreviewContainer').innerText()).includes('addressed a different aspect'));
+  // Within-study links (Tab 1, top of the sidebar)
+  await tab(p, 'extract'); await p.waitForTimeout(400);
+  const docId = await p.evaluate(async () => { const d = state.docs.find(x => state.annotations.filter(a => a.type === 'second_order' && a.docId === x.id).length >= 2); await switchStudy(d.id); return d.id; });
+  await p.waitForTimeout(400);
+  check('the relationships box sits right under the study overview', await p.evaluate(() => { const l = document.getElementById('annotationsList'); return l.children[1] && l.children[1].classList.contains('study-links'); }));
+  await p.evaluate(() => { document.querySelector('.study-links').open = true; });
+  await p.locator('.study-links .cl-type').selectOption('contradicts');
+  await p.locator('.study-links .cl-note').fill('p.6: the authors set these against each other');
+  await p.locator('.study-links .cl-add').click(); await p.waitForTimeout(400);
+  check('a relationship is saved and logged', await p.evaluate(id => state.docs.find(d => d.id === id).conceptLinks.length === 1 && state.logs[0].action.startsWith('Recorded how two concepts relate'), docId));
+  await tab(p, 'pub'); await p.locator('[data-pub=appendix]').click(); await p.waitForTimeout(300);
+  check('Appendix C lists it', (await p.locator('#pubPreviewContainer').innerText()).includes('Appendix C. Relationships between Concepts within Each Study'));
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  check('Tab 2 context row shows it', (await p.locator('.matrix-context-row').innerText()).includes('How its concepts relate (1)'));
+  // A new project asks how to start the rows
+  await p.evaluate(() => { state.clusters = []; delete state.loa.seedChoice; renderMatrixView(); });
+  await p.waitForTimeout(300);
+  check('a project without rows asks how to start', await p.evaluate(() => !document.getElementById('seedChoiceModal').classList.contains('hidden')));
+  await p.click('#seedChoiceManualBtn'); await p.waitForTimeout(500);
+  check('choosing an empty matrix is recorded, logged and places nothing', await p.evaluate(() => state.loa.seedChoice === 'manual' && state.clusters.length === 0 && state.logs[0].toVal === 'Empty matrix' && !document.getElementById('autoSeedIndexToggle').checked));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Offline edition (file://) starts without errors and renders PDFs', async () => {
   const p = await openDemo('file://' + path.join(ROOT, 'me_canvas.html') + '?demo');
   await p.waitForTimeout(2500);
