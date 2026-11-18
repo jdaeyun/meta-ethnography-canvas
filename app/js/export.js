@@ -18,6 +18,51 @@ document.querySelectorAll('.pub-tab-btn').forEach(btn => {
   });
 });
 
+// ---- Table 1b (/1c): the judgement on each domain of the appraisal tool, per study (eMERGe Part 3) ----
+// One table per checklist in use. Cells hold the judgement and the reviewer's reason; nothing is summed or ranked.
+function getAppraisalDomainSpecs() {
+  const tools = Object.keys(APPRAISAL_CHECKLISTS).filter(t => state.docs.some(d => normalizeDoc(d).appraisalTool === t && hasAppraisalDomains(d)));
+  return tools.map((tool, ti) => {
+    const c = APPRAISAL_CHECKLISTS[tool];
+    const docs = state.docs.filter(d => d.appraisalTool === tool && hasAppraisalDomains(d));
+    const letter = String.fromCharCode(98 + ti); // b, c
+    return {
+      title: `Table 1${letter}. Methodological Strengths and Limitations of Included Studies: ${c.name}`,
+      caption: `Judgement on each question of the ${c.name}, with the reviewers' reasons. The answers are a record of judgements and were not added up into a score (eMERGe Part 3, France et al., 2019). Source: ${c.cite}`,
+      headers: ['Study', ...c.items.map((_, i) => `Q${i + 1}`)],
+      widths: [12, ...c.items.map(() => 88 / c.items.length)],
+      rows: docs.map(d => {
+        const items = appraisalItemsOf(d, tool);
+        return [getDisplayName(d), ...c.items.map(it => {
+          const v = items[it.id] || {};
+          const label = appraisalAnswerLabel(tool, v.a);
+          return [label, v.note].filter(Boolean).join(' — ') || '-';
+        })];
+      }),
+      key: c.items.map((it, i) => `Q${i + 1}. ${it.text}`),
+      // The checklist's own summary per study (CASP: positive / negative / unknowns), where written
+      summaries: c.summary ? docs.map(d => {
+        const sm = appraisalSummaryOf(d, tool);
+        const parts = c.summary.fields.filter(([k]) => sm[k]).map(([k, label]) => `${label}: ${sm[k]}`);
+        return parts.length ? `${getDisplayName(d)} — ${parts.join('; ')}` : '';
+      }).filter(Boolean) : []
+    };
+  });
+}
+function buildAppraisalDomainsHtml() {
+  return getAppraisalDomainSpecs().map(spec => `
+    <div class="mb-3" style="margin-top:28px;">
+      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">${escapeHtml(spec.title)}</h3>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">${escapeHtml(spec.caption)}</p>
+    </div>
+    <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
+      <thead><tr>${spec.headers.map((h, i) => `<th style="width:${spec.widths[i]}%;">${escapeHtml(h)}</th>`).join('')}</tr></thead>
+      <tbody>${spec.rows.map(r => '<tr>' + r.map((c, i) => i === 0 ? `<td><b>${escapeHtml(c)}</b></td>` : `<td>${escapeHtml(c)}</td>`).join('') + '</tr>').join('')}</tbody>
+    </table>
+    <p style="font-family: Georgia, serif; font-size: 10.5px; color: #475569; margin-top:6px;">${spec.key.map(escapeHtml).join('<br>')}</p>
+    ${spec.summaries.length ? `<p style="font-family: Georgia, serif; font-size: 11px; color: #334155; margin-top:8px;"><b>Appraisal summary</b><br>${spec.summaries.map(escapeHtml).join('<br>')}</p>` : ''}`).join('');
+}
+
 function buildTable1Html() {
   let rowsHtml = '';
   state.docs.forEach((d, idx) => {
@@ -61,6 +106,7 @@ function buildTable1Html() {
         ${rowsHtml || '<tr><td colspan="9">No studies added yet.</td></tr>'}
       </tbody>
     </table>
+    ${buildAppraisalDomainsHtml()}
   `;
 }
 
@@ -72,6 +118,19 @@ function teamModelsHtml() {
     ${models.map(m => `<div style="font-size: 11.5px; color: #334155; margin-bottom: 6px;"><b>@${escapeHtml(m.reviewer)}${m.title ? ' — ' + escapeHtml(m.title) : ''}</b>${m.flow ? `<div style="font-family: monospace;">${escapeHtml(m.flow)}</div>` : ''}${(m.links || []).length ? `<div>${m.links.map(l => `${escapeHtml(l.from)} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${escapeHtml(l.to)}`).join('; ')}</div>` : ''}${m.narrative ? `<div style="white-space: pre-wrap;">${escapeHtml(m.narrative)}</div>` : ''}</div>`).join('')}
     ${state.loa.teamMergeNote ? `<div style="font-size: 11.5px; color: #334155;"><b>How the models were merged:</b> ${escapeHtml(state.loa.teamMergeNote)}</div>` : ''}
   </div>`;
+}
+
+// Relation tag for a construct in a Table 2 row (study #1 has none)
+function relTag(s, cid) {
+  const r = secRelation(s, cid);
+  return r === 'refutational' ? '[⚡Refutational] ' : r === 'unjudged' ? '[○ Not yet judged] ' : '';
+}
+// Studies with nothing in the row but a recorded reason: "different aspect" (line of argument) and "checked, not addressed"
+function cellStatusLines(c) {
+  return state.docs.map(d => {
+    const info = emptyCellInfo(c, d.id);
+    return info ? `${info.symbol} ${info.label}: ${getDisplayName(d)}${info.note ? ' — ' + info.note : ''}` : '';
+  }).filter(Boolean);
 }
 
 function buildTable2Html() {
@@ -89,8 +148,8 @@ function buildTable2Html() {
     const secondOrderListHtml = mappedSecs.map(s => {
       const doc = state.docs.find(d => d.id === s.docId);
       const dName = doc ? getDisplayName(doc) : 'Study';
-      const isRefut = isSecRefutational(s, c.id);
-      const refutBadge = isRefut ? `<span style="color:#be123c; font-weight:bold;">[⚡Refutational]</span> ` : '';
+      const rt = relTag(s, c.id);
+      const refutBadge = rt ? `<span style="color:${rt.includes('⚡') ? '#be123c' : '#475569'}; font-weight:bold;">${escapeHtml(rt.trim())}</span> ` : '';
       const cellNuance = (s.clusterComments && s.clusterComments[c.id]) ? ` <i>[${escapeHtml(s.clusterComments[c.id])}]</i>` : '';
       const wrapTag = s.origin === 'wrapped_first_order' ? `<span style="color:#b45309; font-size:10px;">[reviewer-wrapped 1st-order quote]</span> ` : '';
       return `<div style="margin-bottom:6px;">• ${refutBadge}${wrapTag}<b>${escapeHtml(dName)} (p.${escapeHtml(secPagesLabel(s))}):</b> ${s.note ? `<b>${escapeHtml(s.note)}</b>${secLabelTag(s) ? ' <span style="color:#b45309; font-size:10px;">' + secLabelTag(s).trim() + '</span>' : ''} — ` : ''}"${escapeHtml(secEvidenceText(s))}"${cellNuance}</div>`;
@@ -118,7 +177,7 @@ function buildTable2Html() {
           <div style="font-size:10px; color:#64748b; margin-top:2px;"><b>Concordance:</b> ${escapeHtml(concordanceLabel(c.concordanceStatus))}</div>
         </td>
         <td>${c.translationSummary ? `<div style="margin-bottom:6px;"><b>Translation:</b> ${escapeHtml(c.translationSummary)}</div>` : ''}${c.synthesisNote ? `<div><b>3rd order interpretation:</b> ${escapeHtml(c.synthesisNote)}</div>` : ''}${(!c.translationSummary && !c.synthesisNote) ? '-' : ''}</td>
-        <td>${secondOrderListHtml || '-'}</td>
+        <td>${secondOrderListHtml || '-'}${cellStatusLines(c).map(l => `<div style="margin-top:4px; font-size:11px; color:#0369a1;">${escapeHtml(l)}</div>`).join('')}</td>
         <td>${linkedQuotesList.join('') || '-'}</td>
         <td>${escapeHtml(contributingDocs.join('; ') || '-')}</td>
         <td>
@@ -183,7 +242,9 @@ function getTable3Mode() {
   const v = (() => { try { return lsGet('me_table3_mode'); } catch (e) { return null; } })();
   return TABLE3_MODES[v] ? v : 'combined';
 }
-const CERQUAL_CAVEAT = 'GRADE-CERQual was applied to the third-order constructs. Its developers note that further work is needed on applying the approach to more interpretive outputs such as those of meta-ethnography (Lewin et al., 2018).';
+// eMERGe Part 3 (France et al., 2019): CERQual can in principle be applied both to the synthesised themes / concepts of phases 3–5
+// and to the broader concepts or theory of phase 6; guidance for the latter is still to be developed.
+const CERQUAL_CAVEAT = 'GRADE-CERQual was applied to the third-order constructs, not to the line of argument. The eMERGe guidance notes that CERQual can in principle be applied both to the themes and concepts synthesised through translation and to the broader concepts or theory of a meta-ethnography, but that guidance for the latter is still to be developed (France et al., 2019); the CERQual developers likewise note that further work is needed for more interpretive outputs (Lewin et al., 2018).';
 function getTable3Specs(mode = getTable3Mode()) {
   const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
   const rows = state.clusters.map(c => {
@@ -212,14 +273,14 @@ function getTable3Specs(mode = getTable3Mode()) {
     title: mode === 'both' ? 'Table 3b. GRADE-CERQual Evidence Profile' : 'Table 3. GRADE-CERQual Evidence Profile',
     caption: 'Judgement and explanation for each CERQual component behind the overall confidence in each finding (Lewin et al., 2018). ' + CERQUAL_CAVEAT,
     headers: ['Review Finding (3rd Order Construct)', 'Studies Contributing', 'Methodological Limitations', 'Coherence', 'Adequacy of Data', 'Relevance', 'Overall Confidence', 'Explanation'],
-    widths: [18, 12, 12, 12, 12, 12, 8, 14],
+    widths: [17, 12, 12, 12, 12, 12, 10, 13],
     rows: rows.map(r => [{ title: r.finding.title }, r.studies, r.lim, r.coh, r.adeq, r.rel, { strong: r.conf }, r.expl])
   };
   const combined = {
     title: 'Table 3. GRADE-CERQual Summary of Qualitative Findings (SoQF) & Evidence Profile',
     caption: 'Assessment of confidence in each 3rd order review finding across Methodological Limitations, Coherence, Adequacy, and Relevance (Lewin et al., 2018). ' + CERQUAL_CAVEAT,
     headers: ['Summary of Review Finding (3rd Order Construct)', 'Studies Contributing to the Finding', 'Methodological Limitations', 'Coherence', 'Adequacy of Data', 'Relevance', 'Overall CERQual Confidence', 'Explanation of CERQual Assessment'],
-    widths: [24, 12, 10, 10, 10, 10, 8, 16],
+    widths: [22, 12, 10, 10, 10, 10, 10, 16],
     rows: rows.map(r => [r.finding, r.studies, r.lim, r.coh, r.adeq, r.rel, { strong: r.conf }, r.expl])
   };
   if (mode === 'soqf') return [soqf];
@@ -277,6 +338,33 @@ function getNotTranslatedSpec() {
     })
   };
 }
+// ---- Appendix C: how the concepts within each study relate (eMERGe criterion 13: relationships within studies) ----
+function getWithinStudyLinksSpec() {
+  const rows = [];
+  state.docs.forEach(d => studyConceptLinks(d).forEach(l => rows.push([getDisplayName(d), conceptLinkText(l), (LINK_TYPES[l.type] || LINK_TYPES.leads).label, l.note || '-'])));
+  return {
+    title: 'Appendix C. Relationships between Concepts within Each Study',
+    caption: 'How the second-order constructs of each primary study relate to one another in that account, as recorded by the reviewers while reading, so that these relationships could be preserved in translation (eMERGe criterion 13).',
+    headers: ['Study', 'Relationship', 'Type', 'Note'],
+    widths: [16, 46, 16, 22],
+    rows,
+    nStudies: new Set(rows.map(r => r[0])).size
+  };
+}
+function buildWithinStudyLinksHtml() {
+  const spec = getWithinStudyLinksSpec();
+  if (!spec.rows.length) return '';
+  return `
+    <div class="mb-3" style="margin-top:28px;">
+      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">${escapeHtml(spec.title)}</h3>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">${escapeHtml(spec.caption)}</p>
+    </div>
+    <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
+      <thead><tr>${spec.headers.map((h, i) => `<th style="width:${spec.widths[i]}%;">${escapeHtml(h)}</th>`).join('')}</tr></thead>
+      <tbody>${spec.rows.map(r => '<tr>' + r.map(c => `<td>${escapeHtml(c)}</td>`).join('') + '</tr>').join('')}</tbody>
+    </table>`;
+}
+
 function buildNotTranslatedHtml() {
   const spec = getNotTranslatedSpec();
   const body = spec.rows.length
@@ -336,6 +424,7 @@ function buildAppendixHtml() {
       </tbody>
     </table>
     ${buildNotTranslatedHtml()}
+    ${buildWithinStudyLinksHtml()}
   `;
 }
 
@@ -352,7 +441,8 @@ function buildTable2GridHtml() {
     const studyCells = state.docs.map(d => {
       const docSecs = mappedSecs.filter(s => s.docId === d.id);
       if (docSecs.length === 0) {
-        return `<td style="text-align:center; color:#cbd5e1;">—</td>`;
+        const info = emptyCellInfo(c, d.id);
+        return `<td style="text-align:center; color:${info && info.status === 'other_aspect' ? '#0369a1' : '#64748b'};"${info && info.note ? ` title="${escapeHtml(info.note)}"` : ''}>${info ? info.symbol : ''}</td>`;
       }
       const hasRefut = docSecs.some(s => isSecRefutational(s, c.id));
       const symbol = contribSymbol(docSecs, c.id);
@@ -377,7 +467,7 @@ function buildTable2GridHtml() {
   return `
     <div class="mb-3">
       <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Table 2b. Concept-by-Study Contribution Matrix Across Included Studies</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Showing which primary studies contributed 2nd order constructs to each 3rd order theme (<b>◆</b> = study #1, which establishes the rows; <b>●</b> = Reciprocal / convergent contribution; <b>⚡</b> = Refutational / contrasting contribution; <b>—</b> = Not present).</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Showing which primary studies contributed 2nd order constructs to each 3rd order theme (${escapeHtml(TABLE2B_LEGEND)}).</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>
@@ -456,10 +546,21 @@ function getEmergeChecklist() {
       [19, 'Recommendations and conclusions', 'Implications for policy, practice and/or theory', A('Author to complete (Discussion)')] ] },
     { name: 'Part 3\nExtensions (not common to every meta-ethnography)', items: [
       ['Ext. 1', 'Format and content of the output', 'e.g., abstract and other output formats', A('Author to complete (supplementary eMERGe extension)')],
-      ['Ext. 2', 'Methodological strengths and limitations of primary studies', 'Whether/how included studies were appraised and how the appraisal was used', (loa.appraisalPolicy || loa.appraisalUse)
-        ? (state.docs.some(d => d.quality) ? R('Appraisal policy / use → Methods Summary; ratings → Table 1') : P('Appraisal policy / use → Methods Summary; no per-study ratings recorded'))
-        : (state.docs.some(d => d.quality) ? P('Ratings in Table 1; describe the appraisal policy and its use in the drawer') : A('Author to complete: use the Appraisal fields in Research Aim & Overall Model'))],
-      ['Ext. 3', 'GRADE-CERQual confidence in review findings', 'GRADE-CERQual assessment of each finding (CERQual developers note further work is needed for interpretive outputs such as meta-ethnography)', nCl === 0 ? A('No 3rd order constructs yet') : (assessed === nCl ? R('Table 3') : (assessed > 0 ? P('Table 3 (some findings are still unrated)') : A('No finding assessed yet')))] ] }
+      ['Ext. 2', 'Methodological strengths and limitations of primary studies', 'Rationale for (not) appraising, the tool, the judgement on each domain for each study, and how the appraisal was used', (() => {
+        const hasPolicy = !!(loa.appraisalPolicy || loa.appraisalUse);
+        const appraised = state.docs.filter(d => d.quality || hasAppraisalDomains(d));
+        if (!hasPolicy && appraised.length === 0) return A('Author to complete: use the Appraisal fields in Research Aim & Overall Model');
+        const noChecklist = appraised.filter(d => !APPRAISAL_CHECKLISTS[d.appraisalTool]);
+        const incomplete = appraised.filter(d => APPRAISAL_CHECKLISTS[d.appraisalTool] && !appraisalDomainsComplete(d));
+        const missing = [];
+        if (!hasPolicy) missing.push('describe the appraisal policy and its use in the drawer');
+        if (appraised.length === 0) missing.push('no study appraised yet');
+        if (incomplete.length) missing.push(`${incomplete.length} stud(ies) with domains not answered yet`);
+        if (noChecklist.length) missing.push(`domain table for ${[...new Set(noChecklist.map(d => d.appraisalTool))].join(', ')} to add outside the app (no built-in checklist for this tool)`);
+        return missing.length ? P('Appraisal policy / use → Methods Summary; domain judgements → Table 1b; still: ' + missing.join('; '))
+          : R('Appraisal policy / use → Methods Summary; judgement on each domain → Table 1b');
+      })()],
+      ['Ext. 3', 'GRADE-CERQual confidence in review findings', 'Confidence in each finding, with all four components incl. methodological limitations, in a Summary of Qualitative Findings table (guidance for applying CERQual to a line of argument / theory is still to be developed)', nCl === 0 ? A('No 3rd order constructs yet') : (assessed === nCl ? R('Table 3') : (assessed > 0 ? P('Table 3 (some findings are still unrated)') : A('No finding assessed yet')))] ] }
   ];
   const rows = [];
   phases.forEach(ph => ph.items.forEach((it, i) => rows.push({
@@ -487,7 +588,7 @@ function getMethodSections() {
   const polHtml = state.loa.appraisalPolicy ? escapeHtml(state.loa.appraisalPolicy) + ' ' : '';
   const useHtml = state.loa.appraisalUse ? escapeHtml(state.loa.appraisalUse) : PH('how appraisal results were used, e.g., whether studies were excluded or weighted');
   const qualityHtml = anyQuality
-    ? polHtml + `The methodological quality of each included study was appraised${toolStr ? ' using <b>' + escapeHtml(toolStr) + '</b>' : ' ' + PH('appraisal tool')}; the ratings are reported in Table 1.${anyRichness ? ' Conceptual richness of each study was also recorded (Table 1).' : ''} ${useHtml}`
+    ? polHtml + `The methodological quality of each included study was appraised${toolStr ? ' using <b>' + escapeHtml(toolStr) + '</b>' : ' ' + PH('appraisal tool')}; ${getAppraisalDomainSpecs().length ? ' the judgement on each domain of the tool, with reasons, is reported for each study in Table 1b' + (getAppraisalDomainSpecs().length > 1 ? '–1c' : '') + ', and the reviewers\' overall judgements in Table 1. The checklist answers were not added up into a score.' : ' the overall judgements are reported in Table 1.'}${anyRichness ? ' Conceptual richness of each study was also recorded (Table 1).' : ''} ${useHtml}`
     : (state.loa.appraisalPolicy ? polHtml + useHtml : PH('whether and how the quality of the included studies was appraised, and how appraisal was used'));
 
   const synthHtml = state.loa.synthStudies ? ' Studies included in the line-of-argument synthesis: ' + escapeHtml(state.loa.synthStudies) + '.' : '';
@@ -520,21 +621,32 @@ function getMethodSections() {
     ? ` The second-order constructs of the first study (${firstName}) were placed as ${seedCount} provisional third-order row${seedCount === 1 ? '' : 's'}`
       + ` (${seedConfirmedCount} of which ${seedConfirmedCount === 1 ? 'was' : 'were'} later confirmed by the reviewer)`
       + `${laterRows > 0 ? `; ${laterRows} further row${laterRows === 1 ? ' was' : 's were'} created during translation` : ''}.`
-    : '';
+    : (state.loa.seedChoice === 'manual' && nCl > 0 ? ` The third-order rows were created by the reviewer${nCl ? ` (${nCl})` : ''} as each concept was compared with those of the other studies; the constructs of the first study were not placed automatically.` : '');
   // Relations actually recorded in the matrix (study #1 has none of its own)
   const live = new Set(state.clusters.map(c => c.id));
-  let refutCells = 0, translatedCells = 0;
+  let refutCells = 0, translatedCells = 0, unjudgedCells = 0;
   state.annotations.forEach(a => {
     if (a.type !== 'second_order' || isBaselineDocId(a.docId)) return;
-    (a.clusterIds || []).filter(id => live.has(id)).forEach(id => { translatedCells++; if (isSecRefutational(a, id)) refutCells++; });
+    (a.clusterIds || []).filter(id => live.has(id)).forEach(id => {
+      const r = secRelation(a, id);
+      if (r === 'unjudged') unjudgedCells++; else translatedCells++;
+      if (r === 'refutational') refutCells++;
+    });
   });
+  const unjudgedHtml = unjudgedCells ? ` ${PH(`${unjudgedCells} placement(s) of a construct in a row have no reciprocal / refutational judgement yet (○ in Table 2b)`)}` : '';
+  const otherAspect = state.clusters.reduce((n, c) => n + Object.values(c.cellStatus || {}).filter(v => v && v.status === 'other_aspect').length, 0);
+  const otherAspectHtml = otherAspect ? ` In ${otherAspect} instance(s) a study addressed a different aspect of a theme rather than translating into it (◇ in Table 2b); these informed the line-of-argument synthesis.` : '';
   const translationKindHtml = nCl === 0
     ? `${PH('how the extracted constructs were translated into third-order constructs')}`
     : refutCells > 0
-      ? `Through reciprocal and refutational translation (${refutCells} of ${translatedCells} placements of a construct in a row were judged refutational), the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b).`
-      : `Through reciprocal translation, the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b); no placement was judged refutational. ${PH('how refutational relations and disconfirming cases were looked for')}`;
+      ? `Through reciprocal and refutational translation (${refutCells} of ${translatedCells} judged placements of a construct in a row were judged refutational), the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b).${otherAspectHtml}${unjudgedHtml}`
+      : `Through reciprocal translation, the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b); no placement was judged refutational. ${PH('how refutational relations and disconfirming cases were looked for')}${otherAspectHtml}${unjudgedHtml}`;
   const nt = getNotTranslatedSpec();
   const ntMissing = nt.rows.filter(r => r[3] === '[Reason not recorded]').length;
+  const wl = getWithinStudyLinksSpec();
+  const withinHtml = wl.rows.length
+    ? ` How the concepts within each account relate to one another was recorded for ${wl.nStudies} stud${wl.nStudies === 1 ? 'y' : 'ies'} (${wl.rows.length} relationship${wl.rows.length === 1 ? '' : 's'}; Appendix C) and kept in view during translation.`
+    : ` ${PH('how relationships between concepts within each study were preserved in translation (eMERGe item 13)')}`;
   const notTranslatedHtml = nt.count > 0
     ? ` ${nt.count} second-order construct${nt.count === 1 ? '' : 's'} from ${nt.nStudies} stud${nt.nStudies === 1 ? 'y was' : 'ies were'} not translated into any third-order construct; ${nt.count === 1 ? 'it is' : 'they are'} listed${ntMissing < nt.count ? ' with the reasons' : ''} in Appendix B.${ntMissing ? ' ' + PH(`reasons for the ${ntMissing} construct(s) without one`) : ''}`
     : (nCl > 0 ? ' Every extracted second-order construct was translated into at least one third-order construct.' : '');
@@ -549,7 +661,7 @@ function getMethodSections() {
   const relOutHtml = state.loa.relateOutcome ? ' ' + escapeHtml(state.loa.relateOutcome) : '';
 
   const cqHtml = cqAnyAssessed
-    ? `Confidence in ${cqAllAssessed ? 'each' : cqCount + ' of the ' + nCl} synthesized third-order finding${cqAllAssessed && nCl === 1 ? '' : 's'} was assessed using the GRADE-CERQual approach (Lewin et al., 2018) across four components (methodological limitations, coherence, adequacy of data, and relevance); each judgement is reported with its explanation in Table 3.${cqAllAssessed ? '' : ' The remaining findings were not assessed.'} The CERQual developers note that further work is needed on applying the approach to more interpretive synthesis outputs such as those of meta-ethnography (Lewin et al., 2018). ${PH('how GRADE-CERQual was adapted to, or applied to, the interpretive findings of this meta-ethnography')}`
+    ? `Confidence in ${cqAllAssessed ? 'each' : cqCount + ' of the ' + nCl} synthesized third-order finding${cqAllAssessed && nCl === 1 ? '' : 's'} was assessed using the GRADE-CERQual approach (Lewin et al., 2018) across four components (methodological limitations, coherence, adequacy of data, and relevance); each judgement is reported with its explanation in Table 3.${cqAllAssessed ? '' : ' The remaining findings were not assessed.'} CERQual was applied to the third-order constructs and not to the line of argument: the eMERGe guidance notes that guidance on applying CERQual to the broader concepts or theory of a meta-ethnography is still to be developed (France et al., 2019), and the CERQual developers likewise note that further work is needed for more interpretive outputs (Lewin et al., 2018). ${PH('how GRADE-CERQual was applied to the interpretive findings of this meta-ethnography')}`
     : PH('whether and how GRADE-CERQual was applied; no finding has been assessed yet');
 
   const linksHtml = getLoaLinks().length
@@ -574,7 +686,7 @@ function getMethodSections() {
   const readingHtml = `${L.readingApproach ? esc(L.readingApproach) : PH('how studies were read and data extracted, by whom, whether independently, and how accuracy was checked (eMERGe Item 9)')} ${scopeText || PH('whether data were extracted from the full accounts or the findings sections only')} First-order constructs (participant quotations) and second-order constructs (the primary authors' interpretations) were extracted and recorded separately${L.unitsTerminology ? '; ' + esc(L.unitsTerminology) : ''}.${L.unitsTerminology ? '' : ' ' + PH('what is meant by the units of synthesis used, e.g., concept, theme, metaphor')}${companionHtml}`;
 
   // Phase 5 (Item 13)
-  const translationHtml = `Data extraction and cross-study translation were managed using <i>Meta-Ethnography Canvas</i>${appCitationHtml()}. ${orderHtml}${seedHtml} ${L.translationDefinitions ? esc(L.translationDefinitions) : PH('working definitions of reciprocal and refutational translation (eMERGe Item 13)')} ${L.translationProcess ? esc(L.translationProcess) : PH('who translated, how meaning was translated from one study into another, and how context and relationships between concepts were preserved')} ${translationKindHtml}${notTranslatedHtml} ${L.alternativeInterpretations ? esc(L.alternativeInterpretations) : PH('how alternative interpretations or explanations were considered (Items 13 and 15)')}`;
+  const translationHtml = `Data extraction and cross-study translation were managed using <i>Meta-Ethnography Canvas</i>${appCitationHtml()}. ${orderHtml}${seedHtml} ${L.translationDefinitions ? esc(L.translationDefinitions) : PH('working definitions of reciprocal and refutational translation (eMERGe Item 13)')} ${L.translationProcess ? esc(L.translationProcess) : PH('who translated, how meaning was translated from one study into another, and how context and relationships between concepts were preserved')} ${translationKindHtml}${withinHtml}${notTranslatedHtml} ${L.alternativeInterpretations ? esc(L.alternativeInterpretations) : PH('how alternative interpretations or explanations were considered (Items 13 and 15)')}`;
 
   // Phase 6 (Items 15-16) incl. independent team models (Atkins et al., 2008)
   const teamModels = Array.isArray(L.teamModels) ? L.teamModels : [];
@@ -616,7 +728,7 @@ function buildMethodHtml() {
     `<p style="margin-bottom: 12px;"><b>${escapeHtml(sec.title)}</b><br>${sec.html}</p>`).join('');
   return `
     <div class="mb-5">
-      <h3 style="font-family: Georgia, serif; font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 8px;">eMERGe Methods Summary</h3>
+      <h3 style="font-family: Georgia, serif; font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 8px;">Methods Summary (structured around eMERGe)</h3>
       <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic; margin-bottom: 16px;">Compiled from your project data and audit trail. Expand with your analytical rationale before submission.</p>
       <div style="font-family: Georgia, serif; font-size: 13.5px; color: #1e293b; line-height: 1.6;">${body}</div>
     </div>
@@ -635,7 +747,7 @@ function buildeMERGeTableHtml() {
   return `
     <div style="margin-top: 32px; margin-bottom: 12px;">
       <h3 style="font-family: Georgia, serif; font-size: 14px; font-weight: bold; color: #0f172a;">eMERGe Reporting Checklist Mapping (France et al., 2019)</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Item numbers follow the official 19 reporting criteria. Status is computed from your project data: bold = supplied by the app; amber = partly supplied; blue = for the author to write.</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Item numbers follow the 19 reporting criteria of France et al. (2019); titles and descriptions are short paraphrases, so see the paper for the full wording. Status is computed from your project data: bold = supplied by the app; amber = partly supplied; blue = for the author to write.</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>
@@ -706,7 +818,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
   const cleanMd = s => String(s || '-').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 
   if (state.activePubTable === 'method') {
-    md += `### eMERGe Methods Summary\n\n`;
+    md += `### Methods Summary (structured around eMERGe)\n\n`;
     getMethodSections().forEach(sec => { md += `**${sec.title}**\n${htmlToPlainText(sec.html)}\n\n`; });
 
     md += `### eMERGe Reporting Checklist Mapping (France et al., 2019)\n\n`;
@@ -724,6 +836,13 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       const name = getDisplayName(d) + (idx === 0 ? ` *${firstStudyMeta().short}*` : '');
       md += `| **${cleanMd(name)}** | ${cleanMd(d.title || d.name)} | ${cleanMd(d.setting)} | ${cleanMd(d.participants)} | ${cleanMd(d.methodology)} | ${cleanMd(getAppraisalDisplayString(d))} | ${cleanMd(d.richness)} | ${cleanMd(d.contextNote)} | ${cleanMd(funderLinkedText(d))} |\n`;
     });
+    getAppraisalDomainSpecs().forEach(spec => {
+      md += `\n### ${spec.title}\n\n*${spec.caption}*\n\n`;
+      md += `| ${spec.headers.map(cleanMd).join(' | ')} |\n|${spec.headers.map(() => '---').join('|')}|\n`;
+      spec.rows.forEach(r => { md += `| **${cleanMd(r[0])}** | ${r.slice(1).map(cleanMd).join(' | ')} |\n`; });
+      md += `\n${spec.key.join('  \n')}\n`;
+      if (spec.summaries.length) md += `\n**Appraisal summary**  \n${spec.summaries.join('  \n')}\n`;
+    });
   } else if (state.activePubTable === 'table2') {
     md += `### Table 2. Meta-Ethnographic Translation and Synthesis Table\n\n`;
     md += `| 3rd Order Construct | Translation Type | Team Status | Translation Summary (A) | 3rd Order Interpretation (B) | 2nd Order Constructs | 1st Order Quotes | Studies | CERQual Confidence |\n`;
@@ -735,9 +854,8 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       const docs = [...new Set(mappedSecs.map(s => getDisplayName(state.docs.find(d => d.id === s.docId))))];
       const secStr = mappedSecs.map(s => {
         const dName = getDisplayName(state.docs.find(d => d.id === s.docId));
-        const isRefut = isSecRefutational(s, c.id);
-        return `${isRefut ? '[⚡Refutational] ' : ''}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): ${s.note ? `**${s.note}**${secLabelTag(s)} - ` : ''}"${secEvidenceText(s)}"`;
-      }).join('; ');
+        return `${relTag(s, c.id)}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): ${s.note ? `**${s.note}**${secLabelTag(s)} - ` : ''}"${secEvidenceText(s)}"`;
+      }).concat(cellStatusLines(c)).join('; ');
       const quotes = [];
       const seenQ = new Set();
       mappedSecs.forEach(s => {
@@ -771,7 +889,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       }
     }
   } else if (state.activePubTable === 'table2_grid') {
-    md += `### Table 2b. Concept-by-Study Contribution Matrix (◆ = study #1, which establishes the rows; ● = Reciprocal, ⚡ = Refutational)\n\n`;
+    md += `### Table 2b. Concept-by-Study Contribution Matrix\n\n*${TABLE2B_LEGEND}*\n\n`;
     const studyCols = state.docs.map((d, idx) => cleanMd(getDisplayName(d) + (idx === 0 ? ' ' + firstStudyMeta().short : '')));
     md += `| 3rd Order Construct | ${studyCols.join(' | ')} | CERQual |\n`;
     md += `|---|${state.docs.map(() => ':---:').join('|')}|:---:|\n`;
@@ -781,8 +899,8 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
       const cells = state.docs.map(d => {
         const docSecs = mappedSecs.filter(s => s.docId === d.id);
-        if (!docSecs.length) return '—';
-        return contribSymbol(docSecs, c.id).replace(' / ', '/');
+        if (!docSecs.length) { const info = emptyCellInfo(c, d.id); return info ? info.symbol : ' '; }
+        return contribSymbol(docSecs, c.id).replace(/ \/ /g, '/');
       });
       md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cells.join(' | ')} | **${cleanMd(c.cerqualConfidence)}** |\n`;
     });
@@ -810,6 +928,11 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       md += `| ${nt.headers.map(cleanMd).join(' | ')} |\n|${nt.headers.map(() => '---').join('|')}|\n`;
       nt.rows.forEach(r => { md += `| ${r.map(cleanMd).join(' | ')} |\n`; });
     } else md += 'Every extracted second-order construct was translated into at least one third-order construct.\n';
+    const wl = getWithinStudyLinksSpec();
+    if (wl.rows.length) {
+      md += `\n### ${wl.title}\n\n*${wl.caption}*\n\n| ${wl.headers.join(' | ')} |\n|${wl.headers.map(() => '---').join('|')}|\n`;
+      wl.rows.forEach(r => { md += `| ${r.map(cleanMd).join(' | ')} |\n`; });
+    }
   }
 
   await navigator.clipboard.writeText(md);
@@ -818,19 +941,33 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
 
 document.getElementById('downloadWordDocBtn').addEventListener('click', async () => {
   if (typeof docx === 'undefined') {
-    alert('The docx library could not be loaded from CDN. Please check your internet connection.');
+    alert('The bundled Word library (app/vendor/docx/index.umd.js) failed to load. Check that the app/vendor folder is next to me_canvas.html (offline edition: extract the whole ZIP), then reload the page.');
     return;
   }
 
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-    WidthType, BorderStyle, PageOrientation, PageBreak
+    WidthType, BorderStyle, PageOrientation, PageBreak, TableLayoutType
   } = docx;
 
   const borderTopBottomThick = { style: BorderStyle.SINGLE, size: 12, color: "0F172A" };
   const borderHeaderBottom = { style: BorderStyle.SINGLE, size: 8, color: "0F172A" };
   const borderRowLight = { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" };
   const borderNone = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+
+  // Column widths: without them docx.js writes a 100-twip grid, which LibreOffice / Google Docs (and Word with
+  // autofit off) show as hair-thin columns. Widths are percentages of the landscape A4 text width.
+  const TEXT_WIDTH_TWIPS = 16838 - 2 * 1440;
+  function widthTable(rows, pcts) {
+    const total = pcts.reduce((a, b) => a + b, 0) || 1;
+    const twips = pcts.map(p => Math.round(TEXT_WIDTH_TWIPS * p / total));
+    return new Table({ width: { size: TEXT_WIDTH_TWIPS, type: WidthType.DXA }, columnWidths: twips, layout: TableLayoutType.FIXED, rows });
+  }
+  // Even widths for the study columns of Table 2b; the first and last columns keep a fixed share
+  function gridPcts(nStudies) {
+    const first = nStudies > 8 ? 18 : 24, last = 10;
+    return [first, ...Array(nStudies).fill((100 - first - last) / Math.max(1, nStudies)), last];
+  }
 
   function makeCell(childrenOrText, { isHeader = false, isLastRow = false, bold = false } = {}) {
     const paragraphs = Array.isArray(childrenOrText)
@@ -910,11 +1047,10 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
       const secParagraphs = mappedSecs.length > 0 ? mappedSecs.map(s => {
         const doc = state.docs.find(d => d.id === s.docId);
         const dName = doc ? getDisplayName(doc) : 'Study';
-        const isRefut = isSecRefutational(s, c.id);
         const cellNuance = (s.clusterComments && s.clusterComments[c.id]) ? ` [${s.clusterComments[c.id]}]` : '';
         return new Paragraph({
           children: [
-            new TextRun({ text: `• ${isRefut ? '[Refutational] ' : ''}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): `, bold: true, font: "Times New Roman", size: 20 }),
+            new TextRun({ text: `• ${relTag(s, c.id)}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): `, bold: true, font: "Times New Roman", size: 20 }),
             ...(s.note ? [new TextRun({ text: `${s.note}${secLabelTag(s)} — `, bold: true, font: "Times New Roman", size: 20 })] : []),
             new TextRun({ text: `"${secEvidenceText(s)}"${cellNuance}`, font: "Times New Roman", size: 20 })
           ],
@@ -949,7 +1085,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
         children: [
           makeCell(`${c.thirdOrderTitle || '(Untitled)'}\n[Type: ${transLabel} | Concordance: ${concordanceLabel(c.concordanceStatus)}]`, { isLastRow: isLast, bold: true }),
           makeCell([c.translationSummary ? 'Translation: ' + c.translationSummary : '', c.synthesisNote ? '3rd order interpretation: ' + c.synthesisNote : ''].filter(Boolean).join('\n\n') || '-', { isLastRow: isLast }),
-          makeCell(secParagraphs, { isLastRow: isLast }),
+          makeCell([...secParagraphs, ...cellStatusLines(c).map(l => new Paragraph({ children: [new TextRun({ text: l, italics: true, font: "Times New Roman", size: 18 })], spacing: { after: 60 } }))], { isLastRow: isLast }),
           makeCell(quoteParagraphs, { isLastRow: isLast }),
           makeCell(contributingDocs.join('; ') || '-', { isLastRow: isLast }),
           makeCell(`${c.cerqualConfidence || 'Not assessed'}${c.cerqualExplanation ? '\n' + c.cerqualExplanation : ''}`, { isLastRow: isLast })
@@ -976,7 +1112,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
       const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
       const studyCells = state.docs.map(d => {
         const docSecs = mappedSecs.filter(s => s.docId === d.id);
-        if (docSecs.length === 0) return makeCell('—', { isLastRow: isLast });
+        if (docSecs.length === 0) { const info = emptyCellInfo(c, d.id); return makeCell(info ? info.symbol : '', { isLastRow: isLast }); }
         const sym = contribSymbol(docSecs, c.id);
         return makeCell(sym, { isLastRow: isLast, bold: true });
       });
@@ -1005,7 +1141,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
       ...(si > 0 ? [new Paragraph({ children: [new PageBreak()] })] : []),
       new Paragraph({ children: [new TextRun({ text: spec.title, bold: true, font: "Times New Roman", size: 24 })], spacing: { after: 80 } }),
       new Paragraph({ children: [new TextRun({ text: spec.caption, italics: true, font: "Times New Roman", size: 18 })], spacing: { after: 140 } }),
-      new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: trs })
+      widthTable(trs, spec.widths)
     ];
   });
 
@@ -1035,6 +1171,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   }
 
   const ntSpec = getNotTranslatedSpec();
+  const wlSpec = getWithinStudyLinksSpec();
 
   const projBannerParagraphs = [
     new Paragraph({
@@ -1087,9 +1224,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           children: [new TextRun({ text: "eMERGe Reporting Checklist Mapping", bold: true, font: "Times New Roman", size: 24 })],
           spacing: { before: 240, after: 140 }
         }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
+        widthTable([
             new TableRow({ tableHeader: true, children: ['Phase', 'Item', 'What to report', 'Status in this project'].map(h => makeCell(h, { isHeader: true })) }),
             ...getEmergeChecklist().map((r, i, arr) => {
               const last = i === arr.length - 1;
@@ -1101,22 +1236,33 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
                 makeCell(st, { bold: r.level !== 'partial', isLastRow: last })
               ] });
             })
-          ]
-        }),
+          ], [18, 22, 30, 30]),
         new Paragraph({ children: [new PageBreak()] }),
 
         new Paragraph({
           children: [new TextRun({ text: `Table 1. Characteristics and Critical Appraisal of Included Studies (${state.docs.length} studies)`, bold: true, font: "Times New Roman", size: 24 })],
           spacing: { after: 140 }
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: t1Rows }),
+        widthTable(t1Rows, [11, 15, 10, 10, 13, 10, 9, 12, 10]),
+        ...getAppraisalDomainSpecs().flatMap(spec => [
+          new Paragraph({ children: [new PageBreak()] }),
+          new Paragraph({ children: [new TextRun({ text: spec.title, bold: true, font: "Times New Roman", size: 24 })], spacing: { after: 80 } }),
+          new Paragraph({ children: [new TextRun({ text: spec.caption, italics: true, font: "Times New Roman", size: 18 })], spacing: { after: 140 } }),
+          widthTable([
+            new TableRow({ tableHeader: true, children: spec.headers.map(h => makeCell(h, { isHeader: true })) }),
+            ...spec.rows.map((r, i) => new TableRow({ children: r.map((c, ci) => makeCell(c, { isLastRow: i === spec.rows.length - 1, bold: ci === 0 })) }))
+          ], spec.widths),
+          ...spec.key.map(k => new Paragraph({ children: [new TextRun({ text: k, font: "Times New Roman", size: 18 })], spacing: { before: 40 } })),
+          ...(spec.summaries.length ? [new Paragraph({ children: [new TextRun({ text: 'Appraisal summary', bold: true, font: "Times New Roman", size: 20 })], spacing: { before: 160 } }),
+            ...spec.summaries.map(t => new Paragraph({ children: [new TextRun({ text: t, font: "Times New Roman", size: 18 })], spacing: { before: 40 } }))] : [])
+        ]),
 
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
           children: [new TextRun({ text: "Table 2. Meta-Ethnographic Translation and Synthesis of 1st, 2nd, and 3rd Order Constructs", bold: true, font: "Times New Roman", size: 24 })],
           spacing: { after: 140 }
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: t2Rows }),
+        widthTable(t2Rows, [16, 20, 24, 20, 10, 10]),
         ...(state.loa.relateProcess || state.loa.relateOutcome ? [
           new Paragraph({
             children: [
@@ -1166,10 +1312,14 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
-          children: [new TextRun({ text: "Table 2b. Concept-by-Study Contribution Matrix (◆ = study #1, which establishes the rows; ● = Reciprocal, ⚡ = Refutational)", bold: true, font: "Times New Roman", size: 24 })],
+          children: [new TextRun({ text: "Table 2b. Concept-by-Study Contribution Matrix", bold: true, font: "Times New Roman", size: 24 })],
+          spacing: { after: 60 }
+        }),
+        new Paragraph({
+          children: [new TextRun({ text: TABLE2B_LEGEND, italics: true, font: "Times New Roman", size: 18 })],
           spacing: { after: 140 }
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: t2bRows }),
+        widthTable(t2bRows, gridPcts(state.docs.length)),
 
         new Paragraph({ children: [new PageBreak()] }),
         ...t3Blocks,
@@ -1179,7 +1329,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           children: [new TextRun({ text: "Appendix A. Methodological Audit Trail, Team Perspectives & Reflexive Synthesis Log", bold: true, font: "Times New Roman", size: 24 })],
           spacing: { after: 140 }
         }),
-        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: appRows }),
+        widthTable(appRows, [11, 8, 11, 32, 18, 20]),
 
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
@@ -1188,11 +1338,20 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
         }),
         new Paragraph({ children: [new TextRun({ text: ntSpec.caption, italics: true, font: "Times New Roman", size: 20 })], spacing: { after: 140 } }),
         ...(ntSpec.rows.length
-          ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
+          ? [widthTable([
               new TableRow({ tableHeader: true, children: ntSpec.headers.map(h => makeCell(h, { isHeader: true })) }),
               ...ntSpec.rows.map((r, i) => new TableRow({ children: r.map(c => makeCell(c, { isLastRow: i === ntSpec.rows.length - 1 })) }))
-            ] })]
-          : [new Paragraph({ children: [new TextRun({ text: 'Every extracted second-order construct was translated into at least one third-order construct.', font: "Times New Roman", size: 20 })] })])
+            ], ntSpec.widths)]
+          : [new Paragraph({ children: [new TextRun({ text: 'Every extracted second-order construct was translated into at least one third-order construct.', font: "Times New Roman", size: 20 })] })]),
+        ...(wlSpec.rows.length ? [
+          new Paragraph({ children: [new PageBreak()] }),
+          new Paragraph({ children: [new TextRun({ text: wlSpec.title, bold: true, font: "Times New Roman", size: 24 })], spacing: { after: 80 } }),
+          new Paragraph({ children: [new TextRun({ text: wlSpec.caption, italics: true, font: "Times New Roman", size: 20 })], spacing: { after: 140 } }),
+          widthTable([
+            new TableRow({ tableHeader: true, children: wlSpec.headers.map(h => makeCell(h, { isHeader: true })) }),
+            ...wlSpec.rows.map((r, i) => new TableRow({ children: r.map((c, ci) => makeCell(c, { isLastRow: i === wlSpec.rows.length - 1, bold: ci === 0 })) }))
+          ], wlSpec.widths)
+        ] : [])
       ]
     }]
   });
@@ -1222,7 +1381,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', () => {
     targetClusterIds.forEach(cid => {
       const cluster = state.clusters.find(c => c.id === cid);
       if (cluster) normalizeCluster(cluster);
-      const cellRelation = cid ? (isBaselineDocId(sec.docId) ? 'baseline' : ((sec.clusterRelations && sec.clusterRelations[cid]) || 'reciprocal')) : '';
+      const cellRelation = cid ? secRelation(sec, cid) : '';
       const cellComment = cid && sec.clusterComments ? `[${cellRelation}] ` + (sec.clusterComments[cid] || '') : (cellRelation ? `[${cellRelation}]` : (sec.notTranslatedNote ? `[not translated] ${sec.notTranslatedNote}` : ''));
       rows.push([
         cluster ? cluster.thirdOrderTitle : '(Unassigned)',

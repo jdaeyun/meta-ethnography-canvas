@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.pdf': 'application/pdf', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.bcmap': 'application/octet-stream', '.pfb': 'application/octet-stream', '.ttc': 'application/octet-stream' };
@@ -37,7 +38,9 @@ async function openDemo(url = BASE + '?demo') {
 }
 const tab = (p, t) => p.evaluate(x => setActiveTab(x), t);
 const logCount = p => p.evaluate(() => state.logs.length);
+// ONLY="part of a group name" npm test  — run just the matching groups
 const group = async (name, fn) => {
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return;
   console.log(`\n${name}`);
   try { await fn(); } catch (e) { failures++; console.log(`  FAIL ${name}: ${e.message.split('\n')[0]}`); }
 };
@@ -406,8 +409,9 @@ await group('Constructs not translated: reason in the pool, Appendix B, Methods;
   const p = await openDemo();
   await p.evaluate(async () => { const s = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId)); s.clusterIds = []; await dbPut('annotations', s); });
   await tab(p, 'matrix'); await p.waitForTimeout(600);
-  await p.locator('.pool-nt summary').first().click();
-  await p.locator('.pool-nt-input').first().fill('Outside the review question');
+  await p.evaluate(() => document.querySelectorAll('.pool-nt').forEach(d => { d.open = true; }));
+  const ntIdx = await p.evaluate(() => [...document.querySelectorAll('.pool-nt-input')].findIndex(x => !x.value));
+  await p.locator('.pool-nt-input').nth(ntIdx).fill('Outside the review question');
   await tab(p, 'pub'); await p.waitForTimeout(400);
   check('the reason is saved and logged', await p.evaluate(() => state.annotations.some(a => a.notTranslatedNote === 'Outside the review question') && state.logs[0].action.includes('not translated')));
   await p.locator('[data-pub=appendix]').click(); await p.waitForTimeout(300);
@@ -478,6 +482,211 @@ await group('Refutation map gathers the ⚡ cards by study', async () => {
   await p.locator('.refut-row-link').first().click(); await p.waitForTimeout(500);
   check('a row link closes the map and goes to the row', await p.evaluate(() => document.getElementById('refutMapModal').classList.contains('hidden')));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+// Reads one file out of a .docx (zip) without extra tools: local file header -> raw deflate
+function readZipEntry(buf, name) {
+  for (let i = 0; i < buf.length - 30; i++) {
+    if (buf.readUInt32LE(i) !== 0x04034b50) continue;
+    const method = buf.readUInt16LE(i + 8), csize = buf.readUInt32LE(i + 18), nlen = buf.readUInt16LE(i + 26), xlen = buf.readUInt16LE(i + 28);
+    const fname = buf.toString('utf8', i + 30, i + 30 + nlen);
+    const start = i + 30 + nlen + xlen;
+    if (fname === name) { const data = buf.subarray(start, start + csize); return (method === 8 ? zlib.inflateRawSync(data) : data).toString('utf8'); }
+    i = start + csize - 1;
+  }
+  return '';
+}
+
+await group('Review fixes: peer rows by title, merge links, PDF search race, Word widths, older browsers, undo', async () => {
+  const p = await openDemo();
+  // Peer construct placed in a row that exists here under another id but the same title
+  const placed = await p.evaluate(async () => {
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, reviewerId: 'Peer' }));
+    const row = peer.clusters[0], oldId = row.id; row.id = 'peer_row_x'; row.thirdOrderTitle = '  ' + row.thirdOrderTitle.toUpperCase() + ' ';
+    const sec = peer.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId));
+    sec.id = 'peer_new_sec'; sec.text = 'A passage only the peer extracted, about something else entirely'; sec.clusterIds = ['peer_row_x'];
+    sec.clusterRelations = { peer_row_x: 'refutational' }; sec.clusterComments = { peer_row_x: 'peer reason' };
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    const item = state.peerComparison.peerOnlyAnnos.find(x => x.peerAnno.id === 'peer_new_sec');
+    await importPeerConstruct(item, 'discuss');
+    const got = state.annotations.find(a => a.text === sec.text);
+    return { ids: got.clusterIds, rel: got.clusterRelations[oldId], cmt: got.clusterComments[oldId], oldId };
+  });
+  check('a peer construct keeps its row when the row exists here under the same title', placed.ids.length === 1 && placed.ids[0] === placed.oldId && placed.rel === 'refutational' && placed.cmt === 'peer reason');
+  // MERGE: an added quote / construct pointing to things not in this project loses those links
+  const json = await p.evaluate(() => {
+    const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode }));
+    const s = d.annotations.find(a => a.type === 'second_order' && a.clusterIds.length);
+    d.annotations.push({ ...s, id: 'm_sec', clusterIds: [s.clusterIds[0], 'ghost_row'], clusterRelations: { ghost_row: 'refutational' }, clusterComments: { ghost_row: 'x' } });
+    const f = d.annotations.find(a => a.type === 'first_order');
+    d.annotations.push({ ...f, id: 'm_quote', parentIds: ['ghost_sec', s.id] });
+    return JSON.stringify(d);
+  });
+  p.removeAllListeners('dialog'); p.on('dialog', d => d.type() === 'confirm' ? d.dismiss() : d.accept());
+  await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
+  const tidy = await p.evaluate(() => { const s = state.annotations.find(a => a.id === 'm_sec'), q = state.annotations.find(a => a.id === 'm_quote'); return { c: s.clusterIds, r: Object.keys(s.clusterRelations), q: q.parentIds }; });
+  check('merged items keep only links to rows and constructs that exist', tidy.c.length === 1 && !tidy.r.includes('ghost_row') && tidy.q.length === 1 && tidy.q[0] !== 'ghost_sec', JSON.stringify(tidy));
+  p.removeAllListeners('dialog'); p.on('dialog', d => d.accept());
+  // PDF search: switching study while indexing never stores one paper's text under another
+  await tab(p, 'extract'); await p.waitForTimeout(500);
+  const race = await p.evaluate(async () => {
+    const a = state.docs[0].id, b = state.docs[1].id;
+    await switchStudy(a);
+    pdfSearchState.docId = null; pdfSearchState.pageTexts = [];
+    const pending = ensurePdfTextIndex();
+    await switchStudy(b);
+    // A page request on the destroyed PDF may never settle; that is harmless as long as nothing is stored
+    const r = await Promise.race([pending.catch(e => 'threw: ' + e.message), new Promise(res => setTimeout(() => res('pending'), 3000))]);
+    return { r: r === null || r === 'pending' ? null : (typeof r === 'string' ? r : 'array'), stored: pdfSearchState.docId };
+  });
+  check('switching study during PDF search indexing stops quietly', race.r === null || (race.r === 'array' && race.stored !== null), JSON.stringify(race));
+  check('the index is never filed under the wrong study', race.stored === null || race.stored === (await p.evaluate(() => state.docs[0].id)));
+  // Word export: every table has a real column grid
+  await tab(p, 'pub'); await p.waitForTimeout(400);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
+  const xml = readZipEntry(fs.readFileSync(await dl.path()), 'word/document.xml');
+  const cols = [...xml.matchAll(/<w:gridCol w:w="(\d+)"/g)].map(m => +m[1]);
+  check('Word tables have column widths (no 100-twip grid)', cols.length > 20 && cols.every(w => w > 300), `min=${Math.min(...cols)} n=${cols.length}`);
+  check('Word tables use a fixed layout', (xml.match(/<w:tblLayout w:type="fixed"\/>/g) || []).length >= 6);
+  // Older browsers: no regex lookbehind anywhere in the app scripts
+  const lookbehind = fs.readdirSync(path.join(ROOT, 'app/js')).filter(f => /\(\?<[=!]/.test(fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')));
+  check('no regex lookbehind (older Safari cannot parse it)', lookbehind.length === 0, lookbehind.join(', '));
+  // Undo: a second Ctrl+Z while the first is running is ignored; undoing a #1 deletion clears the re-reading flags
+  await tab(p, 'extract'); await p.waitForTimeout(400);
+  await p.locator('#studyList .del').first().click(); await p.waitForTimeout(1000);
+  const flaggedAfterDelete = await p.evaluate(() => state.clusters.filter(c => c.baselineChange).length);
+  const n = await p.evaluate(async () => { pushUndoAction({ type: 'delete_log', label: 'x', log: { id: 'log_dummy', action: 'x', timestamp: 1 } }); state.undoStack.reverse(); const a = performUndo(); const b = performUndo(); await Promise.all([a, b]); return state.undoStack.length; });
+  check('a fast second undo is ignored while the first runs', n === 1);
+  const flaggedAfterUndo = await p.evaluate(() => state.clusters.filter(c => c.baselineChange).length);
+  check('undoing the deletion of #1 clears the re-reading flags it caused', flaggedAfterDelete > 0 && flaggedAfterUndo === 0, `${flaggedAfterDelete} -> ${flaggedAfterUndo}`);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('eMERGe wording: structured around, not endorsed by', async () => {
+  for (const f of ['site/index.html', 'site/manual.html', 'site/meta-ethnography-101.html']) {
+    const t = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    check(`${f}: states it is independent of eMERGe`, t.includes('not affiliated with, or endorsed by, the eMERGe project'));
+  }
+  const all = ['README.md', 'me_canvas.html', 'site/index.html', 'site/manual.html', 'site/meta-ethnography-101.html', 'app/js/export.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+  check('no "eMERGe Methods Summary" (reads as an official eMERGe product)', !all.includes('eMERGe Methods Summary'));
+  check('no "eMERGe Phases" (the phases are Noblit and Hare\'s)', !/eMERGe<\/em> Phases|eMERGe Phases/.test(all));
+});
+
+await group('Appraisal: CASP 2024 judgement on each question, never a score; no JBI text', async () => {
+  const p = await openDemo();
+  await tab(p, 'extract'); await p.waitForTimeout(400);
+  await p.evaluate(async () => { await switchStudy(state.docs[0].id); state.isEditMetaMode = true; toggleMetaDockUI(); });
+  await p.selectOption('#metaAppraisalTool', 'CASP'); await p.waitForTimeout(300);
+  await p.evaluate(() => { document.getElementById('metaDomainBox').open = true; });
+  check('CASP 2024: 10 questions, all answered Yes / No / Can\'t Tell', (await p.locator('#metaDomainList .dom-a').count()) === 10 && (await p.locator('#metaDomainList .dom-a').nth(9).locator('option').count()) === 4);
+  check('sections and Consider prompts are shown', (await p.locator('#metaDomainList').textContent()).includes('Section C: Will the results help locally?') && (await p.locator('#metaDomainList details').count()) === 10);
+  const before = await logCount(p);
+  await p.locator('#metaDomainList .dom-a').first().selectOption('cant_tell'); await p.waitForTimeout(300);
+  await p.locator('#metaDomainList .dom-note').first().fill('Aims stated only in the abstract');
+  await p.locator('#metaDomainSummary textarea').nth(2).fill('Sampling frame not reported');
+  await p.locator('#metaDomainList .dom-note').nth(1).click(); await p.waitForTimeout(300);
+  const saved = await p.evaluate(() => ({ q1: state.docs[0].appraisalItems.CASP.q1, sum: state.docs[0].appraisalSummary.CASP }));
+  check('judgement, reason and summary are saved', saved.q1.a === 'cant_tell' && saved.q1.note === 'Aims stated only in the abstract' && saved.sum.unk === 'Sampling frame not reported');
+  check('each change is logged', (await logCount(p)) === before + 3);
+  await p.selectOption('#metaAppraisalTool', 'JBI'); await p.waitForTimeout(300);
+  check('JBI has no built-in questions (permission needed)', await p.evaluate(() => document.getElementById('metaDomainBox').classList.contains('hidden') && !APPRAISAL_CHECKLISTS.JBI));
+  await p.selectOption('#metaAppraisalTool', 'CASP'); await p.waitForTimeout(300);
+  check('switching tool keeps the earlier answers', (await p.locator('#metaDomainList .dom-a').first().inputValue()) === 'cant_tell');
+  await tab(p, 'pub'); await p.locator('[data-pub=table1]').click(); await p.waitForTimeout(300);
+  const t1 = await p.locator('#pubPreviewContainer').innerText();
+  check('Table 1b lists judgement + reason, the questions and the summary', t1.includes('Table 1b') && t1.includes("Can't Tell — Aims stated only in the abstract") && t1.includes('Q10. How valuable is the research?') && t1.includes('Unknowns: Sampling frame not reported'));
+  check('Table 1b credits CASP and its licence', t1.includes('Critical Appraisal Skills Programme (2024)') && t1.includes('CC BY-NC-SA 4.0'));
+  check('no score anywhere (no "x/10", no total)', !/\b\d+\s*\/\s*10\b/.test(t1) && !/total score/i.test(t1));
+  await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  const m = await p.locator('#pubPreviewContainer').innerText();
+  check('Methods says the answers were not added up', m.includes('not added up into a score') && m.includes('Table 1b'));
+  check('eMERGe Ext. 2 is "partly" until every question is answered', await p.evaluate(() => getEmergeChecklist().find(r => r.no === 'Ext. 2').level === 'partial'));
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
+  check('Word export includes Table 1b', readZipEntry(fs.readFileSync(await dl.path()), 'word/document.xml').includes('Table 1b. Methodological Strengths'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+  const lic = fs.readFileSync(path.join(ROOT, 'app/checklists/casp-qualitative-2024.js'), 'utf8');
+  check('the CASP file states its own licence (not MIT)', lic.includes('NOT COVERED BY THE MIT LICENCE') && lic.includes('CC BY-NC-SA 4.0') && fs.existsSync(path.join(ROOT, 'app/checklists/LICENSE-CASP.md')));
+  const appText = fs.readdirSync(path.join(ROOT, 'app/js')).map(f => fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')).join('\n');
+  check('no JBI checklist wording in the app', !appText.includes('congruity between the stated philosophical perspective'));
+});
+
+await group('Translation: placements start unjudged; empty cells can say why; rows start by an explicit choice; within-study links', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  check('a project that already has rows is not asked (choice read from its rows)', await p.evaluate(() => seedChoice() === (state.clusters.some(c => c.autoSeeded) ? 'seed' : 'manual') && document.getElementById('seedChoiceModal').classList.contains('hidden')));
+  // A new placement is not yet judged
+  const placed = await p.evaluate(async () => {
+    const c = state.clusters[0];
+    const sec = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && !a.clusterIds.includes(c.id));
+    await assignSecondOrderToCluster(sec, c); renderMatrixView();
+    return { rel: secRelation(sec, c.id), sym: contribSymbol([sec], c.id), id: sec.id, cid: c.id, label: clusterTranslationLabel(c) };
+  });
+  check('a new placement starts as "not yet judged" (○)', placed.rel === 'unjudged' && placed.sym === '○' && placed.label.includes('not yet judged'));
+  await p.waitForTimeout(500);
+  const idx = await p.evaluate(cid => [...document.querySelectorAll(`tr[data-cluster-id="${cid}"] .rel-select`)].findIndex(x => x.value === 'unjudged'), placed.cid);
+  const sel = p.locator(`tr[data-cluster-id="${placed.cid}"] .rel-select`).nth(idx);
+  await sel.selectOption('reciprocal'); await p.waitForTimeout(300);
+  check('judging it is saved and logged', await p.evaluate(x => secRelation(state.annotations.find(a => a.id === x.id), x.cid) === 'reciprocal' && state.logs[0].toVal.includes('Reciprocal') && state.logs[0].fromVal.includes('Not yet judged'), placed));
+  // Empty cell: different aspect
+  const empty = p.locator('.empty-cell .empty-status').first();
+  await empty.selectOption('other_aspect'); await p.waitForTimeout(300);
+  await p.locator('.empty-cell .empty-note').first().fill('Discusses night handover, not staffing');
+  await tab(p, 'pub'); await p.waitForTimeout(300);
+  check('empty-cell status and note are saved and logged', await p.evaluate(() => state.clusters.some(c => Object.values(c.cellStatus).some(v => v.status === 'other_aspect' && v.note === 'Discusses night handover, not staffing')) && state.logs.some(l => l.category === 'relating_studies')));
+  await p.locator('[data-pub=table2_grid]').click(); await p.waitForTimeout(300);
+  const g = await p.locator('#pubPreviewContainer').innerText();
+  check('Table 2b shows ◇ and the full legend', g.includes('◇') && g.includes('○ = placed, relation not yet judged') && g.includes('blank = not yet checked'));
+  await p.locator('[data-pub=table2]').click(); await p.waitForTimeout(300);
+  check('Table 2 names the study that addresses a different aspect', (await p.locator('#pubPreviewContainer').innerText()).includes('Addresses a different aspect of the topic:'));
+  await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  check('Methods mentions the different-aspect cells', (await p.locator('#pubPreviewContainer').innerText()).includes('addressed a different aspect'));
+  // Within-study links (Tab 1, top of the sidebar)
+  await tab(p, 'extract'); await p.waitForTimeout(400);
+  const docId = await p.evaluate(async () => { const d = state.docs.find(x => state.annotations.filter(a => a.type === 'second_order' && a.docId === x.id).length >= 2); await switchStudy(d.id); return d.id; });
+  await p.waitForTimeout(400);
+  check('the relationships box sits right under the study overview', await p.evaluate(() => { const l = document.getElementById('annotationsList'); return l.children[1] && l.children[1].classList.contains('study-links'); }));
+  await p.evaluate(() => { document.querySelector('.study-links').open = true; });
+  const linksBefore = await p.evaluate(id => (state.docs.find(d => d.id === id).conceptLinks || []).length, docId);
+  await p.locator('.study-links .cl-type').selectOption('mutual');
+  await p.locator('.study-links .cl-note').fill('p.6: the authors set these against each other');
+  await p.locator('.study-links .cl-add').click(); await p.waitForTimeout(400);
+  check('a relationship is saved and logged', await p.evaluate(x => state.docs.find(d => d.id === x.docId).conceptLinks.length === x.linksBefore + 1 && state.logs[0].action.startsWith('Recorded how two concepts relate'), { docId, linksBefore }));
+  await tab(p, 'pub'); await p.locator('[data-pub=appendix]').click(); await p.waitForTimeout(300);
+  check('Appendix C lists it', (await p.locator('#pubPreviewContainer').innerText()).includes('Appendix C. Relationships between Concepts within Each Study'));
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  check('Tab 2 context row shows it', (await p.locator('.matrix-context-row').innerText()).includes(`How its concepts relate (${linksBefore + 1})`));
+  // A new project asks how to start the rows
+  await p.evaluate(() => { state.clusters = []; delete state.loa.seedChoice; renderMatrixView(); });
+  await p.waitForTimeout(300);
+  check('a project without rows asks how to start', await p.evaluate(() => !document.getElementById('seedChoiceModal').classList.contains('hidden')));
+  await p.click('#seedChoiceManualBtn'); await p.waitForTimeout(500);
+  check('choosing an empty matrix is recorded, logged and places nothing', await p.evaluate(() => state.loa.seedChoice === 'manual' && state.clusters.length === 0 && state.logs[0].toVal === 'Empty matrix' && !document.getElementById('autoSeedIndexToggle').checked));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Demo shows a worked example of each newer feature', async () => {
+  const p = await openDemo();
+  const r = await p.evaluate(() => ({
+    unjudged: state.annotations.some(a => a.type === 'second_order' && liveClusterIds(a).some(id => secRelation(a, id) === 'unjudged')),
+    other: state.clusters.some(c => Object.values(c.cellStatus || {}).some(v => v.status === 'other_aspect')),
+    absent: state.clusters.some(c => Object.values(c.cellStatus || {}).some(v => v.status === 'absent')),
+    links: state.docs.filter(d => (d.conceptLinks || []).length).length,
+    casp: state.docs.every(d => appraisalDomainsComplete(d)),
+    nt: state.annotations.some(a => a.notTranslatedNote),
+    seed: state.loa.seedChoice
+  }));
+  check('a placement not yet judged (○)', r.unjudged);
+  check('empty cells: different aspect (◇) and not addressed (—)', r.other && r.absent);
+  check('within-study relationships in several studies', r.links >= 3);
+  check('CASP judgements for every study', r.casp);
+  check('a reason for a construct left out of every row', r.nt);
+  check('the start choice is recorded', r.seed === 'manual');
+  const notice = fs.readFileSync(path.join(ROOT, 'app/demo/demo-data.js'), 'utf8').slice(0, 200);
+  check('demo data stays labelled AI-generated', notice.includes('AI-GENERATED FICTIONAL DEMO DATA'));
   await p.context().close();
 });
 

@@ -227,7 +227,6 @@ const state = {
   projectCode: lsGet('me_project_code') || '',
   teamMode: lsGet('me_team_mode') === 'true',
   logMinorOps: lsGet('me_log_minor_ops') === 'true',
-  autoSeedIndex: lsGet('me_auto_seed_index') !== 'false',
   hiddenStudyIds: new Set((() => { try { return JSON.parse(lsGet('me_hidden_studies') || '[]'); } catch (e) { return []; } })()),
   docs: [],
   annotations: [],
@@ -312,8 +311,44 @@ function pdfjsDocumentOptions() {
 }
 let pageObserver = null;
 
+// ---- Domain-level appraisal (eMERGe Part 3: report the judgement on each domain of the tool for each study) ----
+// The checklists are records of judgements with reasons. They are never added up into a score.
+// Checklist definitions live in their own files under app/checklists/ (each under its own licence, NOT the MIT licence
+// of this app), loaded right after this file. Only checklists whose wording may be redistributed are included: CASP
+// (CC BY-NC-SA 4.0). JBI checklists need JBI's permission, so JBI stays a tool name without built-in questions.
+const APPRAISAL_CHECKLISTS = {};
+function appraisalAnswerLabel(tool, a) { const c = APPRAISAL_CHECKLISTS[tool]; const m = c && c.answers.find(x => x[0] === a); return m ? m[1] : ''; }
+// { q1: { a: 'yes', note: '' }, … } for the given tool (answers are kept per tool, so switching tool loses nothing)
+function appraisalItemsOf(doc, tool = doc.appraisalTool) {
+  if (!doc.appraisalItems || typeof doc.appraisalItems !== 'object') doc.appraisalItems = {};
+  if (!doc.appraisalItems[tool] || typeof doc.appraisalItems[tool] !== 'object') doc.appraisalItems[tool] = {};
+  return doc.appraisalItems[tool];
+}
+// Every domain with an answer (open items: with a note)? Completeness only, not a judgement of quality.
+function appraisalDomainsComplete(doc) {
+  const c = APPRAISAL_CHECKLISTS[doc.appraisalTool];
+  if (!c) return false;
+  const items = appraisalItemsOf(doc);
+  return c.items.every(it => !!(items[it.id] && items[it.id].a));
+}
+// The checklist's own summary (CASP: positive / negative / unknowns), kept per tool
+function appraisalSummaryOf(doc, tool = doc.appraisalTool) {
+  if (!doc.appraisalSummary || typeof doc.appraisalSummary !== 'object') doc.appraisalSummary = {};
+  if (!doc.appraisalSummary[tool] || typeof doc.appraisalSummary[tool] !== 'object') doc.appraisalSummary[tool] = {};
+  return doc.appraisalSummary[tool];
+}
+function hasAppraisalDomains(doc) {
+  const c = APPRAISAL_CHECKLISTS[doc.appraisalTool];
+  if (!c) return false;
+  const items = appraisalItemsOf(doc);
+  const sum = appraisalSummaryOf(doc);
+  return c.items.some(it => items[it.id] && (items[it.id].a || items[it.id].note)) || Object.values(sum).some(Boolean);
+}
+
 function normalizeDoc(d) {
   if (typeof d.appraisalTool !== 'string' || !d.appraisalTool) d.appraisalTool = 'CASP';
+  if (!d.appraisalItems || typeof d.appraisalItems !== 'object') d.appraisalItems = {};
+  if (!d.appraisalSummary || typeof d.appraisalSummary !== 'object') d.appraisalSummary = {};
   return d;
 }
 
@@ -408,26 +443,62 @@ function isBaselineDocId(docId) { return state.docs.length > 0 && state.docs[0].
 function isSecRefutational(sec, cid) {
   return !isBaselineDocId(sec.docId) && !!(sec.clusterRelations && sec.clusterRelations[cid] === 'refutational');
 }
-// A row's reciprocal / refutational character is derived from its cells (each study's relation is set per cell),
-// not stored per row: 'reciprocal', 'refutational' (all translated studies refute) or 'mixed'.
-function clusterTranslationType(c) {
-  const secs = state.annotations.filter(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && (a.clusterIds || []).includes(c.id));
-  const refut = secs.filter(a => isSecRefutational(a, c.id)).length;
-  if (refut === 0) return 'reciprocal';
-  return refut === secs.length ? 'refutational' : 'mixed';
+// How a study's construct relates to a row it was placed in. A placement starts as 'unjudged': silence is not agreement,
+// and refutational translation is the one most often overlooked (eMERGe criterion 13). Study #1 establishes the row.
+const CELL_RELATIONS = ['unjudged', 'reciprocal', 'refutational'];
+function secRelation(sec, cid) {
+  if (isBaselineDocId(sec.docId)) return 'baseline';
+  const r = sec.clusterRelations && sec.clusterRelations[cid];
+  return CELL_RELATIONS.includes(r) ? r : 'unjudged';
 }
+// A row's reciprocal / refutational character is derived from its judged cells (each study's relation is set per cell),
+// not stored per row: 'reciprocal', 'refutational' (all judged studies refute), 'mixed', or 'unjudged' (nothing judged yet).
+function clusterSecsTranslated(c) {
+  return state.annotations.filter(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && (a.clusterIds || []).includes(c.id));
+}
+function clusterTranslationType(c) {
+  const rels = clusterSecsTranslated(c).map(a => secRelation(a, c.id)).filter(r => r !== 'unjudged');
+  if (rels.length === 0) return clusterSecsTranslated(c).length ? 'unjudged' : 'reciprocal';
+  const refut = rels.filter(r => r === 'refutational').length;
+  if (refut === 0) return 'reciprocal';
+  return refut === rels.length ? 'refutational' : 'mixed';
+}
+function clusterUnjudgedCount(c) { return clusterSecsTranslated(c).filter(a => secRelation(a, c.id) === 'unjudged').length; }
 function clusterTranslationLabel(c) {
   const t = clusterTranslationType(c);
-  return t === 'refutational' ? 'Refutational' : t === 'mixed' ? 'Reciprocal + Refutational' : 'Reciprocal';
+  const base = t === 'unjudged' ? 'Not yet judged' : t === 'refutational' ? 'Refutational' : t === 'mixed' ? 'Reciprocal + Refutational' : 'Reciprocal';
+  const n = t === 'unjudged' ? 0 : clusterUnjudgedCount(c);
+  return base + (n ? ` (${n} placement${n === 1 ? '' : 's'} not yet judged)` : '');
 }
 // Symbol for a study's contribution to a row (Table 2b, grid exports)
+const CONTRIB_SYMBOLS = { baseline: '◆', reciprocal: '●', refutational: '⚡', unjudged: '○' };
 function contribSymbol(docSecs, cid) {
   if (docSecs.length && isBaselineDocId(docSecs[0].docId)) return '◆';
-  const hasRefut = docSecs.some(sc => isSecRefutational(sc, cid));
-  const hasRecip = docSecs.some(sc => !isSecRefutational(sc, cid));
-  return (hasRefut && hasRecip) ? '● / ⚡' : (hasRefut ? '⚡' : '●');
+  const kinds = ['reciprocal', 'refutational', 'unjudged'].filter(k => docSecs.some(sc => secRelation(sc, cid) === k));
+  return kinds.map(k => CONTRIB_SYMBOLS[k]).join(' / ');
 }
+// An empty cell (no construct of this study in this row) says nothing by itself. The reviewer can record that the study was
+// checked and does not address the theme, or that it addresses a different aspect of the topic (Noblit & Hare's third way
+// studies relate, which leads to a line of argument; eMERGe S4, criterion 11).
+const EMPTY_CELL_STATUS = {
+  absent: { symbol: '—', label: 'Checked: not addressed in this study' },
+  other_aspect: { symbol: '◇', label: 'Addresses a different aspect of the topic' }
+};
+function emptyCellInfo(c, docId) {
+  const v = c.cellStatus && c.cellStatus[docId];
+  return v && EMPTY_CELL_STATUS[v.status] ? { ...v, ...EMPTY_CELL_STATUS[v.status] } : null;
+}
+const TABLE2B_LEGEND = '◆ = study #1, which establishes the rows; ● = Reciprocal; ⚡ = Refutational; ○ = placed, relation not yet judged; ◇ = addresses a different aspect of the topic; — = checked, not addressed; blank = not yet checked';
 function getCellRelationMeta(rel) {
+  if (rel === 'unjudged') {
+    return {
+      label: '○ Not yet judged',
+      cardCls: 'bg-white border-slate-300 border-dashed',
+      badgeCls: 'bg-slate-100 text-slate-700 border-slate-400',
+      quoteBorderCls: 'border-slate-200',
+      dividerCls: 'border-slate-200'
+    };
+  }
   if (rel === 'baseline') {
     return {
       label: '◆ Baseline',
@@ -466,6 +537,7 @@ function normalizeCluster(c) {
   if (typeof c.cerqualConfidence !== 'string') c.cerqualConfidence = 'Not assessed';
   if (typeof c.cerqualExplanation !== 'string') c.cerqualExplanation = '';
   if (typeof c.seedConfirmed !== 'boolean') c.seedConfirmed = false;
+  if (!c.cellStatus || typeof c.cellStatus !== 'object') c.cellStatus = {}; // { [docId]: { status: 'absent' | 'other_aspect', note } }
   if (typeof c.translationSummary !== 'string') c.translationSummary = ''; // Step A (Phase 5): how the studies' concepts translate into one another
   if (typeof c.reflexiveNote !== 'string') c.reflexiveNote = '';           // optional: how the reviewer's own position shapes this interpretation
   if (typeof c.synthesisNote !== 'string') c.synthesisNote = '';           // Step B: the reviewer's 3rd order construct (definition & interpretation)

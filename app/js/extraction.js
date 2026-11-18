@@ -27,6 +27,7 @@ function updateSidebar() {
     return;
   }
 
+
   seconds.forEach(sec => {
     const linked = firsts.filter(f => isQuoteLinkedTo(f, sec.id));
     const w = document.createElement('div');
@@ -201,7 +202,7 @@ function updateSidebar() {
       sec.note = newNote;
       await dbPut('annotations', sec);
       await recordAuditLog({
-        clusterIds: sec.clusterIds,
+        clusterIds: liveClusterIds(sec), // rows that still exist; none for an unplaced construct
         category: 'matrix_mapping',
         action: `Updated 2nd Order Summary Label (${getDisplayName(state.docs.find(d => d.id === sec.docId))})`,
         fromVal: oldNote || '(None)',
@@ -282,7 +283,9 @@ function updateSidebar() {
     list.appendChild(header);
     unlinked.forEach(f => list.appendChild(makeFirstCard(f, false, null, seconds)));
   }
-  prependStudyOverviewNudge(list, activeDoc);
+  const overviewBox = prependStudyOverviewNudge(list, activeDoc);
+  const linksBox = buildStudyConceptLinksBox(activeDoc, seconds);
+  if (linksBox && overviewBox) overviewBox.after(linksBox);
   if (list) list.scrollTop = prevScrollTop;
 }
 
@@ -304,6 +307,73 @@ function prependStudyOverviewNudge(list, doc) {
     };
   }
   list.prepend(box);
+  return box;
+}
+
+// ========================================================
+// HOW THIS STUDY'S CONCEPTS RELATE (within one account)
+// Noblit & Hare: keep each account whole; eMERGe criterion 13: describe how relationships between concepts WITHIN
+// and across studies were preserved in translation. Stored on the study: doc.conceptLinks = [{ id, from, to, type, note }]
+// between its own 2nd Order constructs, with the same relation types as the line-of-argument map.
+// ========================================================
+let conceptLinksOpen = false; // remembered while the page is open
+function studyConceptLinks(doc) {
+  if (!Array.isArray(doc.conceptLinks)) doc.conceptLinks = [];
+  const live = new Set(state.annotations.filter(a => a.type === 'second_order' && a.docId === doc.id).map(a => a.id));
+  return doc.conceptLinks.filter(l => live.has(l.from) && live.has(l.to));
+}
+function conceptLinkText(l) {
+  const lab = id => { const s = state.annotations.find(a => a.id === id); return s ? secShortLabel(s) : '(removed)'; };
+  const t = LINK_TYPES[l.type] || LINK_TYPES.leads;
+  return `${lab(l.from)} ${t.sym} ${lab(l.to)}`;
+}
+function buildStudyConceptLinksBox(doc, seconds) {
+  if (!doc || seconds.length < 2) return null;
+  const links = studyConceptLinks(doc);
+  const box = document.createElement('details');
+  box.className = 'study-links mb-3 text-xs bg-white border border-violet-200 rounded-lg p-2';
+  box.open = conceptLinksOpen;
+  box.addEventListener('toggle', () => { conceptLinksOpen = box.open; });
+  const opt = s => `<option value="${escapeHtml(s.id)}">${escapeHtml(secShortLabel(s).slice(0, 60))}</option>`;
+  box.innerHTML = `
+    <summary class="font-semibold text-violet-900 cursor-pointer select-none">🔗 How this study's concepts relate <span class="font-normal text-violet-700">(${links.length})</span></summary>
+    <div class="mt-1 text-[11px] text-slate-500 leading-snug">Keep the account whole: record how the authors' concepts relate to one another in this study, so the relationships can be kept in view when you translate (eMERGe criterion 13). Reported in Appendix C.</div>
+    <ul class="mt-1.5 space-y-1">${links.map(l => `<li class="flex items-start gap-1.5"><span class="flex-1 text-slate-700"><b style="color:${(LINK_TYPES[l.type] || LINK_TYPES.leads).color}">${escapeHtml(conceptLinkText(l))}</b>${l.note ? ` <span class="text-slate-500">— ${escapeHtml(l.note)}</span>` : ''}</span><button type="button" class="del-link text-slate-400 hover:text-rose-500 cursor-pointer" data-id="${escapeHtml(l.id)}" title="Remove this relationship"><i class="ph ph-x"></i></button></li>`).join('') || '<li class="text-slate-400">None recorded yet.</li>'}</ul>
+    <div class="mt-2 grid grid-cols-1 gap-1">
+      <select class="cl-from border border-slate-300 rounded px-1 py-0.5 bg-white">${seconds.map(opt).join('')}</select>
+      <select class="cl-type border border-slate-300 rounded px-1 py-0.5 bg-white">${Object.entries(LINK_TYPES).map(([k, t]) => `<option value="${k}">${t.sym} ${escapeHtml(t.label)}</option>`).join('')}</select>
+      <select class="cl-to border border-slate-300 rounded px-1 py-0.5 bg-white">${seconds.map(opt).join('')}</select>
+      <input type="text" class="cl-note border border-slate-300 rounded px-1.5 py-0.5" placeholder="In the authors' account… (optional; page or reason)">
+      <button type="button" class="cl-add px-2 py-1 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded cursor-pointer">Add relationship</button>
+    </div>`;
+  if (seconds[1]) box.querySelector('.cl-to').value = seconds[1].id;
+  box.querySelector('.cl-add').onclick = async () => {
+    const from = box.querySelector('.cl-from').value, to = box.querySelector('.cl-to').value, type = box.querySelector('.cl-type').value;
+    const note = box.querySelector('.cl-note').value.trim();
+    if (!from || !to || from === to) { showSnackbar('Choose two different concepts.'); return; }
+    if (studyConceptLinks(doc).some(l => l.from === from && l.to === to && l.type === type)) { showSnackbar('This relationship is already recorded.'); return; }
+    const link = { id: 'cl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, type, note };
+    doc.conceptLinks.push(link);
+    await dbPut('docs', doc);
+    const secs = [from, to].map(id => state.annotations.find(a => a.id === id));
+    await recordAuditLog({
+      category: 'reading_extraction',
+      action: `Recorded how two concepts relate within ${getDisplayName(doc)}`,
+      detail: note, toVal: conceptLinkText(link),
+      clusterIds: [...new Set(secs.flatMap(s => s ? liveClusterIds(s) : []))]
+    });
+    conceptLinksOpen = true;
+    updateSidebar();
+  };
+  box.querySelectorAll('.del-link').forEach(btn => btn.onclick = async () => {
+    const link = doc.conceptLinks.find(l => l.id === btn.dataset.id);
+    if (!link) return;
+    doc.conceptLinks = doc.conceptLinks.filter(l => l !== link);
+    await dbPut('docs', doc);
+    await recordAuditLog({ category: 'reading_extraction', action: `Removed a relationship between concepts within ${getDisplayName(doc)}`, fromVal: conceptLinkText(link) + (link.note ? ' — ' + link.note : '') });
+    updateSidebar();
+  });
+  return box;
 }
 
 // ========================================================

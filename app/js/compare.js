@@ -632,7 +632,7 @@ function renderComparisonTabContent() {
       clList.innerHTML = `<div class="text-xs text-slate-400">No 3rd order clusters in peer JSON.</div>`;
     } else {
       peerClusters.forEach(pc => {
-        const exists = state.clusters.find(c => c.id === pc.id || (c.thirdOrderTitle && pc.thirdOrderTitle && c.thirdOrderTitle.toLowerCase() === pc.thirdOrderTitle.toLowerCase()));
+        const exists = state.clusters.find(c => c.id === pc.id || sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
         const row = document.createElement('div');
         row.className = 'p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between text-xs';
         row.innerHTML = `
@@ -687,6 +687,18 @@ async function mergePeerAuditLogs() {
   return added;
 }
 
+// Peer row id -> local row id (same id, else same title, trimmed and case-insensitive)
+function sameRowTitle(a, b) { return !!(a && b && a.trim().toLowerCase() === b.trim().toLowerCase()); }
+function peerRowMap(cmp) {
+  const map = {};
+  (cmp.peerData.clusters || []).forEach(pc => {
+    const local = state.clusters.find(c => c.id === pc.id) || state.clusters.find(c => sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
+    if (local) map[pc.id] = local.id;
+  });
+  state.clusters.forEach(c => { if (!map[c.id]) map[c.id] = c.id; }); // a local id the peer also uses
+  return map;
+}
+
 async function importPeerConstruct(item, status) {
   await mergePeerAuditLogs();
   const cmp = state.peerComparison;
@@ -727,12 +739,16 @@ async function importPeerConstruct(item, status) {
     raw.parentIds = [...new Set(okParents)];
     if (waiting.length) raw._peerParentIds = waiting;
   }
-  // Keep only matrix rows that exist locally (peer rows can be imported separately in the "3rd Order & Logs" tab)
+  // Map the peer's rows to local rows: same id, else same title (the rule that shows "✓ Already in Matrix").
+  // Placements in rows that do not exist here are dropped (peer rows can be imported in the "3rd Order & Logs" tab).
   if (Array.isArray(raw.clusterIds)) {
-    const localIds = new Set(state.clusters.map(c => c.id));
-    raw.clusterIds = raw.clusterIds.filter(id => localIds.has(id));
+    const rowMap = peerRowMap(cmp);
+    raw.clusterIds = [...new Set(raw.clusterIds.map(id => rowMap[id]).filter(Boolean))];
     ['clusterRelations', 'clusterComments'].forEach(k => {
-      if (raw[k] && typeof raw[k] === 'object') Object.keys(raw[k]).forEach(id => { if (!localIds.has(id)) delete raw[k][id]; });
+      if (!raw[k] || typeof raw[k] !== 'object') return;
+      const out = {};
+      Object.keys(raw[k]).forEach(id => { if (rowMap[id] && !(rowMap[id] in out)) out[rowMap[id]] = raw[k][id]; });
+      raw[k] = out;
     });
   }
   if (raw.type === 'second_order' && targetDocId === state.docs[0]?.id) raw.indexSeeded = true;

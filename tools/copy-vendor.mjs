@@ -78,6 +78,7 @@ const nC = writeDataScripts(path.join(pdfjsOut, 'cmaps'), path.join(pdfjsOut, 'o
 const nF = writeDataScripts(path.join(pdfjsOut, 'standard_fonts'), path.join(pdfjsOut, 'offline', 'standard_fonts'), 'font:', f => /\.(pfb|ttf)$/i.test(f));
 console.log(`✔ pdfjs/offline: ${nC} CMaps, ${nF} standard fonts as <script> files`);
 notices.push('', 'PDF.js data files keep their own licences: CMaps → app/vendor/pdfjs/cmaps/LICENSE; standard fonts → app/vendor/pdfjs/standard_fonts/LICENSE_FOXIT and LICENSE_LIBERATION. app/vendor/pdfjs/offline/ holds the same data re-encoded as <script> files for the offline edition.');
+notices.push('', 'Not a vendored library, listed here for completeness: app/checklists/casp-qualitative-2024.js reproduces the CASP Checklist: For Qualitative Research (2024), © Critical Appraisal Skills Programme, under CC BY-NC-SA 4.0 (not MIT). See app/checklists/LICENSE-CASP.md.');
 notices.push('', 'The docx bundle also contains its own dependencies (e.g. JSZip, used under its MIT option); their notices are kept inside build/index.umd.js.', '');
 fs.writeFileSync(path.join(out, 'THIRD_PARTY_NOTICES.md'), notices.join('\n'));
 console.log('✔ app/vendor/THIRD_PARTY_NOTICES.md');

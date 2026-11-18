@@ -2,7 +2,7 @@
 <!--
   Meta-Ethnography Canvas
   An open-source, single-window browser workspace for Meta-Ethnography qualitative evidence synthesis,
-  designed around the eMERGe Reporting Guideline (France et al., 2019).
+  with reporting outputs structured around the eMERGe reporting guidance (France et al., 2019).
 
   Repository: https://github.com/jdaeyun/meta-ethnography-canvas
   License: MIT License
@@ -343,7 +343,7 @@
                 </div>
 
                 <div class="col-span-6">
-                  <label class="block text-xs font-semibold text-slate-600 mb-0.5">Overall Quality (Methodological)</label>
+                  <label class="block text-xs font-semibold text-slate-600 mb-0.5" title="Your overall judgement of the study's methodological strengths and limitations. It is not a sum of the checklist answers, and it is never used to rank or weight studies.">Overall judgement (yours, not a sum)</label>
                   <select id="metaQuality" class="w-full border border-slate-300 bg-white rounded px-1.5 py-1 text-xs focus:outline-none focus:border-indigo-500">
                     <option value="">Not appraised</option>
                     <option value="High">High (Minor limitations)</option>
@@ -352,6 +352,13 @@
                   </select>
                 </div>
               </div>
+              <details id="metaDomainBox" class="hidden rounded border border-teal-200 bg-teal-50/40 p-1.5">
+                <summary class="text-xs font-semibold text-teal-900 cursor-pointer select-none">Judgement on each domain <span id="metaDomainStatus" class="font-normal text-teal-700"></span></summary>
+                <p class="text-[11px] text-slate-500 mt-1 leading-snug">eMERGe (Part 3) asks for each study's judgement on every domain of the tool, with reasons. Record what you saw and why; the answers are not added up into a score. Reported in Table 1b.</p>
+                <p id="metaDomainGuide" class="text-[11px] text-slate-600 mt-1 leading-snug italic"></p>
+                <div id="metaDomainList" class="mt-1.5 space-y-1.5"></div>
+                <div id="metaDomainSummary" class="mt-2 space-y-1"></div>
+              </details>
               <div class="grid grid-cols-12 gap-2 items-end">
                 <div class="col-span-5">
                   <label class="block text-xs font-semibold text-slate-600 mb-0.5">Conceptual Depth (Richness)</label>
@@ -434,8 +441,8 @@
             <span>🔗 Research Aim & Overall Model</span>
             <i id="loaCaretIcon" class="ph ph-caret-down text-xs"></i>
           </button>
-          <label class="inline-flex items-center space-x-1.5 text-xs text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-md border border-amber-200 cursor-pointer font-semibold transition" title="Each 2nd Order construct of study #1 (the index paper, or the earliest study when translating chronologically) that is not yet in a row becomes a provisional 3rd Order row, once.">
-            <input type="checkbox" id="autoSeedIndexToggle" class="rounded text-amber-600" checked>
+          <label class="inline-flex items-center space-x-1.5 text-xs text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-md border border-amber-200 cursor-pointer font-semibold transition" title="Project choice (asked once, recorded in the Audit Trail): each 2nd Order construct of study #1 that is not yet in a row becomes a provisional 3rd Order row, once. Off: you create every row yourself.">
+            <input type="checkbox" id="autoSeedIndexToggle" class="rounded text-amber-600">
             <span>★ Auto-place #1 Study</span>
           </label>
           <label class="inline-flex items-center space-x-1.5 text-xs text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-md border border-indigo-200 cursor-pointer font-semibold transition" title="Bird's-eye overview: Collapse full quotes and comment boxes in the matrix so you can see 10+ studies and themes at a glance">
@@ -820,7 +827,7 @@
             <button data-pub="table2" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer">Table 2: Synthesis & LoA</button>
             <button data-pub="table2_grid" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer" title="Concept-by-Study Contribution Matrix (● Reciprocal / ⚡ Refutational)">Table 2b: Concept × Study Grid</button>
             <button data-pub="table3" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer">Table 3: CERQual</button>
-            <button data-pub="appendix" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer">Appendix A–B: Audit Trail &amp; Not Translated</button>
+            <button data-pub="appendix" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer">Appendices A–C: Audit Trail, Not Translated, Within-Study Links</button>
           </div>
           <select id="table3ModeSelect" class="text-xs border border-slate-300 rounded-md px-1.5 py-1 bg-white text-slate-700 cursor-pointer" title="Table 3 layout (GRADE-CERQual). Applies to the preview, Markdown and Word export."></select>
           <div class="h-4 w-px bg-slate-200 mx-1"></div>
@@ -926,6 +933,26 @@
   <!-- ======================================================== -->
   <!-- MODAL: ORDER STUDIES TIED ON RICHNESS / QUALITY            -->
   <!-- ======================================================== -->
+  <div id="seedChoiceModal" role="dialog" aria-modal="true" aria-label="How to start the rows" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-6">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden">
+      <div class="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <h2 class="text-sm font-bold">How do you want to start the 3rd Order rows?</h2>
+        <button id="seedChoiceCloseBtn" class="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer" title="Decide later"><i class="ph ph-x text-lg"></i></button>
+      </div>
+      <div class="p-5 space-y-3 text-xs text-slate-700 overflow-y-auto">
+        <p>This is a choice about method, so it is made once for the project and recorded in the Audit Trail (you can change it later with <b>★ Auto-place #1 Study</b>).</p>
+        <div class="rounded border border-amber-200 bg-amber-50 p-2.5"><b>Start from study #1.</b> Each 2nd Order construct of <b id="seedChoiceFirst"></b> becomes a provisional row, and the other studies are translated into these rows (as in index-paper approaches). The rows stay marked provisional until you confirm them; study #1's structure can shape the whole synthesis, so revisit it as you go.</div>
+        <div class="rounded border border-slate-200 bg-slate-50 p-2.5"><b>Start with an empty matrix.</b> You create every row yourself, comparing each concept with the concepts of all the other studies in turn.</div>
+        <label class="block text-xs font-semibold text-slate-600">Why this choice? (optional, saved in the Audit Trail)
+          <textarea id="seedChoiceWhy" class="mt-0.5 w-full text-xs border border-slate-300 rounded p-1.5 h-14 resize-y bg-white focus:outline-none focus:border-indigo-500"></textarea></label>
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button id="seedChoiceManualBtn" class="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-md cursor-pointer">Start with an empty matrix</button>
+          <button id="seedChoiceSeedBtn" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-md cursor-pointer">Start from study #1</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="richTieModal" role="dialog" aria-modal="true" aria-label="Studies tied on richness" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-6">
     <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden">
       <div class="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
@@ -1079,6 +1106,7 @@
   <!-- App scripts: classic scripts sharing one global scope. core.js must come first; keep this order. -->
   <script src="app/version.js"></script>
   <script src="app/js/core.js"></script>
+  <script src="app/checklists/casp-qualitative-2024.js"></script>
   <script src="app/js/app.js"></script>
   <script src="app/js/undo-audit.js"></script>
   <script src="app/js/loa.js"></script>

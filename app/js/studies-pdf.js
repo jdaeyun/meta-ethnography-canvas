@@ -227,7 +227,20 @@ async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
   const secsOf = docId => state.annotations.filter(a => a.type === 'second_order' && a.docId === docId).map(normalizeAnnotation);
   const prevSecs = secsOf(prevId), nowSecs = secsOf(nowDoc.id);
   const live = new Set(state.clusters.map(c => c.id));
-  const affected = state.clusters.filter(c => [...prevSecs, ...nowSecs].some(s => s.clusterIds.includes(c.id)));
+  // A row whose flag started from the study that is #1 again (moved back, or a deletion undone) is back on the basis it was
+  // built on: its flag is cleared instead of renewed.
+  const reverted = state.clusters.filter(c => c.baselineChange && c.baselineChange.fromDocId === nowDoc.id);
+  for (const c of reverted) { delete c.baselineChange; await dbPut('clusters', c); }
+  if (reverted.length) {
+    await recordAuditLog({
+      category: 'study_order',
+      action: `Study #1 is ${getDisplayName(nowDoc)} again: ${reverted.length} row(s) are back on the basis they were built on`,
+      detail: `Re-reading flag cleared for: ${reverted.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
+      clusterIds: reverted.map(c => c.id)
+    });
+  }
+  const revertedIds = new Set(reverted.map(c => c.id));
+  const affected = state.clusters.filter(c => !revertedIds.has(c.id) && [...prevSecs, ...nowSecs].some(s => s.clusterIds.includes(c.id)));
   if (affected.length === 0) return;
   // Relations the new #1 study had as a translated study: they are kept but no longer shown or exported (a baseline has none)
   let hiddenRefut = 0;
@@ -235,14 +248,16 @@ async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
   const prevCells = prevSecs.reduce((n, s) => n + s.clusterIds.filter(id => live.has(id)).length, 0);
   const at = Date.now();
   for (const c of affected) {
-    c.baselineChange = { at, fromDocId: prevId, fromName: prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) };
+    // Chained changes (A → B → C) keep the study the row was originally built on
+    const orig = c.baselineChange;
+    c.baselineChange = { at, fromDocId: orig ? orig.fromDocId : prevId, fromName: orig ? orig.fromName : prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) };
     await dbPut('clusters', c);
   }
   await recordAuditLog({
     category: 'study_order',
     action: `Study #1 changed: the translation in ${affected.length} 3rd Order row(s) needs re-reading`,
     detail: `#1 was ${prevName || 'another study'}; it is now ${getDisplayName(nowDoc)}, which now establishes these rows.`
-      + (prevCells ? ` ${prevName || 'The former #1'} is now translated into ${prevCells} cell(s); its cards there show as Reciprocal until you judge them.` : '')
+      + (prevCells ? ` ${prevName || 'The former #1'} is now translated into ${prevCells} cell(s); its cards there have no reciprocal / refutational judgement as a translated study unless one was recorded before: judge them.` : '')
       + (hiddenRefut ? ` ${hiddenRefut} Refutational judgement(s) of ${getDisplayName(nowDoc)} are no longer shown, because study #1 has no relation of its own.` : '')
       + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
     fromVal: `#1: ${prevName}`,
@@ -651,6 +666,7 @@ function populateMetaEditInputs() {
     .map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(getDisplayName(d))}</option>`).join('');
   compSel.value = (doc.companionOf && state.docs.some(d => d.id === doc.companionOf)) ? doc.companionOf : '';
   document.getElementById('metaAppraisalTool').value = doc.appraisalTool || 'CASP';
+  renderAppraisalDomains(doc);
   document.getElementById('metaQuality').value = doc.quality || '';
   document.getElementById('metaRichness').value = doc.richness || '';
   document.getElementById('metaContextNote').value = doc.contextNote || '';
@@ -733,6 +749,86 @@ async function saveCurrentMeta() {
   updateDocHeaderUI();
   if (prevOverview !== doc.studyOverview) updateSidebar();
 }
+
+// ---- Domain judgements for checklists with built-in questions (CASP; eMERGe Part 3). Saved and logged as they change, independently of "Save Info". ----
+function renderAppraisalDomains(doc) {
+  const box = document.getElementById('metaDomainBox');
+  const list = document.getElementById('metaDomainList');
+  const sumBox = document.getElementById('metaDomainSummary');
+  const tool = document.getElementById('metaAppraisalTool').value || doc.appraisalTool;
+  const c = APPRAISAL_CHECKLISTS[tool];
+  box.classList.toggle('hidden', !c);
+  list.innerHTML = '';
+  sumBox.innerHTML = '';
+  if (!c) return;
+  document.getElementById('metaDomainGuide').textContent = c.guidance ? `${c.name}: “${c.guidance}”` : '';
+  const items = appraisalItemsOf(doc, tool);
+  const summary = appraisalSummaryOf(doc, tool);
+  const updateStatus = () => {
+    const done = c.items.filter(it => items[it.id] && items[it.id].a).length;
+    document.getElementById('metaDomainStatus').textContent = `· ${c.name} · ${done === c.items.length ? 'all questions answered' : `${c.items.length - done} question(s) not answered yet`}`;
+  };
+  updateStatus();
+  const logChange = async (what, detail, from, to) => {
+    await recordAuditLog({
+      category: 'context_appraisal',
+      action: `Appraisal (${tool} ${what}) for ${getDisplayName(doc)}: ${from ? 'changed' : 'recorded'}`,
+      detail, fromVal: from || '', toVal: to || ''
+    });
+  };
+  const bindText = (el, get, set, what, detail) => {
+    let committed = get() || '';
+    bindPendingCommit(el, async () => {
+      const next = el.value.trim();
+      if (next === committed) return;
+      const prev = committed;
+      committed = next;
+      set(next);
+      await dbPut('docs', doc);
+      await logChange(what, detail, prev, next);
+      updateStatus();
+    });
+  };
+  c.items.forEach((it, i) => {
+    const cur = items[it.id] || {};
+    const row = document.createElement('div');
+    row.className = 'text-xs';
+    row.innerHTML = `
+      ${it.section ? `<div class="text-[11px] font-bold text-teal-900 uppercase tracking-wide pt-1">${escapeHtml(it.section)}</div>` : ''}
+      <div class="text-slate-700 leading-snug"><b>${i + 1}.</b> ${escapeHtml(it.text)}</div>
+      ${(it.consider || []).length ? `<details class="text-[11px] text-slate-500"><summary class="cursor-pointer select-none">Consider</summary><ul class="list-disc pl-4">${it.consider.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul></details>` : ''}
+      <div class="flex items-center gap-1.5 mt-0.5">
+        <select class="dom-a border border-slate-300 bg-white rounded px-1 py-0.5 text-xs focus:outline-none focus:border-indigo-500">
+          <option value="">—</option>${c.answers.map(([v, l]) => `<option value="${v}" ${cur.a === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+        </select>
+        <input type="text" class="dom-note flex-1 border border-slate-300 bg-white rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-indigo-500" placeholder="Why (what you saw in the paper)" value="${escapeHtml(cur.note || '')}">
+      </div>`;
+    const sel = row.querySelector('.dom-a');
+    sel.onchange = async () => {
+      const prev = (items[it.id] || {}).a || '';
+      items[it.id] = { ...(items[it.id] || {}), a: sel.value };
+      await dbPut('docs', doc);
+      await logChange(it.id.toUpperCase(), it.text, appraisalAnswerLabel(tool, prev), appraisalAnswerLabel(tool, sel.value));
+      updateStatus();
+    };
+    bindText(row.querySelector('.dom-note'), () => (items[it.id] || {}).note, v => { items[it.id] = { ...(items[it.id] || {}), note: v }; }, it.id.toUpperCase() + ' reason', it.text);
+    list.appendChild(row);
+  });
+  if (c.summary) {
+    sumBox.innerHTML = `<div class="text-[11px] font-bold text-teal-900 uppercase tracking-wide pt-1">Appraisal summary</div><div class="text-[11px] text-slate-500 leading-snug">${escapeHtml(c.summary.label)}</div>`;
+    c.summary.fields.forEach(([k, label]) => {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = `<label class="block text-[11px] font-semibold text-slate-600">${escapeHtml(label)}</label>
+        <textarea rows="2" class="dom-sum w-full border border-slate-300 bg-white rounded px-1.5 py-0.5 text-xs resize-y focus:outline-none focus:border-indigo-500">${escapeHtml(summary[k] || '')}</textarea>`;
+      bindText(wrap.querySelector('textarea'), () => summary[k], v => { summary[k] = v; }, 'summary', label);
+      sumBox.appendChild(wrap);
+    });
+  }
+}
+document.getElementById('metaAppraisalTool').addEventListener('change', () => {
+  const doc = state.docs.find(d => d.id === state.activeDocId);
+  if (doc) renderAppraisalDomains(doc);
+});
 
 // Companion papers (eMERGe item 10): text describing linked accounts of the same primary study
 function companionText(d) {
@@ -1152,20 +1248,29 @@ const pdfSearchState = {
   lastQuery: ''
 };
 
+// Bound to the PDF it started with: if the user opens another study meanwhile (the old PDF is destroyed),
+// stop quietly and never store one paper's text under another paper's id.
 async function ensurePdfTextIndex() {
-  if (!state.activePdfDoc || !state.activeDocId) return [];
-  if (pdfSearchState.docId === state.activeDocId && pdfSearchState.pageTexts.length > 0) {
+  const pdfDoc = state.activePdfDoc, docId = state.activeDocId;
+  if (!pdfDoc || !docId) return [];
+  if (pdfSearchState.docId === docId && pdfSearchState.pageTexts.length > 0) {
     return pdfSearchState.pageTexts;
   }
-  const numPages = state.activePdfDoc.numPages;
   const pageTexts = [];
-  for (let i = 1; i <= numPages; i++) {
-    const page = await state.activePdfDoc.getPage(i);
-    const tc = await page.getTextContent();
-    const joined = tc.items.map(item => item.str).join(' ').normalize('NFC').toLowerCase();
-    pageTexts.push({ pageNum: i, text: joined });
+  try {
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      if (state.activePdfDoc !== pdfDoc) return null;
+      const page = await pdfDoc.getPage(i);
+      const tc = await page.getTextContent();
+      const joined = tc.items.map(item => item.str).join(' ').normalize('NFC').toLowerCase();
+      pageTexts.push({ pageNum: i, text: joined });
+    }
+  } catch (e) {
+    if (state.activePdfDoc !== pdfDoc) return null; // destroyed by a study switch
+    throw e;
   }
-  pdfSearchState.docId = state.activeDocId;
+  if (state.activePdfDoc !== pdfDoc) return null;
+  pdfSearchState.docId = docId;
   pdfSearchState.pageTexts = pageTexts;
   return pageTexts;
 }
@@ -1198,6 +1303,7 @@ async function runPdfSearch(query, direction = 1) {
   statusEl.textContent = '...';
   statusEl.classList.remove('hidden');
   const pages = await ensurePdfTextIndex();
+  if (!pages) return; // another study was opened while indexing
   const matchedPages = [];
   pages.forEach(p => {
     if (p.text.includes(q)) matchedPages.push(p.pageNum);
@@ -1331,7 +1437,7 @@ async function autoExtractCitationFromPdf() {
     }
 
     const rawDate = (xmp && (xmp.get('prism:publicationDate') || xmp.get('dc:date') || xmp.get('xap:CreateDate'))) || info.CreationDate || '';
-    const dateMatch = String(rawDate).match(/(?<!\d)(19[89]\d|20[0-3]\d)(?!\d)/);
+    const dateMatch = String(rawDate).match(/(?:^|\D)(19[89]\d|20[0-3]\d)(?!\d)/);
     if (dateMatch) detectedYear = dateMatch[1];
   } catch (e) {
     console.warn('Metadata read warning:', e);
@@ -1376,7 +1482,7 @@ async function autoExtractCitationFromPdf() {
 
     // 2a. Find Year from Page 1 header/footer text if not yet found (or refine)
     const fullPage1Text = lines.map(l => l.text).join(' ');
-    const yearMatches = fullPage1Text.match(/(?<!\d)(19[89]\d|20[0-2]\d)(?!\d)/g);
+    const yearMatches = (fullPage1Text.match(/(?:^|\D)(19[89]\d|20[0-2]\d)(?!\d)/g) || []).map(m => m.replace(/^\D/, ''));
     if (yearMatches && yearMatches.length > 0) {
       // Prefer year near copyright/received/published keywords
       const pubContextMatch = fullPage1Text.match(/(?:published|accepted|received|©|copyright|\()\s*(?:[a-z]+\s+\d{1,2},?\s*)?(19[89]\d|20[0-2]\d)/i);
@@ -1427,7 +1533,7 @@ async function autoExtractCitationFromPdf() {
 
   // Stage 3: Filename fallback
   if (!detectedYear && doc.name) {
-    const fnYear = doc.name.match(/(?<!\d)(19[89]\d|20[0-2]\d)(?!\d)/);
+    const fnYear = doc.name.match(/(?:^|\D)(19[89]\d|20[0-2]\d)(?!\d)/);
     if (fnYear) detectedYear = fnYear[1];
   }
   if (!detectedAuthor && doc.name) {

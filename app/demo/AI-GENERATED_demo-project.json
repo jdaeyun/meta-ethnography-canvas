@@ -27,7 +27,67 @@
       "addedAt": "2026-11-15T10:32:36.926Z",
       "group": "Nurses' views",
       "funder": "",
-      "companionOf": ""
+      "companionOf": "",
+      "conceptLinks": [
+        {
+          "id": "cl_demo_0",
+          "from": "a_1794738771731_cdif",
+          "to": "a_1794738768730_1gd5",
+          "type": "leads",
+          "note": "Discussion: because night work is not seen, its risks are left to the nurse on shift."
+        }
+      ],
+      "appraisalItems": {
+        "CASP": {
+          "q1": {
+            "a": "yes",
+            "note": "Aim stated in the abstract and introduction."
+          },
+          "q2": {
+            "a": "yes",
+            "note": "Asks how nurses experience nights."
+          },
+          "q3": {
+            "a": "yes",
+            "note": "Interviews suit the experiential aim."
+          },
+          "q4": {
+            "a": "yes",
+            "note": "Nurses working at least three nights a month; criterion explained."
+          },
+          "q5": {
+            "a": "yes",
+            "note": "Recorded interviews, 40–70 min, transcribed."
+          },
+          "q6": {
+            "a": "cant_tell",
+            "note": "A reflective diary is mentioned, but its influence is not discussed."
+          },
+          "q7": {
+            "a": "cant_tell",
+            "note": "No ethics approval or consent process reported."
+          },
+          "q8": {
+            "a": "yes",
+            "note": "Reflexive thematic analysis; themes shown with quotations."
+          },
+          "q9": {
+            "a": "yes",
+            "note": "Three explicit themes linked in the discussion."
+          },
+          "q10": {
+            "a": "yes",
+            "note": "Shows night work as a different job; limits stated."
+          }
+        }
+      },
+      "appraisalSummary": {
+        "CASP": {
+          "pos": "Clear aim and design; rich quotations; limits stated.",
+          "neg": "",
+          "unk": "Ethics and the effect of the researcher are not reported."
+        }
+      }
     },
     {
       "id": "doc_1794738756931_88n0",
@@ -49,7 +109,67 @@
       "addedAt": "2026-11-15T10:32:36.931Z",
       "group": "Nurses' views",
       "funder": "",
-      "companionOf": ""
+      "companionOf": "",
+      "conceptLinks": [
+        {
+          "id": "cl_demo_1",
+          "from": "a_1794738784497_ktnf",
+          "to": "a_1794738782998_d4bd",
+          "type": "contradicts",
+          "note": "Nurses accept tiredness as normal, yet feel a rest is owed to them that never comes."
+        }
+      ],
+      "appraisalItems": {
+        "CASP": {
+          "q1": {
+            "a": "yes",
+            "note": "Aim stated."
+          },
+          "q2": {
+            "a": "yes",
+            "note": "Seeks nurses’ own sense-making."
+          },
+          "q3": {
+            "a": "yes",
+            "note": "Focus groups suit shared norms such as gaman."
+          },
+          "q4": {
+            "a": "cant_tell",
+            "note": "How the 18 nurses were chosen is not described."
+          },
+          "q5": {
+            "a": "yes",
+            "note": "Translated by two bilingual researchers."
+          },
+          "q6": {
+            "a": "cant_tell",
+            "note": "No discussion of the researchers’ role."
+          },
+          "q7": {
+            "a": "cant_tell",
+            "note": "No ethics approval or consent process reported."
+          },
+          "q8": {
+            "a": "cant_tell",
+            "note": "Content analysis, then team interpretation; little detail on how themes were derived."
+          },
+          "q9": {
+            "a": "yes",
+            "note": "Three explicit themes."
+          },
+          "q10": {
+            "a": "yes",
+            "note": "Cultural framing of fatigue discussed as a limit."
+          }
+        }
+      },
+      "appraisalSummary": {
+        "CASP": {
+          "pos": "Translation handled with care; culturally specific concept (gaman).",
+          "neg": "Thin description of sampling and analysis.",
+          "unk": "Researcher role; ethics."
+        }
+      }
     },
     {
       "id": "doc_1794738756933_r99q",
@@ -71,7 +191,59 @@
       "addedAt": "2026-11-15T10:32:36.933Z",
       "group": "Managers' views",
       "funder": "",
-      "companionOf": ""
+      "companionOf": "",
+      "conceptLinks": [],
+      "appraisalItems": {
+        "CASP": {
+          "q1": {
+            "a": "yes",
+            "note": "Aim stated."
+          },
+          "q2": {
+            "a": "yes",
+            "note": "Managers’ views are interpretive questions."
+          },
+          "q3": {
+            "a": "yes",
+            "note": "Interviews suit the aim."
+          },
+          "q4": {
+            "a": "cant_tell",
+            "note": "Volunteers only; the authors note they may be more confident in their staff."
+          },
+          "q5": {
+            "a": "yes",
+            "note": "Phone or video interviews of about 45 min."
+          },
+          "q6": {
+            "a": "cant_tell",
+            "note": "Not discussed."
+          },
+          "q7": {
+            "a": "cant_tell",
+            "note": "No ethics approval or consent process reported."
+          },
+          "q8": {
+            "a": "cant_tell",
+            "note": "Thematic analysis named but not described."
+          },
+          "q9": {
+            "a": "yes",
+            "note": "Explicit themes; contrasts with staff accounts discussed."
+          },
+          "q10": {
+            "a": "yes",
+            "note": "Points to the gap between manager and staff accounts."
+          }
+        }
+      },
+      "appraisalSummary": {
+        "CASP": {
+          "pos": "Rare managers’ perspective; the authors reflect on their own setting (a coordinator on every floor).",
+          "neg": "Analysis not described.",
+          "unk": "Recruitment; ethics; researcher role."
+        }
+      }
     },
     {
       "id": "doc_1794738756936_l6w6",
@@ -93,7 +265,67 @@
       "addedAt": "2026-11-15T10:32:36.936Z",
       "group": "Managers' views",
       "funder": "",
-      "companionOf": ""
+      "companionOf": "",
+      "conceptLinks": [
+        {
+          "id": "cl_demo_2",
+          "from": "a_1794738807412_czav",
+          "to": "a_1794738804396_ejth",
+          "type": "leads",
+          "note": "Managers link not seeing nights to staff having no one to escalate to."
+        }
+      ],
+      "appraisalItems": {
+        "CASP": {
+          "q1": {
+            "a": "yes",
+            "note": "Aim stated."
+          },
+          "q2": {
+            "a": "yes",
+            "note": "How managers understand escalation is interpretive."
+          },
+          "q3": {
+            "a": "yes",
+            "note": "Ethnography plus interviews suits practice at night."
+          },
+          "q4": {
+            "a": "yes",
+            "note": "Managers and coordinators across two sites, evenings and nights."
+          },
+          "q5": {
+            "a": "yes",
+            "note": "60 hours of observation, field notes and interviews."
+          },
+          "q6": {
+            "a": "cant_tell",
+            "note": "Not discussed."
+          },
+          "q7": {
+            "a": "cant_tell",
+            "note": "No ethics approval or consent process reported."
+          },
+          "q8": {
+            "a": "yes",
+            "note": "Field notes and transcripts analysed together; participants checked a summary."
+          },
+          "q9": {
+            "a": "yes",
+            "note": "Explicit themes; credibility supported by member checking."
+          },
+          "q10": {
+            "a": "yes",
+            "note": "Limits stated: staff nurses not interviewed."
+          }
+        }
+      },
+      "appraisalSummary": {
+        "CASP": {
+          "pos": "Observation at night; member checking.",
+          "neg": "",
+          "unk": "Researcher role; ethics."
+        }
+      }
     }
   ],
   "annotations": [
@@ -457,9 +689,7 @@
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
-      "clusterRelations": {
-        "cl_1794738822700_jdwp": "reciprocal"
-      },
+      "clusterRelations": {},
       "passages": []
     },
     {
@@ -937,9 +1167,7 @@
       "clusterComments": {},
       "origin": "author_passage",
       "noteSource": "author",
-      "clusterRelations": {
-        "cl_1794738825700_8t6b": "reciprocal"
-      },
+      "clusterRelations": {},
       "passages": []
     },
     {
@@ -1110,7 +1338,8 @@
       "origin": "author_passage",
       "noteSource": "author",
       "clusterRelations": {},
-      "passages": []
+      "passages": [],
+      "notTranslatedNote": "Reviewer B’s reading of the same passage as “Fatigue as the price of the job”; kept for the team discussion rather than placed twice."
     },
     {
       "id": "a_1794738716183_z6ug",
@@ -1168,7 +1397,13 @@
       "cerqualRelNote": "Hospital wards in four countries; relevant to the review question.",
       "order": 0,
       "createdAt": 1794738819720,
-      "seedConfirmed": false
+      "seedConfirmed": false,
+      "cellStatus": {
+        "doc_1794738756931_88n0": {
+          "status": "other_aspect",
+          "note": "Sato’s nurses describe the same nights through fatigue and recovery, not through who carries decisions: a different side of the topic for the line of argument."
+        }
+      }
     },
     {
       "id": "cl_1794738822700_jdwp",
@@ -1190,7 +1425,13 @@
       "cerqualRelNote": "Relevant to the review question.",
       "order": 1,
       "createdAt": 1794738822700,
-      "seedConfirmed": false
+      "seedConfirmed": false,
+      "cellStatus": {
+        "doc_1794738756936_l6w6": {
+          "status": "absent",
+          "note": "Read the whole account again: managers in Reyes do not speak about staff fatigue."
+        }
+      }
     },
     {
       "id": "cl_1794738825700_8t6b",
@@ -1216,6 +1457,144 @@
     }
   ],
   "logs": [
+    {
+      "id": "log_demo_10_1794739492345",
+      "timestamp": 1794739492345,
+      "isoTime": "2026-11-15T10:44:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "detail": "CASP Checklist: For Qualitative Research (2024). Judgements are recorded with reasons and not added up into a score.",
+      "category": "context_appraisal",
+      "action": "Appraisal (CASP) for Reyes et al. (2022): judgement and reason recorded for each of the 10 questions"
+    },
+    {
+      "id": "log_demo_9_1794739432345",
+      "timestamp": 1794739432345,
+      "isoTime": "2026-11-15T10:43:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "detail": "CASP Checklist: For Qualitative Research (2024). Judgements are recorded with reasons and not added up into a score.",
+      "category": "context_appraisal",
+      "action": "Appraisal (CASP) for Nguyen et al. (2021): judgement and reason recorded for each of the 10 questions"
+    },
+    {
+      "id": "log_demo_8_1794739372345",
+      "timestamp": 1794739372345,
+      "isoTime": "2026-11-15T10:42:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "detail": "CASP Checklist: For Qualitative Research (2024). Judgements are recorded with reasons and not added up into a score.",
+      "category": "context_appraisal",
+      "action": "Appraisal (CASP) for Sato et al. (2020): judgement and reason recorded for each of the 10 questions"
+    },
+    {
+      "id": "log_demo_7_1794739312345",
+      "timestamp": 1794739312345,
+      "isoTime": "2026-11-15T10:41:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "detail": "CASP Checklist: For Qualitative Research (2024). Judgements are recorded with reasons and not added up into a score.",
+      "category": "context_appraisal",
+      "action": "Appraisal (CASP) for Hartwell et al. (2018): judgement and reason recorded for each of the 10 questions"
+    },
+    {
+      "id": "log_demo_6_1794739252345",
+      "timestamp": 1794739252345,
+      "isoTime": "2026-11-15T10:40:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "Reviewer B’s reading of the same passage as “Fatigue as the price of the job”; kept for the team discussion rather than placed twice.",
+      "rationale": "",
+      "detail": "Sato et al. (2020) (p.1): Exhaustion is part of nursing",
+      "category": "translation_process",
+      "action": "Noted why a 2nd Order construct was not translated into any 3rd Order row"
+    },
+    {
+      "id": "log_demo_5_1794739192345",
+      "timestamp": 1794739192345,
+      "isoTime": "2026-11-15T10:39:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "Nights outside our line of sight ➔ Escalation without back-up",
+      "rationale": "",
+      "detail": "Managers link not seeing nights to staff having no one to escalate to.",
+      "category": "reading_extraction",
+      "action": "Recorded how two concepts relate within Reyes et al. (2022)"
+    },
+    {
+      "id": "log_demo_4_1794739132345",
+      "timestamp": 1794739132345,
+      "isoTime": "2026-11-15T10:38:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "Owed recovery ⚡ Fatigue as the price of the job",
+      "rationale": "",
+      "detail": "Nurses accept tiredness as normal, yet feel a rest is owed to them that never comes.",
+      "category": "reading_extraction",
+      "action": "Recorded how two concepts relate within Sato et al. (2020)"
+    },
+    {
+      "id": "log_demo_3_1794739072345",
+      "timestamp": 1794739072345,
+      "isoTime": "2026-11-15T10:37:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "Invisibility to the day team ➔ Solitary accountability",
+      "rationale": "",
+      "detail": "Discussion: because night work is not seen, its risks are left to the nurse on shift.",
+      "category": "reading_extraction",
+      "action": "Recorded how two concepts relate within Hartwell et al. (2018)"
+    },
+    {
+      "id": "log_demo_2_1794739012345",
+      "timestamp": 1794739012345,
+      "isoTime": "2026-11-15T10:36:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "Not yet checked",
+      "toVal": "Checked: not addressed in this study",
+      "rationale": "",
+      "detail": "Read the whole account again: managers in Reyes do not speak about staff fatigue.",
+      "category": "relating_studies",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ],
+      "action": "Reyes et al. (2022) in \"Fatigue is normalised and left to the individual\": Checked: not addressed in this study"
+    },
+    {
+      "id": "log_demo_1_1794738952345",
+      "timestamp": 1794738952345,
+      "isoTime": "2026-11-15T10:35:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "Not yet checked",
+      "toVal": "Addresses a different aspect of the topic",
+      "rationale": "",
+      "detail": "Sato’s nurses describe the same nights through fatigue and recovery, not through who carries decisions: a different side of the topic for the line of argument.",
+      "category": "relating_studies",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ],
+      "action": "Sato et al. (2020) in \"Responsibility without back-up\": Addresses a different aspect of the topic"
+    },
+    {
+      "id": "log_demo_0_1794738892345",
+      "timestamp": 1794738892345,
+      "isoTime": "2026-11-15T10:34:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "(not decided)",
+      "toVal": "Empty matrix",
+      "rationale": "Hartwell was the first account we read, not a chosen index paper; we wanted each concept compared with all the others before any row existed.",
+      "detail": "",
+      "category": "translation_process",
+      "action": "Rows are created by the reviewer: study #1 is not placed automatically"
+    },
     {
       "id": "log_1794738832345_03x8",
       "timestamp": 1794738832345,
@@ -2293,6 +2672,7 @@
     "translationProcess": "Reviewer A translated study by study, starting from Hartwell (index paper: richest account). Reviewer B’s extraction was compared and merged before translation.",
     "alternativeInterpretations": "We considered whether the “autonomy” reading reflects role (manager) or setting (night coordinator on every floor). The papers cannot separate the two.",
     "modelContext": "Applies to hospital wards with small night teams. It may not apply where a senior nurse is always on the ward.",
-    "teamMergeNote": "Reviewer A and Reviewer B extracted independently. Differences were discussed and merged in the Compare step."
+    "teamMergeNote": "Reviewer A and Reviewer B extracted independently. Differences were discussed and merged in the Compare step.",
+    "seedChoice": "manual"
   }
 }
