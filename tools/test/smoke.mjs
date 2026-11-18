@@ -563,6 +563,16 @@ await group('Review fixes: peer rows by title, merge links, PDF search race, Wor
   await p.context().close();
 });
 
+await group('eMERGe wording: structured around, not endorsed by', async () => {
+  for (const f of ['site/index.html', 'site/manual.html', 'site/meta-ethnography-101.html']) {
+    const t = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    check(`${f}: states it is independent of eMERGe`, t.includes('not affiliated with, or endorsed by, the eMERGe project'));
+  }
+  const all = ['README.md', 'me_canvas.html', 'site/index.html', 'site/manual.html', 'site/meta-ethnography-101.html', 'app/js/export.js'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+  check('no "eMERGe Methods Summary" (reads as an official eMERGe product)', !all.includes('eMERGe Methods Summary'));
+  check('no "eMERGe Phases" (the phases are Noblit and Hare\'s)', !/eMERGe<\/em> Phases|eMERGe Phases/.test(all));
+});
+
 await group('Offline edition (file://) starts without errors and renders PDFs', async () => {
   const p = await openDemo('file://' + path.join(ROOT, 'me_canvas.html') + '?demo');
   await p.waitForTimeout(2500);

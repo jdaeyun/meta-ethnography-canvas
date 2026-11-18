@@ -6,11 +6,11 @@
 [![Documentation](https://img.shields.io/badge/Docs_&_Manual-Read_Online-0d9488?style=for-the-badge&logo=readthedocs&logoColor=white)](https://jdaeyun.github.io/meta-ethnography-canvas/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-slate.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-**Meta-Ethnography Canvas** is a free, open-source workspace for doing a **meta-ethnography** (a type of qualitative evidence synthesis). It runs in one browser window, with no server and no account. Its reports follow the **eMERGe reporting guidance** (France et al., 2019).
+**Meta-Ethnography Canvas** is a free, open-source workspace for doing a **meta-ethnography** (a type of qualitative evidence synthesis). It runs in one browser window, with no server and no account. Its draft outputs are structured around the **eMERGe reporting guidance** (France et al., 2019), to help you report your synthesis; whether a manuscript meets the guidance is for its authors to judge. This is an independent project, not affiliated with or endorsed by the eMERGe project or its authors.
 
 It puts two jobs in one place: coding full-text PDFs, and comparing studies in a synthesis matrix. It keeps 1st, 2nd and 3rd order constructs, quality appraisals, GRADE-CERQual ratings and links back to the exact PDF page together on your own computer.
 
-> 📌 **Scope note:** This tool is for the **synthesis steps after screening** (eMERGe Phases 1 and 3–7; the Phase 1 aim and review question are saved in Project Setup). Do your database searching, duplicate removal and title/abstract screening in another tool first (for example Rayyan, Covidence or Zotero). Then bring your final included full-text PDFs here.
+> 📌 **Scope note:** This tool is for the **synthesis steps after screening** phases 1 and 3–7 of Noblit and Hare's seven phases, by which eMERGe organises its reporting criteria; the Phase 1 aim and review question are saved in Project Setup). Do your database searching, duplicate removal and title/abstract screening in another tool first (for example Rayyan, Covidence or Zotero). Then bring your final included full-text PDFs here.
 
 ---
 
@@ -35,7 +35,7 @@ Nothing to install and no account needed. Open it in a desktop browser:
 3. **Tab 3 — Audit Trail & Team Comparison (Transparency & Reflexivity):**
    Your main decisions are logged automatically (changing study order, changing a theme, CERQual reasons). Add reflexive memos about your own position. Compare and merge the `.json` project files of several reviewers, each working on their own.
 4. **Tab 4 — Export Tables for Your Manuscript (Phase 7):**
-   Create an **eMERGe Methods Summary** with the 19-item checklist, **Table 1** (study characteristics), **Table 2** (synthesis), **Table 2b** (which study contributes to which theme, `● / ⚡`), **Table 3** (GRADE-CERQual summary and/or evidence profile) and **Appendix A** (audit trail). Copy a table, or download Markdown, CSV or a landscape **Word (`.docx`)** file.
+   Create a **Methods Summary** with a mapping to the 19 eMERGe reporting criteria, **Table 1** (study characteristics), **Table 2** (synthesis), **Table 2b** (which study contributes to which theme, `● / ⚡`), **Table 3** (GRADE-CERQual summary and/or evidence profile) and **Appendix A** (audit trail). Copy a table, or download Markdown, CSV or a landscape **Word (`.docx`)** file.
 
 ---
 

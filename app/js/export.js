@@ -616,7 +616,7 @@ function buildMethodHtml() {
     `<p style="margin-bottom: 12px;"><b>${escapeHtml(sec.title)}</b><br>${sec.html}</p>`).join('');
   return `
     <div class="mb-5">
-      <h3 style="font-family: Georgia, serif; font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 8px;">eMERGe Methods Summary</h3>
+      <h3 style="font-family: Georgia, serif; font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 8px;">Methods Summary (structured around eMERGe)</h3>
       <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic; margin-bottom: 16px;">Compiled from your project data and audit trail. Expand with your analytical rationale before submission.</p>
       <div style="font-family: Georgia, serif; font-size: 13.5px; color: #1e293b; line-height: 1.6;">${body}</div>
     </div>
@@ -635,7 +635,7 @@ function buildeMERGeTableHtml() {
   return `
     <div style="margin-top: 32px; margin-bottom: 12px;">
       <h3 style="font-family: Georgia, serif; font-size: 14px; font-weight: bold; color: #0f172a;">eMERGe Reporting Checklist Mapping (France et al., 2019)</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Item numbers follow the official 19 reporting criteria. Status is computed from your project data: bold = supplied by the app; amber = partly supplied; blue = for the author to write.</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Item numbers follow the 19 reporting criteria of France et al. (2019); titles and descriptions are short paraphrases, so see the paper for the full wording. Status is computed from your project data: bold = supplied by the app; amber = partly supplied; blue = for the author to write.</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>
@@ -706,7 +706,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
   const cleanMd = s => String(s || '-').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 
   if (state.activePubTable === 'method') {
-    md += `### eMERGe Methods Summary\n\n`;
+    md += `### Methods Summary (structured around eMERGe)\n\n`;
     getMethodSections().forEach(sec => { md += `**${sec.title}**\n${htmlToPlainText(sec.html)}\n\n`; });
 
     md += `### eMERGe Reporting Checklist Mapping (France et al., 2019)\n\n`;
