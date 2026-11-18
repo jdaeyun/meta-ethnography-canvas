@@ -120,6 +120,8 @@ url          = {https://doi.org/10.5281/zenodo.24200375}
 
 Released under the [MIT License](https://mit-license.org/). Copyright © 2026 Jeong, Dae Yun.
 
+**Exception:** `app/checklists/casp-qualitative-2024.js` reproduces the *CASP Checklist: For Qualitative Research* (2024), © Critical Appraisal Skills Programme, under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). It is not covered by the MIT License; see `app/checklists/LICENSE-CASP.md`. JBI checklists are not included (they need JBI's permission).
+
 
 
 

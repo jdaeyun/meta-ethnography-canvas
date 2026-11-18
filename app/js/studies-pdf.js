@@ -750,28 +750,43 @@ async function saveCurrentMeta() {
   if (prevOverview !== doc.studyOverview) updateSidebar();
 }
 
-// ---- Domain judgements for CASP / JBI (eMERGe Part 3). Saved and logged as they change, independently of "Save Info". ----
+// ---- Domain judgements for checklists with built-in questions (CASP; eMERGe Part 3). Saved and logged as they change, independently of "Save Info". ----
 function renderAppraisalDomains(doc) {
   const box = document.getElementById('metaDomainBox');
   const list = document.getElementById('metaDomainList');
+  const sumBox = document.getElementById('metaDomainSummary');
   const tool = document.getElementById('metaAppraisalTool').value || doc.appraisalTool;
   const c = APPRAISAL_CHECKLISTS[tool];
   box.classList.toggle('hidden', !c);
   list.innerHTML = '';
+  sumBox.innerHTML = '';
   if (!c) return;
+  document.getElementById('metaDomainGuide').textContent = c.guidance ? `${c.name}: “${c.guidance}”` : '';
   const items = appraisalItemsOf(doc, tool);
+  const summary = appraisalSummaryOf(doc, tool);
   const updateStatus = () => {
-    const done = c.items.filter(it => it.open ? !!(items[it.id] && items[it.id].note) : !!(items[it.id] && items[it.id].a)).length;
-    document.getElementById('metaDomainStatus').textContent = `· ${c.name} · ${done === c.items.length ? 'all domains answered' : `${c.items.length - done} domain(s) not answered yet`}`;
+    const done = c.items.filter(it => items[it.id] && items[it.id].a).length;
+    document.getElementById('metaDomainStatus').textContent = `· ${c.name} · ${done === c.items.length ? 'all questions answered' : `${c.items.length - done} question(s) not answered yet`}`;
   };
   updateStatus();
-  const logChange = async (it, field, from, to) => {
+  const logChange = async (what, detail, from, to) => {
     await recordAuditLog({
       category: 'context_appraisal',
-      action: `Appraisal (${tool} ${it.id.toUpperCase()}) for ${getDisplayName(doc)}: ${field === 'a' ? 'judgement' : 'reason'} ${from ? 'changed' : 'recorded'}`,
-      detail: it.text,
-      fromVal: from || '',
-      toVal: to || ''
+      action: `Appraisal (${tool} ${what}) for ${getDisplayName(doc)}: ${from ? 'changed' : 'recorded'}`,
+      detail, fromVal: from || '', toVal: to || ''
+    });
+  };
+  const bindText = (el, get, set, what, detail) => {
+    let committed = get() || '';
+    bindPendingCommit(el, async () => {
+      const next = el.value.trim();
+      if (next === committed) return;
+      const prev = committed;
+      committed = next;
+      set(next);
+      await dbPut('docs', doc);
+      await logChange(what, detail, prev, next);
+      updateStatus();
     });
   };
   c.items.forEach((it, i) => {
@@ -779,35 +794,36 @@ function renderAppraisalDomains(doc) {
     const row = document.createElement('div');
     row.className = 'text-xs';
     row.innerHTML = `
+      ${it.section ? `<div class="text-[11px] font-bold text-teal-900 uppercase tracking-wide pt-1">${escapeHtml(it.section)}</div>` : ''}
       <div class="text-slate-700 leading-snug"><b>${i + 1}.</b> ${escapeHtml(it.text)}</div>
+      ${(it.consider || []).length ? `<details class="text-[11px] text-slate-500"><summary class="cursor-pointer select-none">Consider</summary><ul class="list-disc pl-4">${it.consider.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul></details>` : ''}
       <div class="flex items-center gap-1.5 mt-0.5">
-        ${it.open ? '' : `<select class="dom-a border border-slate-300 bg-white rounded px-1 py-0.5 text-xs focus:outline-none focus:border-indigo-500">
+        <select class="dom-a border border-slate-300 bg-white rounded px-1 py-0.5 text-xs focus:outline-none focus:border-indigo-500">
           <option value="">—</option>${c.answers.map(([v, l]) => `<option value="${v}" ${cur.a === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
-        </select>`}
-        <input type="text" class="dom-note flex-1 border border-slate-300 bg-white rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-indigo-500" placeholder="${it.open ? 'Your answer, in words' : 'Why (what you saw in the paper)'}" value="${escapeHtml(cur.note || '')}">
+        </select>
+        <input type="text" class="dom-note flex-1 border border-slate-300 bg-white rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-indigo-500" placeholder="Why (what you saw in the paper)" value="${escapeHtml(cur.note || '')}">
       </div>`;
     const sel = row.querySelector('.dom-a');
-    if (sel) sel.onchange = async () => {
+    sel.onchange = async () => {
       const prev = (items[it.id] || {}).a || '';
       items[it.id] = { ...(items[it.id] || {}), a: sel.value };
       await dbPut('docs', doc);
-      await logChange(it, 'a', appraisalAnswerLabel(tool, prev), appraisalAnswerLabel(tool, sel.value));
+      await logChange(it.id.toUpperCase(), it.text, appraisalAnswerLabel(tool, prev), appraisalAnswerLabel(tool, sel.value));
       updateStatus();
     };
-    const note = row.querySelector('.dom-note');
-    let committed = cur.note || '';
-    bindPendingCommit(note, async () => {
-      const next = note.value.trim();
-      if (next === committed) return;
-      const prev = committed;
-      committed = next;
-      items[it.id] = { ...(items[it.id] || {}), note: next };
-      await dbPut('docs', doc);
-      await logChange(it, 'note', prev, next);
-      updateStatus();
-    });
+    bindText(row.querySelector('.dom-note'), () => (items[it.id] || {}).note, v => { items[it.id] = { ...(items[it.id] || {}), note: v }; }, it.id.toUpperCase() + ' reason', it.text);
     list.appendChild(row);
   });
+  if (c.summary) {
+    sumBox.innerHTML = `<div class="text-[11px] font-bold text-teal-900 uppercase tracking-wide pt-1">Appraisal summary</div><div class="text-[11px] text-slate-500 leading-snug">${escapeHtml(c.summary.label)}</div>`;
+    c.summary.fields.forEach(([k, label]) => {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = `<label class="block text-[11px] font-semibold text-slate-600">${escapeHtml(label)}</label>
+        <textarea rows="2" class="dom-sum w-full border border-slate-300 bg-white rounded px-1.5 py-0.5 text-xs resize-y focus:outline-none focus:border-indigo-500">${escapeHtml(summary[k] || '')}</textarea>`;
+      bindText(wrap.querySelector('textarea'), () => summary[k], v => { summary[k] = v; }, 'summary', label);
+      sumBox.appendChild(wrap);
+    });
+  }
 }
 document.getElementById('metaAppraisalTool').addEventListener('change', () => {
   const doc = state.docs.find(d => d.id === state.activeDocId);

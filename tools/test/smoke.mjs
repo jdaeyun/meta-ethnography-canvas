@@ -573,39 +573,43 @@ await group('eMERGe wording: structured around, not endorsed by', async () => {
   check('no "eMERGe Phases" (the phases are Noblit and Hare\'s)', !/eMERGe<\/em> Phases|eMERGe Phases/.test(all));
 });
 
-await group('Appraisal: judgement on each domain (CASP / JBI), never a score', async () => {
+await group('Appraisal: CASP 2024 judgement on each question, never a score; no JBI text', async () => {
   const p = await openDemo();
   await tab(p, 'extract'); await p.waitForTimeout(400);
   await p.evaluate(async () => { await switchStudy(state.docs[0].id); state.isEditMetaMode = true; toggleMetaDockUI(); });
   await p.selectOption('#metaAppraisalTool', 'CASP'); await p.waitForTimeout(300);
   await p.evaluate(() => { document.getElementById('metaDomainBox').open = true; });
-  check('CASP shows its 10 questions', (await p.locator('#metaDomainList > div').count()) === 10 && (await p.locator('#metaDomainList .dom-a').count()) === 9);
+  check('CASP 2024: 10 questions, all answered Yes / No / Can\'t Tell', (await p.locator('#metaDomainList .dom-a').count()) === 10 && (await p.locator('#metaDomainList .dom-a').nth(9).locator('option').count()) === 4);
+  check('sections and Consider prompts are shown', (await p.locator('#metaDomainList').textContent()).includes('Section C: Will the results help locally?') && (await p.locator('#metaDomainList details').count()) === 10);
   const before = await logCount(p);
   await p.locator('#metaDomainList .dom-a').first().selectOption('cant_tell'); await p.waitForTimeout(300);
   await p.locator('#metaDomainList .dom-note').first().fill('Aims stated only in the abstract');
+  await p.locator('#metaDomainSummary textarea').nth(2).fill('Sampling frame not reported');
   await p.locator('#metaDomainList .dom-note').nth(1).click(); await p.waitForTimeout(300);
-  const saved = await p.evaluate(() => state.docs[0].appraisalItems.CASP.q1);
-  check('the judgement and its reason are saved', saved.a === 'cant_tell' && saved.note === 'Aims stated only in the abstract');
-  check('each change is logged', (await logCount(p)) === before + 2 && (await p.evaluate(() => state.logs[0].action)).includes('CASP Q1'));
+  const saved = await p.evaluate(() => ({ q1: state.docs[0].appraisalItems.CASP.q1, sum: state.docs[0].appraisalSummary.CASP }));
+  check('judgement, reason and summary are saved', saved.q1.a === 'cant_tell' && saved.q1.note === 'Aims stated only in the abstract' && saved.sum.unk === 'Sampling frame not reported');
+  check('each change is logged', (await logCount(p)) === before + 3);
   await p.selectOption('#metaAppraisalTool', 'JBI'); await p.waitForTimeout(300);
-  check('JBI offers Yes / No / Unclear / Not applicable', (await p.locator('#metaDomainList .dom-a').first().locator('option').count()) === 5 && (await p.locator('#metaDomainList > div').count()) === 10);
+  check('JBI has no built-in questions (permission needed)', await p.evaluate(() => document.getElementById('metaDomainBox').classList.contains('hidden') && !APPRAISAL_CHECKLISTS.JBI));
   await p.selectOption('#metaAppraisalTool', 'CASP'); await p.waitForTimeout(300);
   check('switching tool keeps the earlier answers', (await p.locator('#metaDomainList .dom-a').first().inputValue()) === 'cant_tell');
-  await p.selectOption('#metaAppraisalTool', 'MMAT'); await p.waitForTimeout(300);
-  check('other tools show no checklist', await p.evaluate(() => document.getElementById('metaDomainBox').classList.contains('hidden')));
-  await p.selectOption('#metaAppraisalTool', 'CASP'); await p.waitForTimeout(300);
   await tab(p, 'pub'); await p.locator('[data-pub=table1]').click(); await p.waitForTimeout(300);
   const t1 = await p.locator('#pubPreviewContainer').innerText();
-  check('Table 1b lists the judgement and reason per domain', t1.includes('Table 1b') && t1.includes("Can't tell — Aims stated only in the abstract") && t1.includes('Q10. How valuable is the research?'));
+  check('Table 1b lists judgement + reason, the questions and the summary', t1.includes('Table 1b') && t1.includes("Can't Tell — Aims stated only in the abstract") && t1.includes('Q10. How valuable is the research?') && t1.includes('Unknowns: Sampling frame not reported'));
+  check('Table 1b credits CASP and its licence', t1.includes('Critical Appraisal Skills Programme (2024)') && t1.includes('CC BY-NC-SA 4.0'));
   check('no score anywhere (no "x/10", no total)', !/\b\d+\s*\/\s*10\b/.test(t1) && !/total score/i.test(t1));
   await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
   const m = await p.locator('#pubPreviewContainer').innerText();
   check('Methods says the answers were not added up', m.includes('not added up into a score') && m.includes('Table 1b'));
-  check('eMERGe Ext. 2 is "partly" until every domain is answered', await p.evaluate(() => getEmergeChecklist().find(r => r.no === 'Ext. 2').level === 'partial'));
+  check('eMERGe Ext. 2 is "partly" until every question is answered', await p.evaluate(() => getEmergeChecklist().find(r => r.no === 'Ext. 2').level === 'partial'));
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
   check('Word export includes Table 1b', readZipEntry(fs.readFileSync(await dl.path()), 'word/document.xml').includes('Table 1b. Methodological Strengths'));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
+  const lic = fs.readFileSync(path.join(ROOT, 'app/checklists/casp-qualitative-2024.js'), 'utf8');
+  check('the CASP file states its own licence (not MIT)', lic.includes('NOT COVERED BY THE MIT LICENCE') && lic.includes('CC BY-NC-SA 4.0') && fs.existsSync(path.join(ROOT, 'app/checklists/LICENSE-CASP.md')));
+  const appText = fs.readdirSync(path.join(ROOT, 'app/js')).map(f => fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')).join('\n');
+  check('no JBI checklist wording in the app', !appText.includes('congruity between the stated philosophical perspective'));
 });
 
 await group('Offline edition (file://) starts without errors and renders PDFs', async () => {

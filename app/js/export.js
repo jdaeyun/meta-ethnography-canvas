@@ -28,18 +28,24 @@ function getAppraisalDomainSpecs() {
     const letter = String.fromCharCode(98 + ti); // b, c
     return {
       title: `Table 1${letter}. Methodological Strengths and Limitations of Included Studies: ${c.name}`,
-      caption: `Judgement on each domain of the ${c.name}, with the reviewers' reasons. The answers are a record of judgements and were not added up into a score (eMERGe Part 3, France et al., 2019). Source: ${c.cite}`,
+      caption: `Judgement on each question of the ${c.name}, with the reviewers' reasons. The answers are a record of judgements and were not added up into a score (eMERGe Part 3, France et al., 2019). Source: ${c.cite}`,
       headers: ['Study', ...c.items.map((_, i) => `Q${i + 1}`)],
       widths: [12, ...c.items.map(() => 88 / c.items.length)],
       rows: docs.map(d => {
         const items = appraisalItemsOf(d, tool);
         return [getDisplayName(d), ...c.items.map(it => {
           const v = items[it.id] || {};
-          const label = it.open ? '' : appraisalAnswerLabel(tool, v.a);
+          const label = appraisalAnswerLabel(tool, v.a);
           return [label, v.note].filter(Boolean).join(' — ') || '-';
         })];
       }),
-      key: c.items.map((it, i) => `Q${i + 1}. ${it.text}`)
+      key: c.items.map((it, i) => `Q${i + 1}. ${it.text}`),
+      // The checklist's own summary per study (CASP: positive / negative / unknowns), where written
+      summaries: c.summary ? docs.map(d => {
+        const sm = appraisalSummaryOf(d, tool);
+        const parts = c.summary.fields.filter(([k]) => sm[k]).map(([k, label]) => `${label}: ${sm[k]}`);
+        return parts.length ? `${getDisplayName(d)} — ${parts.join('; ')}` : '';
+      }).filter(Boolean) : []
     };
   });
 }
@@ -53,7 +59,8 @@ function buildAppraisalDomainsHtml() {
       <thead><tr>${spec.headers.map((h, i) => `<th style="width:${spec.widths[i]}%;">${escapeHtml(h)}</th>`).join('')}</tr></thead>
       <tbody>${spec.rows.map(r => '<tr>' + r.map((c, i) => i === 0 ? `<td><b>${escapeHtml(c)}</b></td>` : `<td>${escapeHtml(c)}</td>`).join('') + '</tr>').join('')}</tbody>
     </table>
-    <p style="font-family: Georgia, serif; font-size: 10.5px; color: #475569; margin-top:6px;">${spec.key.map(escapeHtml).join('<br>')}</p>`).join('');
+    <p style="font-family: Georgia, serif; font-size: 10.5px; color: #475569; margin-top:6px;">${spec.key.map(escapeHtml).join('<br>')}</p>
+    ${spec.summaries.length ? `<p style="font-family: Georgia, serif; font-size: 11px; color: #334155; margin-top:8px;"><b>Appraisal summary</b><br>${spec.summaries.map(escapeHtml).join('<br>')}</p>` : ''}`).join('');
 }
 
 function buildTable1Html() {
@@ -507,7 +514,7 @@ function getEmergeChecklist() {
         if (!hasPolicy) missing.push('describe the appraisal policy and its use in the drawer');
         if (appraised.length === 0) missing.push('no study appraised yet');
         if (incomplete.length) missing.push(`${incomplete.length} stud(ies) with domains not answered yet`);
-        if (noChecklist.length) missing.push(`domain table for ${[...new Set(noChecklist.map(d => d.appraisalTool))].join(', ')} to add outside the app`);
+        if (noChecklist.length) missing.push(`domain table for ${[...new Set(noChecklist.map(d => d.appraisalTool))].join(', ')} to add outside the app (no built-in checklist for this tool)`);
         return missing.length ? P('Appraisal policy / use → Methods Summary; domain judgements → Table 1b; still: ' + missing.join('; '))
           : R('Appraisal policy / use → Methods Summary; judgement on each domain → Table 1b');
       })()],
@@ -781,6 +788,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       md += `| ${spec.headers.map(cleanMd).join(' | ')} |\n|${spec.headers.map(() => '---').join('|')}|\n`;
       spec.rows.forEach(r => { md += `| **${cleanMd(r[0])}** | ${r.slice(1).map(cleanMd).join(' | ')} |\n`; });
       md += `\n${spec.key.join('  \n')}\n`;
+      if (spec.summaries.length) md += `\n**Appraisal summary**  \n${spec.summaries.join('  \n')}\n`;
     });
   } else if (state.activePubTable === 'table2') {
     md += `### Table 2. Meta-Ethnographic Translation and Synthesis Table\n\n`;
@@ -1187,7 +1195,9 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
             new TableRow({ tableHeader: true, children: spec.headers.map(h => makeCell(h, { isHeader: true })) }),
             ...spec.rows.map((r, i) => new TableRow({ children: r.map((c, ci) => makeCell(c, { isLastRow: i === spec.rows.length - 1, bold: ci === 0 })) }))
           ], spec.widths),
-          ...spec.key.map(k => new Paragraph({ children: [new TextRun({ text: k, font: "Times New Roman", size: 18 })], spacing: { before: 40 } }))
+          ...spec.key.map(k => new Paragraph({ children: [new TextRun({ text: k, font: "Times New Roman", size: 18 })], spacing: { before: 40 } })),
+          ...(spec.summaries.length ? [new Paragraph({ children: [new TextRun({ text: 'Appraisal summary', bold: true, font: "Times New Roman", size: 20 })], spacing: { before: 160 } }),
+            ...spec.summaries.map(t => new Paragraph({ children: [new TextRun({ text: t, font: "Times New Roman", size: 18 })], spacing: { before: 40 } }))] : [])
         ]),
 
         new Paragraph({ children: [new PageBreak()] }),

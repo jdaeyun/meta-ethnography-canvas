@@ -314,42 +314,10 @@ let pageObserver = null;
 
 // ---- Domain-level appraisal (eMERGe Part 3: report the judgement on each domain of the tool for each study) ----
 // The checklists are records of judgements with reasons. They are never added up into a score.
-const APPRAISAL_CHECKLISTS = {
-  CASP: {
-    name: 'CASP Qualitative Studies Checklist',
-    cite: 'Critical Appraisal Skills Programme (2018). CASP Qualitative Checklist.',
-    answers: [['yes', 'Yes'], ['cant_tell', "Can't tell"], ['no', 'No']],
-    items: [
-      { id: 'q1', text: 'Was there a clear statement of the aims of the research?' },
-      { id: 'q2', text: 'Is a qualitative methodology appropriate?' },
-      { id: 'q3', text: 'Was the research design appropriate to address the aims of the research?' },
-      { id: 'q4', text: 'Was the recruitment strategy appropriate to the aims of the research?' },
-      { id: 'q5', text: 'Was the data collected in a way that addressed the research issue?' },
-      { id: 'q6', text: 'Has the relationship between researcher and participants been adequately considered?' },
-      { id: 'q7', text: 'Have ethical issues been taken into consideration?' },
-      { id: 'q8', text: 'Was the data analysis sufficiently rigorous?' },
-      { id: 'q9', text: 'Is there a clear statement of findings?' },
-      { id: 'q10', text: 'How valuable is the research?', open: true } // answered in words only
-    ]
-  },
-  JBI: {
-    name: 'JBI Critical Appraisal Checklist for Qualitative Research',
-    cite: 'Lockwood C, Munn Z, Porritt K (2015). Qualitative research synthesis: methodological guidance for systematic reviewers utilizing meta-aggregation. Int J Evid Based Healthc 13(3):179–187.',
-    answers: [['yes', 'Yes'], ['no', 'No'], ['unclear', 'Unclear'], ['na', 'Not applicable']],
-    items: [
-      { id: 'q1', text: 'Is there congruity between the stated philosophical perspective and the research methodology?' },
-      { id: 'q2', text: 'Is there congruity between the research methodology and the research question or objectives?' },
-      { id: 'q3', text: 'Is there congruity between the research methodology and the methods used to collect data?' },
-      { id: 'q4', text: 'Is there congruity between the research methodology and the representation and analysis of data?' },
-      { id: 'q5', text: 'Is there congruity between the research methodology and the interpretation of results?' },
-      { id: 'q6', text: 'Is there a statement locating the researcher culturally or theoretically?' },
-      { id: 'q7', text: 'Is the influence of the researcher on the research, and vice-versa, addressed?' },
-      { id: 'q8', text: 'Are participants, and their voices, adequately represented?' },
-      { id: 'q9', text: 'Is the research ethical according to current criteria or, for recent studies, is there evidence of ethical approval by an appropriate body?' },
-      { id: 'q10', text: 'Do the conclusions drawn in the research report flow from the analysis, or interpretation, of the data?' }
-    ]
-  }
-};
+// Checklist definitions live in their own files under app/checklists/ (each under its own licence, NOT the MIT licence
+// of this app), loaded right after this file. Only checklists whose wording may be redistributed are included: CASP
+// (CC BY-NC-SA 4.0). JBI checklists need JBI's permission, so JBI stays a tool name without built-in questions.
+const APPRAISAL_CHECKLISTS = {};
 function appraisalAnswerLabel(tool, a) { const c = APPRAISAL_CHECKLISTS[tool]; const m = c && c.answers.find(x => x[0] === a); return m ? m[1] : ''; }
 // { q1: { a: 'yes', note: '' }, … } for the given tool (answers are kept per tool, so switching tool loses nothing)
 function appraisalItemsOf(doc, tool = doc.appraisalTool) {
@@ -362,18 +330,26 @@ function appraisalDomainsComplete(doc) {
   const c = APPRAISAL_CHECKLISTS[doc.appraisalTool];
   if (!c) return false;
   const items = appraisalItemsOf(doc);
-  return c.items.every(it => it.open ? !!(items[it.id] && items[it.id].note) : !!(items[it.id] && items[it.id].a));
+  return c.items.every(it => !!(items[it.id] && items[it.id].a));
+}
+// The checklist's own summary (CASP: positive / negative / unknowns), kept per tool
+function appraisalSummaryOf(doc, tool = doc.appraisalTool) {
+  if (!doc.appraisalSummary || typeof doc.appraisalSummary !== 'object') doc.appraisalSummary = {};
+  if (!doc.appraisalSummary[tool] || typeof doc.appraisalSummary[tool] !== 'object') doc.appraisalSummary[tool] = {};
+  return doc.appraisalSummary[tool];
 }
 function hasAppraisalDomains(doc) {
   const c = APPRAISAL_CHECKLISTS[doc.appraisalTool];
   if (!c) return false;
   const items = appraisalItemsOf(doc);
-  return c.items.some(it => items[it.id] && (items[it.id].a || items[it.id].note));
+  const sum = appraisalSummaryOf(doc);
+  return c.items.some(it => items[it.id] && (items[it.id].a || items[it.id].note)) || Object.values(sum).some(Boolean);
 }
 
 function normalizeDoc(d) {
   if (typeof d.appraisalTool !== 'string' || !d.appraisalTool) d.appraisalTool = 'CASP';
   if (!d.appraisalItems || typeof d.appraisalItems !== 'object') d.appraisalItems = {};
+  if (!d.appraisalSummary || typeof d.appraisalSummary !== 'object') d.appraisalSummary = {};
   return d;
 }
 
