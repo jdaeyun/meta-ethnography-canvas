@@ -18,3 +18,33 @@
   // Every Zenodo DOI link on the page points to the concept DOI ("all versions", resolves to the latest)
   each('a[href*="doi.org/10.5281/zenodo."]', function (el) { el.href = doiUrl; });
 })();
+
+// Copy buttons for the citation blocks (<pre data-copy>): copies the text as shown (version, year and DOI already filled in)
+(function () {
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy') ? resolve() : reject(new Error('copy failed')); } catch (e) { reject(e); }
+      document.body.removeChild(ta);
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('pre[data-copy]'), function (pre) {
+    var wrap = document.createElement('div');
+    wrap.className = 'mec-copy-wrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mec-copy-btn';
+    btn.textContent = 'Copy';
+    btn.setAttribute('aria-label', 'Copy ' + (pre.getAttribute('data-copy') || 'text'));
+    btn.addEventListener('click', function () {
+      copyText(pre.innerText.trim()).then(function () { btn.textContent = 'Copied ✓'; }, function () { btn.textContent = 'Select & copy'; });
+      setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
+    });
+    wrap.appendChild(btn);
+  });
+})();
