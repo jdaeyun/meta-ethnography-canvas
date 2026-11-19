@@ -242,7 +242,7 @@ function updateSidebar() {
       await recordAuditLog({
         category: 'concordance',
         action: `2nd Order Team Perspective Updated (${getDisplayName(activeDoc)}, p.${sec.page})`,
-        detail: `Construct: ${sec.note || '"' + sec.text.slice(0, 60) + '..."'}${newNote ? '\nConsensus Note: ' + newNote : ''}`,
+        detail: `Construct: ${sec.note || '"' + sec.text.slice(0, 60) + '..."'}${newNote ? '\nTeam Discussion Note: ' + newNote : ''}`,
         fromVal: `${oldStatus.toUpperCase()}${oldNote ? ' (' + oldNote + ')' : ''}`,
         toVal: `${newStatus.toUpperCase()}${newNote ? ' (' + newNote + ')' : ''}`
       });
