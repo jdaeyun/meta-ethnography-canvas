@@ -406,7 +406,7 @@ function buildAppendixHtml() {
   return `
     <div class="mb-3">
       <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Appendix A. Methodological Audit Trail, Team Perspectives & Reflexive Synthesis Log</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Chronological record of interpretive decisions, reviewer concordance, GRADE-CERQual judgements, and researcher reflexivity (eMERGe items 9, 11, 13, 15 and 18).</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Chronological record of interpretive decisions, team perspectives, GRADE-CERQual judgements, and researcher reflexivity (eMERGe items 9, 11, 13, 15 and 18).</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>
@@ -577,6 +577,8 @@ function appCitationHtml() {
 }
 
 // ---- Methods Summary: built ONCE as sections, rendered identically to HTML / Markdown / Word ----
+// A sentence ending: no second full stop after a text that already ends with . ? or !
+const endStop = t => /[.?!]\s*$/.test(String(t || '')) ? '' : '.';
 const PH = (t) => `<span style="color:#2563eb; font-weight:bold;">[Author to insert: ${t}]</span>`;
 function getMethodSections() {
   const docCount = state.docs.length;
@@ -586,7 +588,7 @@ function getMethodSections() {
   const anyRichness = state.docs.some(d => d.richness);
   const toolStr = tools.size > 0 ? Array.from(tools).join(', ') : '';
   const polHtml = state.loa.appraisalPolicy ? escapeHtml(state.loa.appraisalPolicy) + ' ' : '';
-  const useHtml = state.loa.appraisalUse ? escapeHtml(state.loa.appraisalUse) : PH('how appraisal results were used, e.g., whether studies were excluded or weighted');
+  const useHtml = state.loa.appraisalUse ? escapeHtml(state.loa.appraisalUse) : PH('how appraisal was used, e.g., whether any study was excluded, and whether it informed the reading of the studies or the CERQual judgements');
   const qualityHtml = anyQuality
     ? polHtml + `The methodological quality of each included study was appraised${toolStr ? ' using <b>' + escapeHtml(toolStr) + '</b>' : ' ' + PH('appraisal tool')}; ${getAppraisalDomainSpecs().length ? ' the judgement on each domain of the tool, with reasons, is reported for each study in Table 1b' + (getAppraisalDomainSpecs().length > 1 ? '–1c' : '') + ', and the reviewers\' overall judgements in Table 1. The checklist answers were not added up into a score.' : ' the overall judgements are reported in Table 1.'}${anyRichness ? ' Conceptual richness of each study was also recorded (Table 1).' : ''} ${useHtml}`
     : (state.loa.appraisalPolicy ? polHtml + useHtml : PH('whether and how the quality of the included studies was appraised, and how appraisal was used'));
@@ -621,7 +623,7 @@ function getMethodSections() {
     ? ` The second-order constructs of the first study (${firstName}) were placed as ${seedCount} provisional third-order row${seedCount === 1 ? '' : 's'}`
       + ` (${seedConfirmedCount} of which ${seedConfirmedCount === 1 ? 'was' : 'were'} later confirmed by the reviewer)`
       + `${laterRows > 0 ? `; ${laterRows} further row${laterRows === 1 ? ' was' : 's were'} created during translation` : ''}.`
-    : (state.loa.seedChoice === 'manual' && nCl > 0 ? ` The third-order rows were created by the reviewer${nCl ? ` (${nCl})` : ''} as each concept was compared with those of the other studies; the constructs of the first study were not placed automatically.` : '');
+    : (state.loa.seedChoice === 'manual' && nCl > 0 ? ` The ${nCl === 1 ? 'third-order row was' : nCl + ' third-order rows were'} created by the reviewer as each concept was compared with those of the other studies; the constructs of the first study were not placed automatically.` : '');
   // Relations actually recorded in the matrix (the study that established a row has none of its own there)
   const live = new Set(state.clusters.map(c => c.id));
   let refutCells = 0, translatedCells = 0, unjudgedCells = 0;
@@ -638,7 +640,7 @@ function getMethodSections() {
   const aspectCells = getOtherAspectCells();
   const otherAspect = aspectCells.length, aspectUsed = aspectCells.filter(x => x.used).length;
   const otherAspectHtml = !otherAspect ? ''
-    : ` In ${otherAspect} instance(s) a study addressed a different aspect of a theme rather than translating into it (◇ in Table 2b)`
+    : ` In ${otherAspect} ${otherAspect === 1 ? 'instance' : 'instances'} a study addressed a different aspect of a theme rather than translating into it (◇ in Table 2b)`
       + (aspectUsed ? `; the line-of-argument synthesis drew on ${aspectUsed === otherAspect ? (otherAspect === 1 ? 'it' : 'all of them') : aspectUsed + ' of them'} (marked in Table 2). ${PH('how these different aspects were brought into the line of argument')}`
         : `. ${PH('whether and how these different aspects were used in the line-of-argument synthesis (none is marked as used in the Research Aim & Overall Model drawer)')}`);
   // How the rows were based: on the construct of one study (◆), or with no single base (every placement judged)
@@ -675,7 +677,7 @@ function getMethodSections() {
   const relOutHtml = state.loa.relateOutcome ? ' ' + escapeHtml(state.loa.relateOutcome) : '';
 
   const cqHtml = cqAnyAssessed
-    ? `Confidence in ${cqAllAssessed ? 'each' : cqCount + ' of the ' + nCl} synthesized third-order finding${cqAllAssessed && nCl === 1 ? '' : 's'} was assessed using the GRADE-CERQual approach (Lewin et al., 2018) across four components (methodological limitations, coherence, adequacy of data, and relevance); each judgement is reported with its explanation in Table 3.${cqAllAssessed ? '' : ' The remaining findings were not assessed.'} CERQual was applied to the third-order constructs and not to the line of argument: the eMERGe guidance notes that guidance on applying CERQual to the broader concepts or theory of a meta-ethnography is still to be developed (France et al., 2019), and the CERQual developers likewise note that further work is needed for more interpretive outputs (Lewin et al., 2018). ${PH('how GRADE-CERQual was applied to the interpretive findings of this meta-ethnography')}`
+    ? `Confidence in ${cqAllAssessed ? 'each' : cqCount + ' of the ' + nCl} synthesized third-order finding${cqAllAssessed || cqCount === 1 ? '' : 's'} was assessed using the GRADE-CERQual approach (Lewin et al., 2018) across four components (methodological limitations, coherence, adequacy of data, and relevance); each judgement is reported with its explanation in Table 3.${cqAllAssessed ? '' : ' The remaining findings were not assessed.'} CERQual was applied to the third-order constructs and not to the line of argument: the eMERGe guidance notes that guidance on applying CERQual to the broader concepts or theory of a meta-ethnography is still to be developed (France et al., 2019), and the CERQual developers likewise note that further work is needed for more interpretive outputs (Lewin et al., 2018). ${PH('how GRADE-CERQual was applied to the interpretive findings of this meta-ethnography')}`
     : PH('whether and how GRADE-CERQual was applied; no finding has been assessed yet');
 
   const linksHtml = getLoaLinks().length
@@ -685,7 +687,7 @@ function getMethodSections() {
   const L = state.loa;
   const esc = v => escapeHtml(String(v || '').trim());
   const questionHtml = L.reviewQuestion && L.reviewQuestion.trim()
-    ? ` The review question was: <i>${esc(L.reviewQuestion)}</i>.`
+    ? ` The review question was: <i>${esc(L.reviewQuestion)}</i>${endStop(L.reviewQuestion)}`
     : ` ${PH('the review question(s) or objectives (eMERGe Item 3); use the Review Question field')}`;
 
   // Phase 3 (Item 9) + Item 10 companion papers
@@ -714,7 +716,7 @@ function getMethodSections() {
 
   const sections = [
     { title: 'Study Design and Reporting Guidelines',
-      html: `We conducted a meta-ethnography following the seven-phase methodology originally developed by Noblit and Hare (1988). Its reporting follows the eMERGe meta-ethnography reporting guidance (France et al., 2019). The aim of this review was: <i>${aimText}</i>.${questionHtml}` },
+      html: `We conducted a meta-ethnography following the seven-phase methodology originally developed by Noblit and Hare (1988). Its reporting follows the eMERGe meta-ethnography reporting guidance (France et al., 2019). The aim of this review was: <i>${aimText}</i>${state.loa.aim ? endStop(state.loa.aim) : '.'}${questionHtml}` },
     { title: 'Literature Search and Study Selection',
       html: PH('database search strategy, inclusion/exclusion criteria, and screening flow numbers (eMERGe Items 5–8)') },
     { title: 'Quality Appraisal and Conceptual Richness', html: qualityHtml },
@@ -727,7 +729,7 @@ function getMethodSections() {
   sections.push({ title: 'Rigor, Reflexivity, and Confidence in Findings',
     html: `${isTeam
         ? `Records in the audit trail are attributed to more than one reviewer ID. ${PH('who read the studies and extracted constructs, whether independently, and how different readings were discussed and worked through (eMERGe items 9, 13)')}`
-        : 'Records in the audit trail are attributed to a single reviewer ID.'} ${memoCount > 0 ? 'Reflexive and analytic memos were recorded chronologically in the audit trail (Appendix A).' : PH('how reflexivity was handled; no memos are recorded yet')} ${cqHtml}` });
+        : 'Records in the audit trail are attributed to a single reviewer ID.'} ${memoCount > 0 ? 'Reflexive and analytic memos were recorded chronologically in the audit trail (Appendix A).' : PH('how the reviewers reflected on the ways their own positions may have shaped the synthesis; no memos are recorded yet')} ${cqHtml}` });
   return sections;
 }
 
@@ -761,7 +763,7 @@ function buildeMERGeTableHtml() {
   return `
     <div style="margin-top: 32px; margin-bottom: 12px;">
       <h3 style="font-family: Georgia, serif; font-size: 14px; font-weight: bold; color: #0f172a;">eMERGe Reporting Checklist Mapping (France et al., 2019)</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Item numbers follow the 19 reporting criteria of France et al. (2019); titles and descriptions are short paraphrases, so see the paper for the full wording. Status is computed from your project data: bold = supplied by the app; amber = partly supplied; blue = for the author to write.</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Item numbers follow the 19 reporting criteria of France et al. (2019); titles and descriptions are short paraphrases, so see the paper for the full wording. Status is computed from your project data: bold = filled in from your project data; amber = partly supplied; blue = for the author to write.</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>

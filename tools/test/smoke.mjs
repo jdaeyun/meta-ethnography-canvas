@@ -599,7 +599,10 @@ await group('Compare: bulk import comes in as Discuss; Big Q wording in the expo
   const pages = ['site/index.html', 'site/meta-ethnography-101.html', 'README.md'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n') + code;
   check('no "raw participant quotes", "real data" or "coding full-text PDFs"', !/raw participant quote|grounded in real data|coding full-text PDFs/.test(pages));
   const app = fs.readdirSync(path.join(ROOT, 'app/js')).map(f => fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')).join('\n') + fs.readFileSync(path.join(ROOT, 'me_canvas.html'), 'utf8');
-  check('no "consensus", "deviant case", "sampling bias" or "was resolved" in the app', !/consensus|deviant case|sampling bias|was resolved/i.test(app));
+  check('no "consensus", "deviant case", "sampling bias", "was resolved", "weighted", "reflexivity was handled" or "reviewer concordance" in the app', !/consensus|deviant case|sampling bias|was resolved|weighted|reflexivity was handled|reviewer concordance/i.test(app));
+  await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  const m = await p.locator('#pubPreviewContainer').innerText();
+  check('Methods: no doubled full stop after the aim or question, and "each … finding" is singular', !/[.?!]\.(\s|$)/.test(m) && !/each synthesized third-order findings/.test(m) && !/instance\(s\)/.test(m));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });
