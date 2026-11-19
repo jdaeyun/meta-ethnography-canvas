@@ -626,13 +626,13 @@ function getMethodSections() {
     : (state.loa.seedChoice === 'manual' && nCl > 0 ? ` The ${nCl === 1 ? 'third-order row was' : nCl + ' third-order rows were'} created by the reviewer as each concept was compared with those of the other studies; the constructs of the first study were not placed automatically.` : '');
   // Relations actually recorded in the matrix (the study that established a row has none of its own there)
   const live = new Set(state.clusters.map(c => c.id));
-  let refutCells = 0, translatedCells = 0, unjudgedCells = 0;
+  let refutCells = 0, unjudgedCells = 0;
   state.annotations.forEach(a => {
     if (a.type !== 'second_order') return;
     (a.clusterIds || []).filter(id => live.has(id)).forEach(id => {
       const r = secRelation(a, id);
       if (r === 'baseline') return;
-      if (r === 'unjudged') unjudgedCells++; else translatedCells++;
+      if (r === 'unjudged') unjudgedCells++;
       if (r === 'refutational') refutCells++;
     });
   });
@@ -655,7 +655,7 @@ function getMethodSections() {
   const translationKindHtml = nCl === 0
     ? `${PH('how the extracted constructs were translated into third-order constructs')}`
     : refutCells > 0
-      ? `Through reciprocal and refutational translation (${refutCells} of ${translatedCells} judged placements of a construct in a row were judged refutational), the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b).${baseHtml}${otherAspectHtml}${unjudgedHtml}`
+      ? `Through reciprocal and refutational translation (refutational readings are marked ⚡ in Table 2b and explained in Table 2), the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b).${baseHtml}${otherAspectHtml}${unjudgedHtml}`
       : `Through reciprocal translation, the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b); no placement was judged refutational. ${PH('how refutational relations and disconfirming cases were looked for')}${baseHtml}${otherAspectHtml}${unjudgedHtml}`;
   const nt = getNotTranslatedSpec();
   const ntMissing = nt.rows.filter(r => r[3] === '[Reason not recorded]').length;
@@ -726,7 +726,7 @@ function getMethodSections() {
     { title: 'Synthesizing Translations (Phase 6)', html: synthesisHtml }
   ];
   if (linksHtml) sections.push({ title: 'Relationships between Third-Order Constructs', html: linksHtml });
-  sections.push({ title: 'Rigor, Reflexivity, and Confidence in Findings',
+  sections.push({ title: 'Quality, Reflexivity, and Confidence in Findings',
     html: `${isTeam
         ? `Records in the audit trail are attributed to more than one reviewer ID. ${PH('who read the studies and extracted constructs, whether independently, and how different readings were discussed and worked through (eMERGe items 9, 13)')}`
         : 'Records in the audit trail are attributed to a single reviewer ID.'} ${memoCount > 0 ? 'Reflexive and analytic memos were recorded chronologically in the audit trail (Appendix A).' : PH('how the reviewers reflected on the ways their own positions may have shaped the synthesis; no memos are recorded yet')} ${cqHtml}` });

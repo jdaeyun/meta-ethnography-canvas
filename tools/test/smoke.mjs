@@ -602,6 +602,8 @@ await group('Compare: bulk import comes in as Discuss; Big Q wording in the expo
   check('no "consensus", "deviant case", "sampling bias", "was resolved", "weighted", "reflexivity was handled" or "reviewer concordance" in the app', !/consensus|deviant case|sampling bias|was resolved|weighted|reflexivity was handled|reviewer concordance/i.test(app));
   await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
   const m = await p.locator('#pubPreviewContainer').innerText();
+  check('Methods: no ratio of refutational placements; heading says Quality, not Rigor', !/judged placements of a construct/.test(m) && m.includes('Quality, Reflexivity, and Confidence in Findings') && !m.includes('Rigor'));
+  check('demo CERQual: an explained difference is not a coherence concern (adequacy carries it)', await p.evaluate(() => { const c = state.clusters.find(x => x.thirdOrderTitle === 'Responsibility without back-up'); return c.cerqualCoherence === 'Minor' && c.cerqualAdequacy === 'Moderate' && !/not fully consistent/.test(c.cerqualCohNote); }));
   check('Methods: no doubled full stop after the aim or question, and "each … finding" is singular', !/[.?!]\.(\s|$)/.test(m) && !/each synthesized third-order findings/.test(m) && !/instance\(s\)/.test(m));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
