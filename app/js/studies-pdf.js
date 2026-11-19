@@ -83,15 +83,22 @@ async function handleFiles(files) {
   const reconnectMode = !!reconnectModal && !reconnectModal.classList.contains('hidden');
   const unmatched = [];
   for (const file of files) {
-    // Check if a study stub with the same filename already exists (e.g. from JSON restore)
-    const existingStub = state.docs.find(d => d.name && d.name.toLowerCase() === file.name.toLowerCase() && !d.hasBinary);
+    // A study without its PDF (e.g. after a JSON restore) is reconnected by file name, or, if the file was renamed,
+    // by its fingerprint: the backup keeps each study's SHA-256, so the identical file is recognised whatever it is called.
+    let existingStub = state.docs.find(d => d.name && d.name.toLowerCase() === file.name.toLowerCase() && !d.hasBinary);
+    let buffer = null;
+    if (!existingStub && state.docs.some(d => !d.hasBinary && d.sha256)) {
+      buffer = await file.arrayBuffer();
+      const sha = await sha256Hex(buffer);
+      if (sha) existingStub = state.docs.find(d => !d.hasBinary && d.sha256 === sha) || null;
+    }
     if (!existingStub && reconnectMode) { unmatched.push(file); continue; }
     if (existingStub) {
       await attachPdfFileToDoc(existingStub, file);
       lastAffectedId = existingStub.id;
       continue;
     }
-    const buffer = await file.arrayBuffer();
+    if (!buffer) buffer = await file.arrayBuffer();
 
     const docId = 'doc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
     const doc = normalizeDoc({

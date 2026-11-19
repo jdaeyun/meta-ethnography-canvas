@@ -25,8 +25,8 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📖</text></svg>">
 
   <title>Meta-Ethnography Canvas | Overview</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <link rel="stylesheet" href="css/tailwind.css">
+  <link rel="stylesheet" href="app/vendor/phosphor/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -88,28 +88,28 @@
           <i class="ph ph-flask text-xl"></i>
           <span>Try the Demo (AI-generated)</span>
         </a>
-        <a href="manual.html" class="inline-flex items-center space-x-2 px-5 py-3.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-semibold rounded-xl transition">
-          <i class="ph ph-book-open text-xl"></i>
-          <span>Read the User Manual</span>
-        </a>
-        <a href="#offline" class="inline-flex items-center space-x-2 px-5 py-3.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-semibold rounded-xl transition">
-          <i class="ph ph-download-simple text-xl"></i>
-          <span>Offline Edition</span>
-        </a>
       </div>
-      <p class="mt-4 text-sm text-slate-500 flex items-center space-x-1.5">
+      <p class="mt-4 text-sm text-slate-500 flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <i class="ph ph-desktop text-base text-slate-400"></i>
-        <span>Designed for desktop/laptop browsers. Use it online, or download the <a href="#offline" class="underline hover:text-slate-700">offline edition</a>.</span>
+        <span>Designed for desktop/laptop browsers.</span>
+        <span class="text-slate-300">•</span>
+        <a href="manual.html" class="underline hover:text-slate-700">User manual</a>
+        <span class="text-slate-300">•</span>
+        <a href="#offline" class="underline hover:text-slate-700">Offline edition</a>
         <span class="text-slate-300">•</span>
         <span>v<span data-mec="version">1.4.3</span></span>
         <span class="text-slate-300">•</span>
         <a href="https://doi.org/10.5281/zenodo.24200375" target="_blank" rel="noopener" class="underline hover:text-slate-700">DOI: <span data-mec="doi">10.5281/zenodo.24200375</span></a>
       </p>
+      <figure class="mt-10">
+        <img src="img/03-matrix.png" width="2400" height="1350" alt="The Synthesis Matrix: a column per study, 3rd Order theme rows, and each study's 2nd Order concepts placed and judged Reciprocal or Refutational" class="w-full rounded-xl border border-slate-200 shadow-lg">
+        <figcaption class="text-xs text-slate-500 mt-2">The Synthesis Matrix (Tab 2), shown with the AI-generated, fictional demo project. <a href="me_canvas.html?demo" class="underline hover:text-slate-700">Open the demo</a> to try it.</figcaption>
+      </figure>
     </div>
   </section>
 
   <!-- Main Content -->
-  <main class="flex-1 max-w-4xl mx-auto px-6 py-12 space-y-16">
+  <main class="flex-1 w-full min-w-0 max-w-4xl mx-auto px-6 py-12 space-y-16">
 
     <!-- Section 1: The Story / Motivation -->
     <section class="bg-white p-8 md:p-10 rounded-2xl border border-slate-200 shadow-xs space-y-5">
@@ -209,7 +209,7 @@
           </div>
           <h3 class="text-xl font-bold text-slate-900">4. Manuscript-Ready Draft Tables</h3>
           <p class="text-slate-600 text-base leading-relaxed">
-            Instantly generate a <strong>Methods Summary</strong> with a mapping to the 19 eMERGe reporting criteria, <strong>Table 1</strong> (Study Characteristics), <strong>Table 2</strong> (1st/2nd/3rd Order Synthesis), <strong>Table 2b</strong> (Concept × Study Contribution Grid), <strong>Table 3</strong> (GRADE-CERQual SoQF and/or Evidence Profile), and <strong>Appendix A</strong> (Audit Trail). Copy directly into Word/Docs, or download native <code>.docx</code>, Markdown, and CSV files.
+            Instantly generate a <strong>Methods Summary</strong> with a mapping to the 19 eMERGe reporting criteria, <strong>Table 1</strong> (Study Characteristics), <strong>Table 1b</strong> (CASP judgement on each question, with reasons), <strong>Table 2</strong> (1st/2nd/3rd Order Synthesis), <strong>Table 2b</strong> (Concept × Study Contribution Grid), <strong>Table 3</strong> (GRADE-CERQual SoQF and/or Evidence Profile), <strong>Appendix A</strong> (Audit Trail), <strong>Appendix B</strong> (concepts not translated, with reasons) and <strong>Appendix C</strong> (how the concepts within each study relate). Copy directly into Word/Docs, or download native <code>.docx</code>, Markdown, and CSV files.
           </p>
         </div>
       </div>
@@ -258,7 +258,7 @@
           <span>Online and offline projects are stored separately</span>
         </div>
         <p class="text-sm text-slate-700 leading-relaxed">
-          Each version keeps its own data in your browser. To move a project between them—or to another computer—use <strong>Backup</strong> and <strong>Settings (⚙️) ➔ Restore Project</strong>, then drop the same PDFs back in to reconnect them by filename. Very large PDFs may feel slightly slower in the offline edition.
+          Each version keeps its own data in your browser. To move a project between them—or to another computer—use <strong>Backup</strong> and <strong>Settings (⚙️) ➔ Restore Project</strong>, then drop the same PDFs back in: they reconnect by file name, or by their contents if a file was renamed, and anything left over can be connected by hand. Very large PDFs may feel slightly slower in the offline edition.
         </p>
       </div>
     </section>

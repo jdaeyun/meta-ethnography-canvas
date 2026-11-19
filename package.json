@@ -4,14 +4,16 @@
   "description": "Build tools only: fetches the bundled third-party libraries and builds the Tailwind CSS. The app itself needs no build to run.",
   "scripts": {
     "vendor": "node tools/copy-vendor.mjs",
-    "css": "tailwindcss -c tailwind.config.js -i tools/tailwind.input.css -o app/vendor/tailwind/tailwind.css --minify",
-    "build": "npm run vendor && npm run css",
+    "css": "node node_modules/tailwindcss/lib/cli.js -c tailwind.config.js -i tools/tailwind.input.css -o app/vendor/tailwind/tailwind.css --minify",
+    "build": "npm run vendor && npm run css && npm run css:site",
     "serve": "http-server . -p 8080 -c-1",
     "sync-version": "node tools/sync-version.mjs",
-    "test": "node tools/test/smoke.mjs"
+    "test": "node tools/test/smoke.mjs",
+    "css:site": "node node_modules/@tailwindcss/cli/dist/index.mjs -i tools/site/tailwind.site.css -o site/css/tailwind.css --minify"
   },
   "devDependencies": {
     "@phosphor-icons/web": "2.1.1",
+    "@tailwindcss/cli": "4.3.4",
     "docx": "8.5.0",
     "http-server": "14.1.1",
     "pdfjs-dist": "3.11.174",

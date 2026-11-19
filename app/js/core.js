@@ -61,6 +61,7 @@ function flashSaveStatus(status = 'saved') {
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     text.textContent = `Saved ${nowStr}`;
   }
+  badge.title = text.textContent + ' — all changes are saved automatically in this browser (IndexedDB).';
   if (saveBadgeTimer) clearTimeout(saveBadgeTimer);
   if (status === 'saved') {
     saveBadgeTimer = setTimeout(() => badge.classList.add('opacity-75'), 2500);

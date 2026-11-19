@@ -26,14 +26,20 @@ app/js/demo.js         ?demo mode: seeds the AI-generated demo project into a se
 app/demo/              AI-GENERATED sample PDFs, project JSON and demo-data.js (rebuild with tools/demo/, see below)
 demo.html              redirects to me_canvas.html?demo (so the offline edition can open the demo by double-click)
 site/                  website (GitHub Pages): index.html (overview), manual.html, meta-ethnography-101.html,
-                       css/site.css, js/site.js. Plain HTML (Tailwind from CDN, separate from the app build), no build step
+                       css/site.css, css/tailwind.css, js/site.js. Plain HTML. Tailwind v4 is prebuilt into css/tailwind.css
+                       (committed; `npm run css:site` after using a class that appears nowhere else in site/), separate from the app's Tailwind 3.
+                       img/*.png and preview.png (social-media card) are taken from the demo by tools/site/make-screenshots.mjs:
+                       re-run it after a visible UI change.
 ```
 
 ## Building app/vendor (only when libraries or Tailwind classes change)
 
 Node.js LTS required. `npm install` (exact versions from package.json / package-lock.json), then `npm run build`
 (= `npm run vendor`: copy libraries + licences into app/vendor and write THIRD_PARTY_NOTICES.md;
-`npm run css`: Tailwind CLI scans me_canvas.html + app/js/**/*.js → app/vendor/tailwind/tailwind.css).
+`npm run css`: Tailwind 3 CLI scans me_canvas.html + app/js/**/*.js → app/vendor/tailwind/tailwind.css;
+`npm run css:site`: Tailwind 4 CLI (@tailwindcss/cli, its v4 nested under it) scans site/ → site/css/tailwind.css).
+Both scripts call their CLI by path, because the two packages share the `tailwindcss` command name. If npm is set to omit
+optional dependencies, install with `npm ci --include=optional` (Tailwind 4 needs its platform-specific binaries).
 Re-run `npm run css` after using a Tailwind class that appears nowhere else. Write class names in full
 (no string concatenation such as 'bg-' + color) so the Tailwind scanner can see them.
 `npm run serve` serves the folder at http://localhost:8080 for testing. node_modules/ is not committed.
@@ -97,3 +103,5 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 - Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`);
   change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
 - UI text is English.
+- The app must fit laptop widths: no overlap in the header or the view toolbars from 1024 px up (smoke test "Layout at laptop widths").
+  Toolbars wrap (`flex-wrap`, `gap-*`, not `space-x-*`); long labels shorten below `xl` / `2xl` and keep the full text in `title`.

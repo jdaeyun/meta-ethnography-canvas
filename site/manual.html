@@ -7,8 +7,8 @@
   <link rel="canonical" href="https://jdaeyun.github.io/meta-ethnography-canvas/manual.html">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📖</text></svg>">
   <title>User Manual | Meta-Ethnography Canvas</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <link rel="stylesheet" href="css/tailwind.css">
+  <link rel="stylesheet" href="app/vendor/phosphor/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -72,7 +72,7 @@
   </section>
 
   <!-- Main Manual Content -->
-  <main class="flex-1 max-w-4xl mx-auto px-6 py-12 space-y-14">
+  <main class="flex-1 w-full min-w-0 max-w-4xl mx-auto px-6 py-12 space-y-14">
 
     <!-- ========================================== -->
     <!-- 1. GETTING STARTED & SAVING                -->
@@ -94,6 +94,17 @@
         </p>
         <p class="text-sm text-slate-700 leading-relaxed">
           Please complete your systematic search and study selection in your preferred reference manager or screening tool (such as Zotero, EndNote, Rayyan, or Covidence) first, and then import the <strong>final set of included full-text PDFs</strong> here for deep reading, appraisal, and conceptual translation.
+        </p>
+      </div>
+
+      <!-- Start small -->
+      <div class="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5 text-base text-slate-800 space-y-2">
+        <div class="font-bold text-emerald-950 flex items-center space-x-2">
+          <i class="ph ph-plant text-xl text-emerald-700"></i>
+          <span>You don't have to fill in everything at once</span>
+        </div>
+        <p class="text-sm text-slate-700 leading-relaxed">
+          The manual covers every feature, but you can start small: add your PDFs, highlight 1st and 2nd Order constructs, and place them in rows in the matrix. That is already a working synthesis. The rest can come when you need it: judging each placement Reciprocal or Refutational as you read across studies, the Line of Argument once themes settle, and CERQual, reasons for constructs left out, and the reporting fields when you write up. The Methods Summary in Tab 4 shows what is still missing, and the audit trail records your decisions in the background from the start.
         </p>
       </div>
 
@@ -139,7 +150,7 @@
           <ul class="list-disc pl-6 space-y-1">
             <li>Click <strong>Backup</strong> in the top bar at the end of each work session to download a small <code>.json</code> project file. The file name ends with the date and time (to the second), so earlier backups are never overwritten.</li>
 <li>A small badge on the <strong>Backup</strong> button shows how long you have been working without a backup: <strong>●</strong> = changes since the last backup, <strong>3d</strong> = unsaved for 3 days (turns red after 7 days). Downloading a backup clears it.</li>
-<li>Use the <strong>Settings Menu (⚙️) ➔ Restore Project</strong> to load your <code>.json</code> backup on any computer. To respect publisher copyright and keep the backup file small, PDF files themselves are not saved inside the <code>.json</code> file—simply drag and drop the original PDFs (with the same filenames) back onto the screen and they will reconnect to your highlights automatically! After a restore, a window lists the studies whose PDF is still missing and lets you select the files right away; a file whose name does not match is listed with a picker, so you can connect it to the right study by hand (the likeliest one is listed first). The window closes by itself once all are reconnected.
+<li>Use the <strong>Settings Menu (⚙️) ➔ Restore Project</strong> to load your <code>.json</code> backup on any computer. To respect publisher copyright and keep the backup file small, PDF files themselves are not saved inside the <code>.json</code> file—simply drag and drop the original PDFs back onto the screen and they reconnect to your highlights automatically: by file name, or, if a file was renamed, by its contents (the backup keeps a fingerprint of each PDF, so the identical file is recognised). After a restore, a window lists the studies whose PDF is still missing and lets you select the files right away; a file that still does not match (for example a different copy of the paper) is listed with a picker, so you can connect it to the right study by hand (the likeliest one is listed first). The window closes by itself once all are reconnected.
 <br><strong>Clean restore or merge:</strong> a <em>clean restore</em> replaces the project in this browser (and clears the Undo history, so Ctrl+Z cannot bring back items of the previous project). A <em>merge</em> keeps everything you have and only adds what is not here yet; where an item exists in both with different content, your version is kept and the item is listed after the merge and in the Audit Trail. Empty fields (for example an empty Research Aim) are filled from the backup.</li>
           </ul>
         </div>
@@ -194,8 +205,8 @@
           <li><strong>Sorting by richness (Rich★):</strong> Studies are ordered by richness only (quality appraisal is not used as a ranking criterion). The 3-level scale cannot separate studies with the same ratings, so when some are tied a window opens where you decide their order with ▲ ▼ (and, if the top group is tied, which one becomes the Index Paper, with an optional reason). Studies with identical ratings keep their current order (by default, the order in which they were added); no secondary sort such as publication year is applied, so describe how ties were handled in your methods if it matters. If you order them here, your choice is saved in the Audit Trail and a later Rich★ sort keeps it.</li>
         </ul>
         <figure class="my-4">
-          <img src="img/02-study-info.png" alt="The Edit Study Info drawer with author, year, subgroup, setting and sample filled in" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
-          <figcaption class="text-xs text-slate-500 mt-1.5">The Edit Study Info drawer. The optional <strong>Subgroup</strong> field is used for subgroup translation (see 3.5).</figcaption>
+          <img src="img/02-study-info.png" alt="The Edit Study Info drawer open at the CASP checklist, with a judgement and a reason for each question" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <figcaption class="text-xs text-slate-500 mt-1.5">The Edit Study Info drawer, scrolled to the CASP checklist: a judgement and a reason for each question, never a score. Further up are the study details and the optional <strong>Subgroup</strong> field used for subgroup translation (see 3.5).</figcaption>
         </figure>
       </div>
 
@@ -207,7 +218,7 @@
           Select any passage in the PDF with your mouse (multi-page selections across page breaks, such as <code>p.2-3</code>, are supported automatically). A dark popup bar will appear:
         </p>
         <figure class="my-4">
-          <img src="img/01-extract.png" alt="Tab 1 with highlighted 2nd Order and 1st Order passages in the PDF and the extracted cards in the right sidebar" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <img src="img/01-extract.png" alt="Tab 1 with highlighted passages in the PDF, and in the right sidebar the box for how this study's concepts relate above the extracted cards" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
           <figcaption class="text-xs text-slate-500 mt-1.5">Tab 1: select text in the PDF, then choose 1st Order or 2nd Order from the popup bar. Highlights appear in the PDF (green = 2nd Order, blue = 1st Order) and cards appear in the right sidebar. All screenshots show the AI-generated demo project.</figcaption>
         </figure>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-3">
@@ -246,8 +257,8 @@
       <div class="space-y-4 text-slate-700">
         <h3 class="text-lg font-bold text-slate-900">3.1 Creating 3rd Order Theme Rows & Mapping Concepts</h3>
         <figure class="my-4">
-          <img src="img/03-matrix.png" alt="Tab 2 matrix with two theme rows, a concept pool on the left and one column per study" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
-          <figcaption class="text-xs text-slate-500 mt-1.5">Tab 2: the concept pool is on the left, and each study has its own column. Here the first theme row is marked Refutational.</figcaption>
+          <img src="img/03-matrix.png" alt="Tab 2 matrix with a concept pool on the left, one column per study, and a theme row with judged and empty cells" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <figcaption class="text-xs text-slate-500 mt-1.5">Tab 2: the concept pool is on the left, and each study has its own column. In the first theme row, one study is Refutational and one empty cell is marked ◇ (addresses a different aspect).</figcaption>
         </figure>
         <ul class="list-disc pl-6 space-y-2">
           <li><strong>How the rows start (asked once):</strong> The first time study #1 has 2nd Order concepts and the matrix has no rows, the app asks whether to <em>start from study #1</em> (each of its concepts becomes a provisional row, as in index-paper approaches) or <em>start with an empty matrix</em> (you create every row, comparing each concept with those of all the other studies). The choice and your reason are saved in the project and the Audit Trail; you can change it later with <strong>★ Auto-place #1 Study</strong>.</li>
@@ -373,11 +384,11 @@
         <li><strong>Appendix C — Relationships within Each Study:</strong> How the concepts of each study relate to one another, as recorded in Tab 1 (eMERGe criterion 13).</li>
       </ol>
         <figure class="my-4">
-          <img src="img/05-export.png" alt="Tab 4 showing the Synthesis and Line of Argument table ready to export" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
-          <figcaption class="text-xs text-slate-500 mt-1.5">Tab 4: choose a table, then copy it or download it.</figcaption>
+          <img src="img/05-export.png" alt="Tab 4 showing Table 2b, the concept-by-study contribution grid, with its legend" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
+          <figcaption class="text-xs text-slate-500 mt-1.5">Tab 4: choose a table (here Table 2b with its legend), then copy it or download it.</figcaption>
         </figure>
       <p class="text-slate-700 pt-2">
-        <strong>Export Options:</strong> Click <strong>Copy Rich Table</strong> to paste the currently viewed table directly into Microsoft Word or Google Docs with borders and formatting intact. You can also <strong>Copy Markdown</strong>, download the Methods Summary and all five tables together in a single landscape <strong>Word (.docx)</strong> document, or download a <strong>Raw CSV</strong> of your entire synthesis matrix. In the Word file, a blue note under <em>Concept relationships</em> reminds you to add the concept map picture: download it as .svg from the Line of Argument drawer and insert it as a figure.
+        <strong>Export Options:</strong> Click <strong>Copy Rich Table</strong> to paste the currently viewed table directly into Microsoft Word or Google Docs with borders and formatting intact. You can also <strong>Copy Markdown</strong>, download the Methods Summary, all the tables and the appendices together in a single landscape <strong>Word (.docx)</strong> document, or download a <strong>Raw CSV</strong> of your entire synthesis matrix. In the Word file, a blue note under <em>Concept relationships</em> reminds you to add the concept map picture: download it as .svg from the Line of Argument drawer and insert it as a figure.
       </p>
     </section>
 
@@ -393,7 +404,7 @@
       <div class="space-y-4 text-slate-700">
         <h3 class="text-lg font-bold text-slate-900">6.1 Working Separately, Then Comparing (Compare Button)</h3>
         <p>
-          To respect publisher copyright and keep backup files small, <strong>PDF files themselves are not saved inside <code>.json</code> backups</strong>. Because the app reconnects PDFs by matching their <strong>filenames</strong>, we strongly recommend the following workflow when working with co-reviewers across institutions:
+          To respect publisher copyright and keep backup files small, <strong>PDF files themselves are not saved inside <code>.json</code> backups</strong>. The app reconnects PDFs by <strong>file name</strong>, or by their <strong>contents</strong> when the identical file was renamed; a different copy of the same paper (for example downloaded from another site) has different contents and must be connected by hand. Sharing one set of files avoids that, so we recommend the following workflow when working with co-reviewers across institutions:
         </p>
 
         <!-- Recommended Team Setup Box -->
@@ -416,6 +427,7 @@
               <strong>Extract Independently, Then Compare & Merge:</strong> After each reviewer extracts quotes and concepts on their own computer, have your co-reviewer click <strong>Backup</strong> and send you their <code>.json</code> file. Click the teal <strong>Compare</strong> button in the top bar and drop their file in to review <strong>Divergent Interpretations</strong> and <strong>Unique Extractions</strong>, then <strong>Import & Agree</strong> or <strong>Import as Discuss</strong> in one click. The <strong>📚 Studies &amp; Order</strong> tab shows which of their studies is which of yours (matched by identical PDF file, DOI, file name or title; a study with only the same first author and year is offered as a ★ suggestion for you to confirm) and both reviewers' translation orders side by side. A different #1 or order is a difference to discuss, and you can record it in the Audit Trail. The pairing of constructs does not depend on the order of either file. An imported construct keeps its place in a 3rd Order row when you have that row too: the same row, or a row with the same title. The first time you adopt anything from your co-reviewer, their audit trail entries are merged into yours automatically, so the shared trail shows both reviewers. (If you only compare and import nothing, use <strong>Merge Audit Logs</strong> in the “3rd Order, Model &amp; Logs” tab.)
             </li>
           </ol>
+          <p class="text-sm text-slate-700 leading-relaxed mt-3"><strong>Teams of three or more:</strong> Compare works between your project and one other file at a time, so choose one person as the <em>host</em>. Each member extracts independently and sends a <code>.json</code> backup; the host loads them one after another with <strong>Compare</strong>, ideally while sharing their screen in a team meeting, so that each difference is discussed and settled together (<strong>Import &amp; Agree</strong>, <strong>Import as Discuss</strong> or <strong>Set Aside</strong>). Every member's audit trail is merged into the host's, and the host's backup then becomes the shared version that everyone restores before the next round. Keeping one shared version this way avoids parallel copies drifting apart.</p>
         </div>
       </div>
 
