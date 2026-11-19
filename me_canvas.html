@@ -1009,10 +1009,10 @@
         <button id="missingPdfCloseBtn" class="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer" title="Close"><i class="ph ph-x text-lg"></i></button>
       </div>
       <div class="p-5 space-y-3 text-xs text-slate-700">
-        <p>Backup files do not contain the PDFs themselves. Select or drop the original PDF files to reconnect them to your highlights. They are matched by <strong>file name</strong>, so keep the original names.</p>
+        <p>Backup files do not contain the PDFs themselves. Select or drop the original PDF files to reconnect them to your highlights. They are matched by <strong>file name</strong>, or, if a file was renamed, by its contents (the identical PDF is recognised). Anything still unmatched can be connected by hand below.</p>
         <ul id="missingPdfList" class="space-y-1 max-h-64 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50 font-mono text-[13px]"></ul>
         <div id="missingPdfUnmatched" class="hidden rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-800">
-          <div class="font-bold mb-1">Not matched by file name: choose the study each file belongs to</div>
+          <div class="font-bold mb-1">Not matched automatically: choose the study each file belongs to</div>
           <ul id="missingPdfUnmatchedList" class="space-y-1 max-h-40 overflow-y-auto text-[13px]"></ul>
           <div class="mt-1 text-[11px] text-amber-700">Pick a study in the list next to a file to connect it (the likeliest match is listed first). Or rename the file to match and select it again.</div>
         </div>

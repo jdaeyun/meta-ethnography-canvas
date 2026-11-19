@@ -27,6 +27,8 @@ app/demo/              AI-GENERATED sample PDFs, project JSON and demo-data.js (
 demo.html              redirects to me_canvas.html?demo (so the offline edition can open the demo by double-click)
 site/                  website (GitHub Pages): index.html (overview), manual.html, meta-ethnography-101.html,
                        css/site.css, js/site.js. Plain HTML (Tailwind from CDN, separate from the app build), no build step
+                       img/*.png and preview.png (social-media card) are taken from the demo by tools/site/make-screenshots.mjs:
+                       re-run it after a visible UI change. The pages pin @tailwindcss/browser to an exact version.
 ```
 
 ## Building app/vendor (only when libraries or Tailwind classes change)

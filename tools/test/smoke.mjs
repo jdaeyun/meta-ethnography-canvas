@@ -690,6 +690,31 @@ await group('Demo shows a worked example of each newer feature', async () => {
   await p.context().close();
 });
 
+await group('A renamed PDF reconnects by its fingerprint; website shows the app and the current outputs', async () => {
+  const p = await openDemo();
+  await p.waitForFunction(() => state.docs.filter(d => d.hasBinary).every(d => d.fpDone && d.sha256), null, { timeout: 30000 });
+  const r = await p.evaluate(async () => {
+    const d = state.docs[2];
+    const rec = await dbGet('pdf_binaries', d.id);
+    const bytes = rec.data.slice(0);
+    await dbDelete('pdf_binaries', d.id); d.hasBinary = false; await dbPut('docs', d);
+    const n = state.docs.length;
+    await handleFiles([new File([bytes], 'completely-different-name.pdf', { type: 'application/pdf' })]);
+    return { attached: d.hasBinary, sameCount: state.docs.length === n, stored: !!(await dbGet('pdf_binaries', d.id)) };
+  });
+  check('the identical PDF under another name reconnects to its study', r.attached && r.stored && r.sameCount);
+  await p.context().close();
+  const index = fs.readFileSync(path.join(ROOT, 'site/index.html'), 'utf8');
+  const manual = fs.readFileSync(path.join(ROOT, 'site/manual.html'), 'utf8');
+  check('the overview page shows a screenshot of the app', /<img src="img\/03-matrix\.png"/.test(index));
+  check('the social-media card image exists', fs.existsSync(path.join(ROOT, 'site/preview.png')));
+  check('every screenshot the pages use exists', [...(index + manual).matchAll(/src="(img\/[^"]+)"/g)].every(m => fs.existsSync(path.join(ROOT, 'site', m[1]))));
+  check('the overview lists Table 1b and Appendices B and C', ['Table 1b', 'Appendix B', 'Appendix C'].every(t => index.includes(t)));
+  check('two main buttons in the hero', (index.slice(index.indexOf('<section'), index.indexOf('</section>')).match(/rounded-xl[^"]*transition"/g) || []).length === 2);
+  check('no outdated table count or file-name-only reconnect', !manual.includes('all five tables') && !index.includes('reconnect them by filename'));
+  check('site Tailwind pinned to an exact version', !/@tailwindcss\/browser@4"/.test(index + manual + fs.readFileSync(path.join(ROOT, 'site/meta-ethnography-101.html'), 'utf8')));
+});
+
 await group('Offline edition (file://) starts without errors and renders PDFs', async () => {
   const p = await openDemo('file://' + path.join(ROOT, 'me_canvas.html') + '?demo');
   await p.waitForTimeout(2500);
