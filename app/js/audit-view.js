@@ -48,7 +48,7 @@ function renderAuditView() {
   refSel.innerHTML = '<option value="">General (Whole Synthesis)</option>';
   state.clusters.forEach(c => {
     const opt = document.createElement('option');
-    opt.value = `Cluster: ${c.thirdOrderTitle || 'Untitled'}`;
+    opt.value = `3rd Order Row: ${c.thirdOrderTitle || 'Untitled'}`;
     opt.textContent = `3rd Order: ${c.thirdOrderTitle || '(Untitled Row)'}`;
     opt.dataset.clusterId = c.id;
     refSel.appendChild(opt);
@@ -75,6 +75,7 @@ function getCategoryMeta(cat) {
     case 'cerqual': return { label: 'GRADE-CERQual', cls: 'bg-cyan-100 text-cyan-900 border-cyan-300', icon: 'ph-chart-bar' };
     case 'appraisal_policy': return { label: 'Appraisal Policy', cls: 'bg-teal-100 text-teal-800 border-teal-300', icon: 'ph-stethoscope' };
     case 'relating_studies': return { label: 'Phase 4: Relating Studies', cls: 'bg-violet-100 text-violet-800 border-violet-300', icon: 'ph-intersect' };
+    case 'aim_question': return { label: 'Phase 1: Aim & Review Question', cls: 'bg-amber-50 text-amber-900 border-amber-200', icon: 'ph-target' };
     case 'line_of_argument': return { label: 'Line of Argument', cls: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300', icon: 'ph-graph' };
     case 'third_order': return { label: '3rd Order Evolution', cls: 'bg-purple-100 text-purple-800 border-purple-300', icon: 'ph-sparkle' };
     case 'matrix_mapping': return { label: 'Matrix Mapping', cls: 'bg-emerald-100 text-emerald-800 border-emerald-300', icon: 'ph-arrows-split' };

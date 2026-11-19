@@ -127,7 +127,7 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
 
     if (prevAim !== aimVal || prevQ !== qVal || (prevProj && prevProj !== projVal)) {
       await recordAuditLog({
-        category: 'line_of_argument',
+        category: 'aim_question',
         action: `Configured Project [${projVal}] & Phase 1 Research Aim`,
         detail: (aimVal ? `Phase 1 Aim: ${aimVal}` : 'Project code configured (Phase 1 Aim left blank).') + (qVal ? `\nReview question: ${qVal}` : ''),
         fromVal: prevProj ? `[${prevProj}] ${prevAim.slice(0, 60)}` : '(Initial Setup)',
@@ -219,7 +219,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (existingCount > 0) {
       const doBulk = confirm(
         `Reviewer ID changed from @${oldRev} to @${nextRev}.\n\n` +
-        `Would you also like to bulk-update your ${existingCount} existing constructs/clusters from @${oldRev} to @${nextRev}?\n` +
+        `Would you also like to bulk-update your ${existingCount} existing constructs and rows from @${oldRev} to @${nextRev}?\n` +
         `(Click [OK] to update all @${oldRev} items, or [Cancel] to only use @${nextRev} for new extractions)`
       );
       if (doBulk) {

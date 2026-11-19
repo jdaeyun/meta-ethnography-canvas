@@ -222,7 +222,7 @@ function buildTable2Html() {
         </tr>
       </thead>
       <tbody>
-        ${rowsHtml || '<tr><td colspan="6">No 3rd Order Concept Clusters created yet.</td></tr>'}
+        ${rowsHtml || '<tr><td colspan="6">No 3rd Order rows created yet.</td></tr>'}
       </tbody>
     </table>
     ${loaBlockHtml}
@@ -303,7 +303,7 @@ function buildTable3SoQFHtml() {
           if (cell && typeof cell === 'object') return `<td><b>${escapeHtml(cell.title)}</b>${cell.note ? `<div style="margin-top:4px; font-size:11px; color:#334155;">${escapeHtml(cell.note)}</div>` : ''}</td>`;
           return `<td>${escapeHtml(cell)}</td>`;
         }).join('') + '</tr>').join('')
-      : `<tr><td colspan="${spec.headers.length}">No 3rd Order Concept Clusters created yet.</td></tr>`;
+      : `<tr><td colspan="${spec.headers.length}">No 3rd Order rows created yet.</td></tr>`;
     return `
     <div class="mb-3" style="margin-top:8px;">
       <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">${escapeHtml(spec.title)}</h3>
@@ -478,7 +478,7 @@ function buildTable2GridHtml() {
         </tr>
       </thead>
       <tbody>
-        ${rowsHtml || `<tr><td colspan="${state.docs.length + 2}">No 3rd Order Concept Clusters created yet.</td></tr>`}
+        ${rowsHtml || `<tr><td colspan="${state.docs.length + 2}">No 3rd Order rows created yet.</td></tr>`}
       </tbody>
     </table>
   `;
@@ -1049,7 +1049,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
 
   if (state.clusters.length === 0) {
-    t2Rows.push(new TableRow({ children: [makeCell('No 3rd Order Concept Clusters created yet.', { isLastRow: true }), ...Array(5).fill(0).map(() => makeCell('-', { isLastRow: true }))] }));
+    t2Rows.push(new TableRow({ children: [makeCell('No 3rd Order rows created yet.', { isLastRow: true }), ...Array(5).fill(0).map(() => makeCell('-', { isLastRow: true }))] }));
   } else {
     state.clusters.forEach((c, idx) => {
       normalizeCluster(c);
@@ -1384,7 +1384,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
 document.getElementById('exportCsvBtn').addEventListener('click', () => {
   const rows = [
-    ['3rd Order Construct', 'Translation Type', '3rd Order Team Status', 'CERQual Confidence', 'CERQual Explanation', 'Step A: Translation Summary', 'Step B: 3rd Order Interpretation', 'StudyOrder', 'Study', 'Title', 'Setting', 'Participants', 'Methodology', 'Appraisal Tool', 'Quality Rating', 'Conceptual Depth (Richness)', 'Study Context Note', 'Study Overview / Key Metaphors', 'Funder', 'Same Primary Study As', '2nd Order Reviewer', '2nd Order Summary', '2nd Order Raw Text', '2nd Order Nuance Memo (Private)', '2nd Order Team Status', 'Cluster-Specific Comment', 'Linked 1st Order Quotes', 'Page']
+    ['3rd Order Construct', 'Translation Type', '3rd Order Team Status', 'CERQual Confidence', 'CERQual Explanation', 'Step A: Translation Summary', 'Step B: 3rd Order Interpretation', 'StudyOrder', 'Study', 'Title', 'Setting', 'Participants', 'Methodology', 'Appraisal Tool', 'Quality Rating', 'Conceptual Depth (Richness)', 'Study Context Note', 'Study Overview / Key Metaphors', 'Funder', 'Same Primary Study As', '2nd Order Reviewer', '2nd Order Summary', '2nd Order Raw Text', '2nd Order Nuance Memo (Private)', '2nd Order Team Status', 'Row-Specific Comment', 'Linked 1st Order Quotes', 'Page']
   ];
 
   const seconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);

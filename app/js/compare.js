@@ -618,7 +618,7 @@ function renderComparisonTabContent() {
         </button>
       </div>
       <div class="bg-white p-4 rounded-xl border border-slate-200 space-y-2.5">
-        <h4 class="text-xs font-bold text-slate-800">🟣 Peer's 3rd Order Concept Clusters</h4>
+        <h4 class="text-xs font-bold text-slate-800">🟣 Peer's 3rd Order Rows</h4>
         <div id="peerClustersList" class="space-y-2"></div>
       </div>
     `;
@@ -630,7 +630,7 @@ function renderComparisonTabContent() {
 
     const clList = restBox.querySelector('#peerClustersList');
     if (peerClusters.length === 0) {
-      clList.innerHTML = `<div class="text-xs text-slate-400">No 3rd order clusters in peer JSON.</div>`;
+      clList.innerHTML = `<div class="text-xs text-slate-400">No 3rd order rows in the other reviewer's file.</div>`;
     } else {
       peerClusters.forEach(pc => {
         const exists = state.clusters.find(c => c.id === pc.id || sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
@@ -638,7 +638,7 @@ function renderComparisonTabContent() {
         row.className = 'p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between text-xs';
         row.innerHTML = `
           <div>
-            <div class="font-bold text-slate-800">${escapeHtml(pc.thirdOrderTitle || '(Untitled Cluster)')} <span class="text-xs font-normal text-slate-500">CERQual: ${escapeHtml(pc.cerqualConfidence || 'Not assessed')}</span></div>
+            <div class="font-bold text-slate-800">${escapeHtml(pc.thirdOrderTitle || '(Untitled Row)')} <span class="text-xs font-normal text-slate-500">CERQual: ${escapeHtml(pc.cerqualConfidence || 'Not assessed')}</span></div>
             ${pc.translationSummary ? `<div class="text-[13px] text-emerald-800 mt-0.5"><b>A · Translation:</b> ${escapeHtml(pc.translationSummary)}</div>` : ''}
             <div class="text-[13px] text-slate-600 mt-0.5">${pc.translationSummary ? '<b>B · 3rd order:</b> ' : ''}${escapeHtml(pc.synthesisNote || '-')}</div>
           </div>
@@ -657,7 +657,7 @@ function renderComparisonTabContent() {
           await recordAuditLog({
             clusterIds: [newCl.id],
             category: 'concordance',
-            action: `Imported 3rd Order Cluster from @${cmp.peerReviewer}`,
+            action: `Imported 3rd Order Row from @${cmp.peerReviewer}`,
             toVal: newCl.thirdOrderTitle || '(Untitled)'
           });
           renderComparisonTabContent();
