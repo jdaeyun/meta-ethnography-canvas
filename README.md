@@ -8,7 +8,7 @@
 
 **Meta-Ethnography Canvas** is a free, open-source workspace for doing a **meta-ethnography** (a type of qualitative evidence synthesis). It runs in one browser window, with no server and no account. Its draft outputs are structured around the **eMERGe reporting guidance** (France et al., 2019), to help you report your synthesis; whether a manuscript meets the guidance is for its authors to judge. This is an independent project, not affiliated with or endorsed by the eMERGe project or its authors.
 
-It puts two jobs in one place: coding full-text PDFs, and comparing studies in a synthesis matrix. It keeps 1st, 2nd and 3rd order constructs, quality appraisals, GRADE-CERQual ratings and links back to the exact PDF page together on your own computer.
+It puts two jobs in one place: reading full-text PDFs and extracting constructs from them, and comparing studies in a synthesis matrix. It keeps 1st, 2nd and 3rd order constructs, quality appraisals, GRADE-CERQual ratings and links back to the exact PDF page together on your own computer.
 
 > 📌 **Scope note:** This tool is for the **synthesis steps after screening** phases 1 and 3–7 of Noblit and Hare's seven phases, by which eMERGe organises its reporting criteria; the Phase 1 aim and review question are saved in Project Setup). Do your database searching, duplicate removal and title/abstract screening in another tool first (for example Rayyan, Covidence or Zotero). Then bring your final included full-text PDFs here.
 

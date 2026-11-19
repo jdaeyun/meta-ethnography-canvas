@@ -174,7 +174,7 @@ function buildTable2Html() {
         <td>
           <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Construct)')}</b>${c.autoSeeded && !c.seedConfirmed ? ' <span style="font-size:10px; color:#b45309;">(provisional: seeded from Index Paper, not yet confirmed)</span>' : ''}${c.baselineChange ? ' <span style="font-size:10px; color:#b45309;">(study #1 changed; translation not yet re-read)</span>' : ''}
           <div style="font-size:10.5px; color:#475569; margin-top:4px;"><b>Type:</b> ${escapeHtml(transLabel)}</div>
-          <div style="font-size:10px; color:#64748b; margin-top:2px;"><b>Concordance:</b> ${escapeHtml(concordanceLabel(c.concordanceStatus))}</div>
+          <div style="font-size:10px; color:#64748b; margin-top:2px;"><b>Team status:</b> ${escapeHtml(concordanceLabel(c.concordanceStatus))}</div>
         </td>
         <td>${c.translationSummary ? `<div style="margin-bottom:6px;"><b>Translation:</b> ${escapeHtml(c.translationSummary)}</div>` : ''}${c.synthesisNote ? `<div><b>3rd order interpretation:</b> ${escapeHtml(c.synthesisNote)}</div>` : ''}${(!c.translationSummary && !c.synthesisNote) ? '-' : ''}</td>
         <td>${secondOrderListHtml || '-'}${cellStatusLines(c).map(l => `<div style="margin-top:4px; font-size:11px; color:#0369a1;">${escapeHtml(l)}</div>`).join('')}</td>
@@ -208,7 +208,7 @@ function buildTable2Html() {
   return `
     <div class="mb-3">
       <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Table 2. Meta-Ethnographic Translation and Synthesis of 1st, 2nd, and 3rd Order Constructs</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Illustrating how raw participant quotes (1st order) and primary author interpretations (2nd order) were translated into overarching 3rd order constructs with GRADE-CERQual confidence ratings.</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Illustrating how participant quotes (1st order, as reported in the primary studies) and primary author interpretations (2nd order) were translated into overarching 3rd order constructs with GRADE-CERQual confidence ratings.</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>
@@ -726,7 +726,7 @@ function getMethodSections() {
   if (linksHtml) sections.push({ title: 'Relationships between Third-Order Constructs', html: linksHtml });
   sections.push({ title: 'Rigor, Reflexivity, and Confidence in Findings',
     html: `${isTeam
-        ? `Records in the audit trail are attributed to more than one reviewer ID. ${PH('who extracted and coded, whether independently, and how discrepancies were resolved (eMERGe items 9, 13)')}`
+        ? `Records in the audit trail are attributed to more than one reviewer ID. ${PH('who read the studies and extracted constructs, whether independently, and how different readings were discussed and worked through (eMERGe items 9, 13)')}`
         : 'Records in the audit trail are attributed to a single reviewer ID.'} ${memoCount > 0 ? 'Reflexive and analytic memos were recorded chronologically in the audit trail (Appendix A).' : PH('how reflexivity was handled; no memos are recorded yet')} ${cqHtml}` });
   return sections;
 }
@@ -1097,7 +1097,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
       t2Rows.push(new TableRow({
         children: [
-          makeCell(`${c.thirdOrderTitle || '(Untitled)'}\n[Type: ${transLabel} | Concordance: ${concordanceLabel(c.concordanceStatus)}]`, { isLastRow: isLast, bold: true }),
+          makeCell(`${c.thirdOrderTitle || '(Untitled)'}\n[Type: ${transLabel} | Team status: ${concordanceLabel(c.concordanceStatus)}]`, { isLastRow: isLast, bold: true }),
           makeCell([c.translationSummary ? 'Translation: ' + c.translationSummary : '', c.synthesisNote ? '3rd order interpretation: ' + c.synthesisNote : ''].filter(Boolean).join('\n\n') || '-', { isLastRow: isLast }),
           makeCell([...secParagraphs, ...cellStatusLines(c).map(l => new Paragraph({ children: [new TextRun({ text: l, italics: true, font: "Times New Roman", size: 18 })], spacing: { after: 60 } }))], { isLastRow: isLast }),
           makeCell(quoteParagraphs, { isLastRow: isLast }),

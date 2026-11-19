@@ -581,6 +581,27 @@ function readZipEntry(buf, name) {
   return '';
 }
 
+await group('Compare: bulk import comes in as Discuss; Big Q wording in the exports', async () => {
+  const p = await openDemo();
+  await p.evaluate(async () => {
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, reviewerId: 'Peer' }));
+    const base = peer.annotations.find(a => a.type === 'second_order');
+    ['bulk_a', 'bulk_b'].forEach((id, i) => peer.annotations.push({ ...base, id, text: `Only the peer read this passage, number ${i} ${id}`, clusterIds: [], clusterRelations: {}, clusterComments: {} }));
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    setCompareTab('unique'); renderComparisonTabContent();
+  });
+  await p.waitForTimeout(300);
+  check('the bulk button imports as Discuss', (await p.locator('#importAllPeerBtn').innerText()).includes('Import All as Discuss'));
+  await p.evaluate(() => document.getElementById('importAllPeerBtn').click()); await p.waitForTimeout(800);
+  check('bulk-imported constructs are "Discuss", not agreed', await p.evaluate(() => { const got = state.annotations.filter(a => /^Only the peer read this passage/.test(a.text)); return got.length === 2 && got.every(a => a.concordanceStatus === 'discuss'); }));
+  const code = ['compare.js', 'export.js'].map(f => fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')).join('\n');
+  check('no "Resolution Mode", "Inter-Reviewer Agreement", "discrepancies were resolved" or "Concordance:" label', !/Resolution Mode|Inter-Reviewer Agreement|discrepancies were resolved|Concordance:/.test(code));
+  const pages = ['site/index.html', 'site/meta-ethnography-101.html', 'README.md'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n') + code;
+  check('no "raw participant quotes", "real data" or "coding full-text PDFs"', !/raw participant quote|grounded in real data|coding full-text PDFs/.test(pages));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Review fixes: peer rows by title, merge links, PDF search race, Word widths, older browsers, undo', async () => {
   const p = await openDemo();
   // Peer construct placed in a row that exists here under another id but the same title

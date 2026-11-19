@@ -4,7 +4,7 @@
 // Loaded as a classic <script> (shared global scope); see the load order in me_canvas.html.
 
 // ========================================================
-// REVIEWER JSON DIFF & MERGE ENGINE (RESOLUTION MODE)
+// REVIEWER JSON DIFF & MERGE ENGINE (REVIEW & DISCUSSION)
 // ========================================================
 const compareModal = document.getElementById('compareModal');
 const compareEmptyState = document.getElementById('compareEmptyState');
@@ -356,15 +356,16 @@ function renderComparisonTabContent() {
     topAction.className = 'flex items-center justify-between bg-teal-50 border border-teal-200 px-4 py-2.5 rounded-xl';
     topAction.innerHTML = `
       <div class="text-xs text-teal-900">
-        <b>Resolution Mode:</b> Review constructs extracted by <b>@${escapeHtml(cmp.peerReviewer)}</b> that are not in your local project. Import & Agree, Import for Discussion, or Set Aside (it stays in the other reviewer's file; nothing is deleted).
+        <b>Review &amp; discussion:</b> read the constructs extracted by <b>@${escapeHtml(cmp.peerReviewer)}</b> that are not in your project, one by one: Import & Agree (for now), Import as Discuss, or Set Aside (it stays in the other reviewer's file; nothing is deleted).
       </div>
       <button id="importAllPeerBtn" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer">
-        + Import All as Agreed (for now)
+        + Import All as Discuss
       </button>
     `;
     topAction.querySelector('#importAllPeerBtn').onclick = async () => {
+      // In bulk, constructs come in as "Discuss": agreement (for now) is reached by reading each one, not in one click
       for (const item of [...cmp.peerOnlyAnnos]) {
-        await importPeerConstruct(item, 'agreed');
+        await importPeerConstruct(item, 'discuss');
       }
       renderComparisonDashboard();
     };
@@ -476,9 +477,9 @@ function renderComparisonTabContent() {
         await dbPut('annotations', l);
         await recordAuditLog({
           category: 'concordance',
-          action: `Confirmed Inter-Reviewer Agreement with @${cmp.peerReviewer} (${dName}, p.${l.page})`,
+          action: `Recorded provisional agreement (for now) with @${cmp.peerReviewer} (${dName}, p.${l.page})`,
           detail: `"${l.text.slice(0, 75)}..."`,
-          toVal: 'AGREED'
+          toVal: 'Agreed (for now)'
         });
         updateSidebar();
         renderComparisonDashboard();
