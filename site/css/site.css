@@ -13,3 +13,15 @@ h1, h2, h3, .serif-heading {
 kbd {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
+.mec-sublist { list-style-type: circle; }
+/* Copy buttons on the citation blocks (index.html#cite), added by js/site.js */
+.mec-copy-wrap { position: relative; }
+.mec-copy-wrap pre { padding-right: 5.5rem; }
+.mec-copy-btn {
+  position: absolute; top: 0.5rem; right: 0.5rem;
+  font: 600 12px/1 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  padding: 0.4rem 0.6rem; border-radius: 0.5rem; cursor: pointer;
+  color: #3730a3; background: #fff; border: 1px solid #c7d2fe;
+}
+.mec-copy-btn:hover { background: #eef2ff; }
+.mec-copy-btn:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
