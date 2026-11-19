@@ -519,7 +519,7 @@ function getEmergeChecklist() {
       [7, 'Selecting primary studies', 'Screening and selection process, and who was involved', A('Author to complete (Methods; done outside the app)')],
       [8, 'Outcome of study selection', 'Results of searches and screening (e.g., flow diagram)', A('Author to complete (Findings; PRISMA flow outside the app)')] ] },
     { name: 'Phase 3\nReading included studies', items: [
-      [9, 'Reading and data extraction approach', 'Reading and extraction methods, who did them, independence and accuracy checks; full account vs findings only; units of synthesis',
+      [9, 'Reading and data extraction approach', 'Reading and extraction methods, who did them, independence, checking and discussion; full account vs findings only; units of synthesis',
         (loa.readingApproach && loa.extractionScope && loa.unitsTerminology) ? R('Phase 3 fields → Methods Summary')
           : (loa.readingApproach || loa.extractionScope || loa.unitsTerminology) ? P('Phase 3 fields partly filled (process / extracted from / units of synthesis)')
           : (nDocs > 0 ? A('Author to complete: use the Phase 3 fields in Research Aim & Overall Model') : A('No studies loaded yet'))],
@@ -697,7 +697,7 @@ function getMethodSections() {
   const companionHtml = companionPairs.length
     ? ` Some accounts derived from the same primary study (${companionPairs.join('; ')}); these are identified in Table 1.`
     : '';
-  const readingHtml = `${L.readingApproach ? esc(L.readingApproach) : PH('how studies were read and data extracted, by whom, whether independently, and how accuracy was checked (eMERGe Item 9)')} ${scopeText || PH('whether data were extracted from the full accounts or the findings sections only')} First-order constructs (participant quotations) and second-order constructs (the primary authors' interpretations) were extracted and recorded separately${L.unitsTerminology ? '; ' + esc(L.unitsTerminology) : ''}.${L.unitsTerminology ? '' : ' ' + PH('what is meant by the units of synthesis used, e.g., concept, theme, metaphor')}${companionHtml}`;
+  const readingHtml = `${L.readingApproach ? esc(L.readingApproach) : PH('how studies were read and data extracted, by whom, whether independently, whether extracted data were checked against the accounts and how differences were discussed (eMERGe Item 9)')} ${scopeText || PH('whether data were extracted from the full accounts or the findings sections only')} First-order constructs (participant quotations) and second-order constructs (the primary authors' interpretations) were extracted and recorded separately${L.unitsTerminology ? '; ' + esc(L.unitsTerminology) : ''}.${L.unitsTerminology ? '' : ' ' + PH('what is meant by the units of synthesis used, e.g., concept, theme, metaphor')}${companionHtml}`;
 
   // Phase 5 (Item 13)
   const translationHtml = `Data extraction and cross-study translation were managed using <i>Meta-Ethnography Canvas</i>${appCitationHtml()}. ${orderHtml}${seedHtml} ${L.translationDefinitions ? esc(L.translationDefinitions) : PH('working definitions of reciprocal and refutational translation (eMERGe Item 13)')} ${L.translationProcess ? esc(L.translationProcess) : PH('who translated, how meaning was translated from one study into another, and how context and relationships between concepts were preserved')} ${translationKindHtml}${withinHtml}${notTranslatedHtml} ${L.alternativeInterpretations ? esc(L.alternativeInterpretations) : PH('how alternative interpretations or explanations were considered (Items 13 and 15)')}`;

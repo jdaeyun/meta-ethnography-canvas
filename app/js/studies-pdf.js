@@ -1612,7 +1612,7 @@ async function sortStudiesByMode(mode) {
   if (mode === 'richness') await offerRichnessTieOrdering();
 }
 
-// ---- Studies tied on Richness + Quality: let the reviewer decide their order (and so the Index Paper if the top group is tied) ----
+// ---- Studies tied on Richness (quality appraisal is never a ranking criterion): let the reviewer decide their order (and so the Index Paper if the top group is tied) ----
 function richnessTieGroups() {
   const groups = [];
   let i = 0;

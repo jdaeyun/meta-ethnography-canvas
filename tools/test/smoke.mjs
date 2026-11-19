@@ -598,6 +598,8 @@ await group('Compare: bulk import comes in as Discuss; Big Q wording in the expo
   check('no "Resolution Mode", "Inter-Reviewer Agreement", "discrepancies were resolved" or "Concordance:" label', !/Resolution Mode|Inter-Reviewer Agreement|discrepancies were resolved|Concordance:/.test(code));
   const pages = ['site/index.html', 'site/meta-ethnography-101.html', 'README.md'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n') + code;
   check('no "raw participant quotes", "real data" or "coding full-text PDFs"', !/raw participant quote|grounded in real data|coding full-text PDFs/.test(pages));
+  const app = fs.readdirSync(path.join(ROOT, 'app/js')).map(f => fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')).join('\n') + fs.readFileSync(path.join(ROOT, 'me_canvas.html'), 'utf8');
+  check('no "consensus", "deviant case", "sampling bias" or "was resolved" in the app', !/consensus|deviant case|sampling bias|was resolved/i.test(app));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });

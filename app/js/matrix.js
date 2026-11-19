@@ -1013,7 +1013,7 @@ function renderMatrixTable() {
         <!-- SUB-PANEL 3: TEAM CONCORDANCE -->
         <div class="subpanel-concordance p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-200/80 space-y-2 ${activeSubTab === 'concordance' ? '' : 'hidden'}">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-indigo-900">🤝 Team Consensus Status</span>
+            <span class="text-xs font-bold text-indigo-900">🤝 Team Perspectives</span>
             <select class="cl-conc-status text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
               <option value="pending" ${cluster.concordanceStatus === 'pending' ? 'selected' : ''}>⏳ Pending</option>
               <option value="discuss" ${cluster.concordanceStatus === 'discuss' ? 'selected' : ''}>💬 Needs Discussion</option>
@@ -1195,7 +1195,7 @@ function renderMatrixTable() {
         clusterIds: [cluster.id],
         category: 'concordance',
         action: `3rd Order Team Perspective Updated ("${cluster.thirdOrderTitle || 'Untitled Row'}")`,
-        detail: newNote ? `Reviewer Consensus / Discussion Note: ${newNote}` : 'Updated agreement status.',
+        detail: newNote ? `Team Discussion Note: ${newNote}` : 'Updated agreement status.',
         fromVal: `${oldStatus.toUpperCase()}${oldNote ? ' (' + oldNote + ')' : ''}`,
         toVal: `${newStatus.toUpperCase()}${newNote ? ' (' + newNote + ')' : ''}`
       });
