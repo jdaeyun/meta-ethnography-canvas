@@ -120,7 +120,7 @@ function teamModelsHtml() {
   </div>`;
 }
 
-// Relation tag for a construct in a Table 2 row (study #1 has none)
+// Relation tag for a construct in a Table 2 row (the study that established the row has none)
 function relTag(s, cid) {
   const r = secRelation(s, cid);
   return r === 'refutational' ? '[⚡Refutational] ' : r === 'unjudged' ? '[○ Not yet judged] ' : '';
@@ -129,7 +129,7 @@ function relTag(s, cid) {
 function cellStatusLines(c) {
   return state.docs.map(d => {
     const info = emptyCellInfo(c, d.id);
-    return info ? `${info.symbol} ${info.label}: ${getDisplayName(d)}${info.note ? ' — ' + info.note : ''}` : '';
+    return info ? `${info.symbol} ${info.label}: ${getDisplayName(d)}${info.note ? ' — ' + info.note : ''}${info.status === 'other_aspect' && info.usedInLoa ? ' (used in the line of argument)' : ''}` : '';
   }).filter(Boolean);
 }
 
@@ -467,7 +467,7 @@ function buildTable2GridHtml() {
   return `
     <div class="mb-3">
       <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Table 2b. Concept-by-Study Contribution Matrix Across Included Studies</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Showing which primary studies contributed 2nd order constructs to each 3rd order theme (${escapeHtml(TABLE2B_LEGEND)}).</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Showing which primary studies contributed 2nd order constructs to each 3rd order theme (${escapeHtml(TABLE2B_LEGEND)}). ${escapeHtml(TABLE2B_NOTE)}</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>
@@ -622,25 +622,39 @@ function getMethodSections() {
       + ` (${seedConfirmedCount} of which ${seedConfirmedCount === 1 ? 'was' : 'were'} later confirmed by the reviewer)`
       + `${laterRows > 0 ? `; ${laterRows} further row${laterRows === 1 ? ' was' : 's were'} created during translation` : ''}.`
     : (state.loa.seedChoice === 'manual' && nCl > 0 ? ` The third-order rows were created by the reviewer${nCl ? ` (${nCl})` : ''} as each concept was compared with those of the other studies; the constructs of the first study were not placed automatically.` : '');
-  // Relations actually recorded in the matrix (study #1 has none of its own)
+  // Relations actually recorded in the matrix (the study that established a row has none of its own there)
   const live = new Set(state.clusters.map(c => c.id));
   let refutCells = 0, translatedCells = 0, unjudgedCells = 0;
   state.annotations.forEach(a => {
-    if (a.type !== 'second_order' || isBaselineDocId(a.docId)) return;
+    if (a.type !== 'second_order') return;
     (a.clusterIds || []).filter(id => live.has(id)).forEach(id => {
       const r = secRelation(a, id);
+      if (r === 'baseline') return;
       if (r === 'unjudged') unjudgedCells++; else translatedCells++;
       if (r === 'refutational') refutCells++;
     });
   });
   const unjudgedHtml = unjudgedCells ? ` ${PH(`${unjudgedCells} placement(s) of a construct in a row have no reciprocal / refutational judgement yet (○ in Table 2b)`)}` : '';
-  const otherAspect = state.clusters.reduce((n, c) => n + Object.values(c.cellStatus || {}).filter(v => v && v.status === 'other_aspect').length, 0);
-  const otherAspectHtml = otherAspect ? ` In ${otherAspect} instance(s) a study addressed a different aspect of a theme rather than translating into it (◇ in Table 2b); these informed the line-of-argument synthesis.` : '';
+  const aspectCells = getOtherAspectCells();
+  const otherAspect = aspectCells.length, aspectUsed = aspectCells.filter(x => x.used).length;
+  const otherAspectHtml = !otherAspect ? ''
+    : ` In ${otherAspect} instance(s) a study addressed a different aspect of a theme rather than translating into it (◇ in Table 2b)`
+      + (aspectUsed ? `; the line-of-argument synthesis drew on ${aspectUsed === otherAspect ? (otherAspect === 1 ? 'it' : 'all of them') : aspectUsed + ' of them'} (marked in Table 2). ${PH('how these different aspects were brought into the line of argument')}`
+        : `. ${PH('whether and how these different aspects were used in the line-of-argument synthesis (none is marked as used in the Research Aim & Overall Model drawer)')}`);
+  // How the rows were based: on the construct of one study (◆), or with no single base (every placement judged)
+  const rowsWithCards = state.clusters.filter(c => clusterSecsIn(c).length);
+  const nBased = rowsWithCards.filter(c => rowBaseDocId(c)).length, nNoBase = rowsWithCards.length - nBased;
+  const BASED = 'the construct of one study established the row (◆ in Table 2b) and the constructs of the other studies were judged against it';
+  const NOBASE = 'no single study established the row, and every placement was judged';
+  const baseHtml = !rowsWithCards.length ? ''
+    : !nNoBase ? ` In each third-order row, ${BASED}.`
+    : !nBased ? ` In the third-order rows, ${NOBASE}.`
+    : ` In ${nBased} of the ${rowsWithCards.length} third-order rows, ${BASED}; in the other ${nNoBase}, ${NOBASE}.`;
   const translationKindHtml = nCl === 0
     ? `${PH('how the extracted constructs were translated into third-order constructs')}`
     : refutCells > 0
-      ? `Through reciprocal and refutational translation (${refutCells} of ${translatedCells} judged placements of a construct in a row were judged refutational), the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b).${otherAspectHtml}${unjudgedHtml}`
-      : `Through reciprocal translation, the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b); no placement was judged refutational. ${PH('how refutational relations and disconfirming cases were looked for')}${otherAspectHtml}${unjudgedHtml}`;
+      ? `Through reciprocal and refutational translation (${refutCells} of ${translatedCells} judged placements of a construct in a row were judged refutational), the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b).${baseHtml}${otherAspectHtml}${unjudgedHtml}`
+      : `Through reciprocal translation, the extracted constructs were synthesized into third-order constructs (Table 2; contribution of each study in Table 2b); no placement was judged refutational. ${PH('how refutational relations and disconfirming cases were looked for')}${baseHtml}${otherAspectHtml}${unjudgedHtml}`;
   const nt = getNotTranslatedSpec();
   const ntMissing = nt.rows.filter(r => r[3] === '[Reason not recorded]').length;
   const wl = getWithinStudyLinksSpec();
@@ -889,7 +903,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       }
     }
   } else if (state.activePubTable === 'table2_grid') {
-    md += `### Table 2b. Concept-by-Study Contribution Matrix\n\n*${TABLE2B_LEGEND}*\n\n`;
+    md += `### Table 2b. Concept-by-Study Contribution Matrix\n\n*${TABLE2B_LEGEND}. ${TABLE2B_NOTE}*\n\n`;
     const studyCols = state.docs.map((d, idx) => cleanMd(getDisplayName(d) + (idx === 0 ? ' ' + firstStudyMeta().short : '')));
     md += `| 3rd Order Construct | ${studyCols.join(' | ')} | CERQual |\n`;
     md += `|---|${state.docs.map(() => ':---:').join('|')}|:---:|\n`;
@@ -1316,7 +1330,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           spacing: { after: 60 }
         }),
         new Paragraph({
-          children: [new TextRun({ text: TABLE2B_LEGEND, italics: true, font: "Times New Roman", size: 18 })],
+          children: [new TextRun({ text: TABLE2B_LEGEND + '. ' + TABLE2B_NOTE, italics: true, font: "Times New Roman", size: 18 })],
           spacing: { after: 140 }
         }),
         widthTable(t2bRows, gridPcts(state.docs.length)),

@@ -228,7 +228,52 @@ document.addEventListener('click', async ev => {
   }
   if (ev.target && ev.target.closest && ev.target.closest('#loaMapSvgBtn')) downloadConceptMapSvg();
 });
+// ◇ cells of the matrix (a study addresses a different aspect of the topic): the material of a line of argument
+// (Noblit & Hare). The reviewer ticks the ones the line of argument draws on; only those are reported as used.
+function getOtherAspectCells() {
+  const out = [];
+  state.clusters.forEach(c => state.docs.forEach(d => {
+    const v = c.cellStatus && c.cellStatus[d.id];
+    if (v && v.status === 'other_aspect') out.push({ cluster: c, doc: d, note: v.note || '', used: !!v.usedInLoa });
+  }));
+  return out;
+}
+function renderLoaAspects() {
+  const box = document.getElementById('loaAspectList');
+  if (!box) return;
+  const cells = getOtherAspectCells();
+  if (!cells.length) {
+    box.innerHTML = '<div class="text-slate-500 italic">No ◇ yet. In Tab 2, when a study has nothing in a row because it speaks to another part of the phenomenon, choose <b>◇ Addresses a different aspect of the topic</b> in that empty cell (with a note); it is listed here.</div>';
+    return;
+  }
+  box.innerHTML = cells.map((x, i) => `<label class="flex items-start gap-1.5 cursor-pointer">
+      <input type="checkbox" class="loa-aspect-use mt-0.5 cursor-pointer" data-i="${i}" ${x.used ? 'checked' : ''} title="The line of argument draws on this">
+      <span><b>◇ ${escapeHtml(getDisplayName(x.doc))}</b> — beside row <button type="button" class="loa-aspect-jump font-semibold text-sky-800 hover:underline cursor-pointer" data-cid="${escapeHtml(x.cluster.id)}">${escapeHtml(clusterLabel(x.cluster))}</button>${x.note ? `: <span class="text-slate-700">${escapeHtml(x.note)}</span>` : ' <span class="text-slate-400 italic">(no note)</span>'}</span>
+    </label>`).join('');
+  box.querySelectorAll('.loa-aspect-use').forEach(cb => cb.onchange = async () => {
+    const x = cells[+cb.dataset.i];
+    const v = x.cluster.cellStatus && x.cluster.cellStatus[x.doc.id];
+    if (!v || v.status !== 'other_aspect') { renderLoaAspects(); return; }
+    if (cb.checked) v.usedInLoa = true; else delete v.usedInLoa;
+    await dbPut('clusters', x.cluster);
+    await recordAuditLog({
+      clusterIds: [x.cluster.id],
+      category: 'line_of_argument',
+      action: cb.checked ? `Line of argument draws on a different aspect: ${getDisplayName(x.doc)} (beside "${clusterLabel(x.cluster)}")`
+        : `Line of argument no longer draws on: ${getDisplayName(x.doc)} (beside "${clusterLabel(x.cluster)}")`,
+      detail: x.note,
+      fromVal: cb.checked ? 'Not used' : 'Used in the line of argument',
+      toVal: cb.checked ? 'Used in the line of argument' : 'Not used'
+    });
+  });
+  box.querySelectorAll('.loa-aspect-jump').forEach(btn => btn.onclick = e => {
+    e.preventDefault();
+    const tr = document.querySelector(`#matrixTable tr[data-cluster-id="${CSS.escape(btn.dataset.cid)}"]`);
+    if (tr) { tr.scrollIntoView({ block: 'start', behavior: 'smooth' }); tr.classList.add('drag-over'); setTimeout(() => tr.classList.remove('drag-over'), 1500); }
+  });
+}
 function renderLoaMap() {
+  renderLoaAspects();
   const from = document.getElementById('loaLinkFrom');
   if (!from) return;
   const to = document.getElementById('loaLinkTo');

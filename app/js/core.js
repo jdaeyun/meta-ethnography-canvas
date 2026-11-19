@@ -438,28 +438,40 @@ function secEvidenceText(s) {
   return ps.length === 1 ? ps[0].text : ps.map(p => `(p.${p.page}) ${p.text}`).join(' […] ');
 }
 
-// Study #1 (index paper / earliest study) establishes the rows, so its constructs are not yet
-// translated "into" anything: no reciprocal/refutational relation applies to them.
-function isBaselineDocId(docId) { return state.docs.length > 0 && state.docs[0].id === docId; }
+// Each row records the study whose construct established it (cluster.baseDocId). That study's constructs are not translated
+// "into" the row, so no reciprocal/refutational relation applies to them there. In index-paper approaches this is usually
+// study #1, but a row can also start from a later study (a concept #1 does not have), and the reviewer can choose that no
+// single study establishes a row (baseDocId null: every placement is judged). '' = not set yet: the first study placed sets it.
+function clusterById(cid) { return state.clusters.find(c => c && c.id === cid) || null; }
+function rowBaseDocId(c) {
+  const id = c && c.baseDocId;
+  return id && state.docs.some(d => d.id === id) ? id : null;
+}
+function isRowBase(sec, cid) { const b = rowBaseDocId(clusterById(cid)); return !!b && sec.docId === b; }
 function isSecRefutational(sec, cid) {
-  return !isBaselineDocId(sec.docId) && !!(sec.clusterRelations && sec.clusterRelations[cid] === 'refutational');
+  return !isRowBase(sec, cid) && !!(sec.clusterRelations && sec.clusterRelations[cid] === 'refutational');
 }
 // How a study's construct relates to a row it was placed in. A placement starts as 'unjudged': silence is not agreement,
-// and refutational translation is the one most often overlooked (eMERGe criterion 13). Study #1 establishes the row.
+// and refutational translation is the one most often overlooked (eMERGe criterion 13).
 const CELL_RELATIONS = ['unjudged', 'reciprocal', 'refutational'];
 function secRelation(sec, cid) {
-  if (isBaselineDocId(sec.docId)) return 'baseline';
+  if (isRowBase(sec, cid)) return 'baseline';
   const r = sec.clusterRelations && sec.clusterRelations[cid];
   return CELL_RELATIONS.includes(r) ? r : 'unjudged';
 }
 // A row's reciprocal / refutational character is derived from its judged cells (each study's relation is set per cell),
-// not stored per row: 'reciprocal', 'refutational' (all judged studies refute), 'mixed', or 'unjudged' (nothing judged yet).
+// not stored per row: 'reciprocal', 'refutational' (all judged studies refute), 'mixed', 'unjudged' (nothing judged yet),
+// or 'untranslated' (fewer than two studies in the row: nothing has been translated yet, so it is not "reciprocal").
+function clusterSecsIn(c) {
+  return state.annotations.filter(a => a.type === 'second_order' && (a.clusterIds || []).includes(c.id));
+}
 function clusterSecsTranslated(c) {
-  return state.annotations.filter(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && (a.clusterIds || []).includes(c.id));
+  return clusterSecsIn(c).filter(a => secRelation(a, c.id) !== 'baseline');
 }
 function clusterTranslationType(c) {
+  if (new Set(clusterSecsIn(c).map(a => a.docId)).size < 2) return 'untranslated';
   const rels = clusterSecsTranslated(c).map(a => secRelation(a, c.id)).filter(r => r !== 'unjudged');
-  if (rels.length === 0) return clusterSecsTranslated(c).length ? 'unjudged' : 'reciprocal';
+  if (rels.length === 0) return 'unjudged';
   const refut = rels.filter(r => r === 'refutational').length;
   if (refut === 0) return 'reciprocal';
   return refut === rels.length ? 'refutational' : 'mixed';
@@ -467,6 +479,7 @@ function clusterTranslationType(c) {
 function clusterUnjudgedCount(c) { return clusterSecsTranslated(c).filter(a => secRelation(a, c.id) === 'unjudged').length; }
 function clusterTranslationLabel(c) {
   const t = clusterTranslationType(c);
+  if (t === 'untranslated') return 'Not yet translated (one study only)';
   const base = t === 'unjudged' ? 'Not yet judged' : t === 'refutational' ? 'Refutational' : t === 'mixed' ? 'Reciprocal + Refutational' : 'Reciprocal';
   const n = t === 'unjudged' ? 0 : clusterUnjudgedCount(c);
   return base + (n ? ` (${n} placement${n === 1 ? '' : 's'} not yet judged)` : '');
@@ -474,7 +487,7 @@ function clusterTranslationLabel(c) {
 // Symbol for a study's contribution to a row (Table 2b, grid exports)
 const CONTRIB_SYMBOLS = { baseline: '◆', reciprocal: '●', refutational: '⚡', unjudged: '○' };
 function contribSymbol(docSecs, cid) {
-  if (docSecs.length && isBaselineDocId(docSecs[0].docId)) return '◆';
+  if (docSecs.length && isRowBase(docSecs[0], cid)) return '◆';
   const kinds = ['reciprocal', 'refutational', 'unjudged'].filter(k => docSecs.some(sc => secRelation(sc, cid) === k));
   return kinds.map(k => CONTRIB_SYMBOLS[k]).join(' / ');
 }
@@ -489,7 +502,8 @@ function emptyCellInfo(c, docId) {
   const v = c.cellStatus && c.cellStatus[docId];
   return v && EMPTY_CELL_STATUS[v.status] ? { ...v, ...EMPTY_CELL_STATUS[v.status] } : null;
 }
-const TABLE2B_LEGEND = '◆ = study #1, which establishes the rows; ● = Reciprocal; ⚡ = Refutational; ○ = placed, relation not yet judged; ◇ = addresses a different aspect of the topic; — = checked, not addressed; blank = not yet checked';
+const TABLE2B_LEGEND = '◆ = the study whose construct established the row; ● = Reciprocal; ⚡ = Refutational; ○ = placed, relation not yet judged; ◇ = addresses a different aspect of the topic; — = checked, not addressed; blank = not yet checked';
+const TABLE2B_NOTE = 'The symbols record how each study was read against the row; they are not weights, scores or a count of support for the finding.';
 function getCellRelationMeta(rel) {
   if (rel === 'unjudged') {
     return {
@@ -502,7 +516,7 @@ function getCellRelationMeta(rel) {
   }
   if (rel === 'baseline') {
     return {
-      label: '◆ Baseline',
+      label: '◆ Established the row',
       cardCls: 'bg-amber-50/40 border-amber-200',
       badgeCls: 'bg-amber-100 text-amber-800 border-amber-300',
       quoteBorderCls: 'border-amber-100',
@@ -543,6 +557,11 @@ function normalizeCluster(c) {
   if (typeof c.reflexiveNote !== 'string') c.reflexiveNote = '';           // optional: how the reviewer's own position shapes this interpretation
   if (typeof c.synthesisNote !== 'string') c.synthesisNote = '';           // Step B: the reviewer's 3rd order construct (definition & interpretation)
   ['cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote'].forEach(k => { if (typeof c[k] !== 'string') c[k] = ''; });
+  if (!('baseDocId' in c)) {
+    // Rows saved before rows recorded their own base: study #1 was the base of every row it had a construct in
+    const d0 = state.docs[0];
+    c.baseDocId = d0 && state.annotations.some(a => a.type === 'second_order' && a.docId === d0.id && (a.clusterIds || []).includes(c.id)) ? d0.id : null;
+  } else if (c.baseDocId !== null && typeof c.baseDocId !== 'string') c.baseDocId = null;
   delete c.translationType; // removed: a row's reciprocal / refutational character is derived from its cells (clusterTranslationType)
   return c;
 }

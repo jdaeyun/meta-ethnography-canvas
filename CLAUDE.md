@@ -89,7 +89,9 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 - No backward compatibility with older project files is maintained (decided for v1.1.0).
 - Data stores: `docs`, `pdf_binaries` (PDF bytes, separate from docs), `annotations`, `clusters`, `logs`, `meta` (`loa_main`).
   Annotation shape is defined by `normalizeAnnotation()`; 1st→2nd order links are `parentIds[]` (many-to-many);
-  2nd order → rows are `clusterIds[]` with per-row `clusterRelations` / `clusterComments`.
+  2nd order → rows are `clusterIds[]` with per-row `clusterRelations` / `clusterComments`. Each row records the study whose construct
+  established it (`cluster.baseDocId`; null = no single base, '' = set by the first construct placed): only that study's cards are
+  unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
 - Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit

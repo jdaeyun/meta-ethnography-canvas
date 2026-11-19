@@ -574,6 +574,14 @@
               </div>
             </div>
           </div>
+          <div class="mb-2.5 rounded-lg border border-sky-200 bg-sky-50/40 p-2.5">
+            <div class="flex items-center flex-wrap gap-2 mb-1.5">
+              <span class="bg-sky-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase">◇ Aspects</span>
+              <span class="text-xs font-bold text-slate-800">Studies that address a different aspect of the topic</span>
+              <span class="text-[11px] text-slate-500">(Noblit &amp; Hare's third way studies relate, recorded as ◇ in empty matrix cells. Tick the ones your line of argument draws on: the Methods Summary reports only those.)</span>
+            </div>
+            <div id="loaAspectList" class="space-y-1 text-[11.5px]"></div>
+          </div>
           <div class="mb-2.5 rounded-lg border border-purple-200 bg-white/70 p-2.5">
             <div class="flex items-center space-x-2 mb-1.5">
               <span class="bg-fuchsia-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase">Map</span>
@@ -941,8 +949,9 @@
       </div>
       <div class="p-5 space-y-3 text-xs text-slate-700 overflow-y-auto">
         <p>This is a choice about method, so it is made once for the project and recorded in the Audit Trail (you can change it later with <b>★ Auto-place #1 Study</b>).</p>
-        <div class="rounded border border-amber-200 bg-amber-50 p-2.5"><b>Start from study #1.</b> Each 2nd Order construct of <b id="seedChoiceFirst"></b> becomes a provisional row, and the other studies are translated into these rows (as in index-paper approaches). The rows stay marked provisional until you confirm them; study #1's structure can shape the whole synthesis, so revisit it as you go.</div>
+        <div class="rounded border border-amber-200 bg-amber-50 p-2.5"><b>Start from study #1.</b> Each 2nd Order construct of <b id="seedChoiceFirst"></b> becomes a provisional row established by study #1 (◆), and the other studies are translated into these rows (as in index-paper approaches). The rows stay marked provisional until you confirm them; study #1's structure can shape the whole synthesis, so revisit it as you go.</div>
         <div class="rounded border border-slate-200 bg-slate-50 p-2.5"><b>Start with an empty matrix.</b> You create every row yourself, comparing each concept with the concepts of all the other studies in turn.</div>
+        <p class="text-slate-500">Either way, the study whose construct is placed first in a row establishes that row (◆): its cards there are not judged, the other studies' cards are judged Reciprocal or Refutational against it. You can change this per row under <b>◆ Established by</b>, including <i>No single base</i>, where every study's cards are judged.</p>
         <label class="block text-xs font-semibold text-slate-600">Why this choice? (optional, saved in the Audit Trail)
           <textarea id="seedChoiceWhy" class="mt-0.5 w-full text-xs border border-slate-300 rounded p-1.5 h-14 resize-y bg-white focus:outline-none focus:border-indigo-500"></textarea></label>
         <div class="flex items-center justify-end gap-2 pt-1">

@@ -405,9 +405,92 @@ await group('Changing study #1 marks the affected rows for re-reading', async ()
   await p.context().close();
 });
 
+await group('Each row records the study that established it (◆); #1 is not the base of every row', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const r = await p.evaluate(async () => {
+    const d0 = state.docs[0].id, d2 = state.docs[2].id;
+    const migrated = state.clusters.filter(c => clusterSecsIn(c).some(a => a.docId === d0)).every(c => rowBaseDocId(c) === d0);
+    // A row started from a later study: that study establishes it, and study #1 is judged in it like any other study
+    const later = state.annotations.find(a => a.type === 'second_order' && a.docId === d2);
+    const first = state.annotations.find(a => a.type === 'second_order' && a.docId === d0);
+    const c = await createNewClusterRow('Row from a later study');
+    await assignSecondOrderToCluster(later, c);
+    const lone = { type: clusterTranslationType(c), label: clusterTranslationLabel(c), sym: contribSymbol([later], c.id) };
+    await assignSecondOrderToCluster(first, c);
+    const firstRel = secRelation(first, c.id);
+    first.clusterRelations[c.id] = 'refutational'; await dbPut('annotations', first);
+    const map = buildRefutationMap();
+    const entry = (map.studies.find(([id]) => id === d0) || [null, []])[1].find(it => it.cluster.id === c.id);
+    renderMatrixView();
+    return { migrated, base: c.baseDocId === d2, lone, firstRel, refut: isSecRefutational(first, c.id), sym: contribSymbol([first], c.id),
+      type: clusterTranslationType(c), holders: entry ? entry.holders : [], d2, cid: c.id };
+  });
+  check('existing rows with a #1 construct keep #1 as their base', r.migrated);
+  check('the first study placed in a new row establishes it', r.base && r.lone.sym === '◆');
+  check('a row with one study is "Not yet translated", not Reciprocal', r.lone.type === 'untranslated' && r.lone.label.startsWith('Not yet translated'));
+  check('study #1 placed in a row it did not establish starts unjudged', r.firstRel === 'unjudged');
+  check('study #1 can be Refutational there', r.refut && r.sym === '⚡' && r.type === 'refutational');
+  check('the Refutation Map contrasts it with the row\'s base', r.holders.includes(r.d2));
+  await p.waitForTimeout(500);
+  await p.evaluate(cid => document.querySelector(`tr[data-cluster-id="${cid}"]`).scrollIntoView({ block: 'center' }), r.cid); await p.waitForTimeout(800); // rows are built lazily
+  const sel = p.locator(`tr[data-cluster-id="${r.cid}"] .cl-base-select`);
+  await sel.selectOption(''); await p.waitForTimeout(500);
+  const nb = await p.evaluate(cid => { const c = clusterById(cid); return { base: c.baseDocId, rels: clusterSecsIn(c).map(a => secRelation(a, cid)), log: state.logs[0] }; }, r.cid);
+  check('"No single base" makes every card judgeable, and is logged', nb.base === null && !nb.rels.includes('baseline') && nb.log.action.startsWith('Changed the study that established') && nb.log.toVal === 'No single base' && nb.log.clusterIds.includes(r.cid));
+  await tab(p, 'pub'); await p.waitForTimeout(300);
+  await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  const m = await p.locator('#pubPreviewContainer').innerText();
+  check('Methods reports based and unbased rows', m.includes('established the row (◆ in Table 2b)') && m.includes('no single study established the row'));
+  check('Methods does not claim ◇ cells informed the line of argument', !m.includes('these informed the line-of-argument synthesis'));
+  await p.locator('[data-pub=table2_grid]').click(); await p.waitForTimeout(300);
+  const g = await p.locator('#pubPreviewContainer').innerText();
+  check('Table 2b legend names the row\'s base and says the symbols are not a count', g.includes('◆ = the study whose construct established the row') && g.includes('not weights, scores or a count of support'));
+  // A new #1 flags only rows established by the former #1, and the new #1 can be made the base from the warning
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  const f = await p.evaluate(async cid => {
+    const c = clusterById(cid); c.baseDocId = state.docs[2].id; await dbPut('clusters', c);
+    const oldFirst = state.docs[0].id;
+    const expected = state.clusters.filter(x => x.baseDocId === oldFirst).map(x => x.id).sort();
+    await moveStudyOrder(1, 0);
+    return { expected, flagged: state.clusters.filter(x => x.baselineChange).map(x => x.id).sort(), laterFlagged: !!c.baselineChange };
+  }, r.cid);
+  check('only rows established by the former #1 are flagged', f.expected.length > 0 && JSON.stringify(f.expected) === JSON.stringify(f.flagged) && !f.laterFlagged);
+  await p.waitForTimeout(600);
+  await p.evaluate(() => { const c = state.clusters.find(x => x.baselineChange && clusterSecsIn(x).some(a => a.docId === state.docs[0].id)); if (c) document.querySelector(`tr[data-cluster-id="${c.id}"]`).scrollIntoView({ block: 'center' }); }); await p.waitForTimeout(800);
+  const rebase = p.locator('.cl-baseline-rebase').first();
+  if (await rebase.count()) {
+    const cid = await rebase.evaluate(b => b.closest('tr').dataset.clusterId);
+    await rebase.click(); await p.waitForTimeout(500);
+    check('"Make … the base" re-bases the row on the new #1 and clears its flag', await p.evaluate(cid => { const c = clusterById(cid); return c.baseDocId === state.docs[0].id && !c.baselineChange && state.logs[0].action.startsWith('Changed the study that established'); }, cid));
+  } else check('a flagged row offers "Make … the base"', false, 'no button');
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Line of argument drawer lists the ◇ cells; only ticked ones are reported as used', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const n = await p.evaluate(() => getOtherAspectCells().length);
+  await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(400);
+  check('every ◇ cell is listed in the drawer', n > 0 && (await p.locator('#loaAspectList .loa-aspect-use').count()) === n);
+  await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  check('nothing ticked: Methods asks, and claims no use', await p.evaluate(() => getOtherAspectCells().every(x => !x.used)) && (await p.locator('#pubPreviewContainer').innerText()).includes('whether and how these different aspects were used'));
+  await tab(p, 'matrix'); await p.waitForTimeout(400);
+  if (!(await p.locator('#loaAspectList').isVisible())) { await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(400); }
+  await p.locator('#loaAspectList .loa-aspect-use').first().check(); await p.waitForTimeout(400);
+  check('ticking is saved and logged with the row', await p.evaluate(() => getOtherAspectCells()[0].used && state.logs[0].category === 'line_of_argument' && state.logs[0].clusterIds.includes(getOtherAspectCells()[0].cluster.id)));
+  await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  check('Methods reports the ticked ones', (await p.locator('#pubPreviewContainer').innerText()).includes('the line-of-argument synthesis drew on'));
+  await p.locator('[data-pub=table2]').click(); await p.waitForTimeout(300);
+  check('Table 2 marks it', (await p.locator('#pubPreviewContainer').innerText()).includes('(used in the line of argument)'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Constructs not translated: reason in the pool, Appendix B, Methods; provisional agreement', async () => {
   const p = await openDemo();
-  await p.evaluate(async () => { const s = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId)); s.clusterIds = []; await dbPut('annotations', s); });
+  await p.evaluate(async () => { const s = state.annotations.find(a => a.type === 'second_order' && a.docId !== state.docs[0].id); s.clusterIds = []; await dbPut('annotations', s); });
   await tab(p, 'matrix'); await p.waitForTimeout(600);
   await p.evaluate(() => document.querySelectorAll('.pool-nt').forEach(d => { d.open = true; }));
   const ntIdx = await p.evaluate(() => [...document.querySelectorAll('.pool-nt-input')].findIndex(x => !x.value));
@@ -471,7 +554,7 @@ await group('Refutation map gathers the ⚡ cards by study', async () => {
   await tab(p, 'matrix'); await p.waitForTimeout(600);
   // Make sure there is one refutational card outside study #1
   await p.evaluate(async () => {
-    const s = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && a.clusterIds.length);
+    const s = state.annotations.find(a => a.type === 'second_order' && a.docId !== state.docs[0].id && a.clusterIds.length);
     s.clusterRelations[s.clusterIds[0]] = 'refutational'; await dbPut('annotations', s);
   });
   const m = await p.evaluate(() => { const r = buildRefutationMap(); return { studies: r.studies.length, pairs: r.pairList.length, okPairs: r.pairList.every(x => x.r !== x.h) }; });
@@ -504,7 +587,7 @@ await group('Review fixes: peer rows by title, merge links, PDF search race, Wor
   const placed = await p.evaluate(async () => {
     const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, reviewerId: 'Peer' }));
     const row = peer.clusters[0], oldId = row.id; row.id = 'peer_row_x'; row.thirdOrderTitle = '  ' + row.thirdOrderTitle.toUpperCase() + ' ';
-    const sec = peer.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId));
+    const sec = peer.annotations.find(a => a.type === 'second_order' && a.docId !== state.docs[0].id);
     sec.id = 'peer_new_sec'; sec.text = 'A passage only the peer extracted, about something else entirely'; sec.clusterIds = ['peer_row_x'];
     sec.clusterRelations = { peer_row_x: 'refutational' }; sec.clusterComments = { peer_row_x: 'peer reason' };
     await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
@@ -620,7 +703,7 @@ await group('Translation: placements start unjudged; empty cells can say why; ro
   // A new placement is not yet judged
   const placed = await p.evaluate(async () => {
     const c = state.clusters[0];
-    const sec = state.annotations.find(a => a.type === 'second_order' && !isBaselineDocId(a.docId) && !a.clusterIds.includes(c.id));
+    const sec = state.annotations.find(a => a.type === 'second_order' && a.docId !== state.docs[0].id && !a.clusterIds.includes(c.id));
     await assignSecondOrderToCluster(sec, c); renderMatrixView();
     return { rel: secRelation(sec, c.id), sym: contribSymbol([sec], c.id), id: sec.id, cid: c.id, label: clusterTranslationLabel(c) };
   });

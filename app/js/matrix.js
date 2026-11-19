@@ -78,7 +78,8 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
     cerqualExplanation: '',
     cerqualLimNote: '', cerqualCohNote: '', cerqualAdeqNote: '', cerqualRelNote: '',
     order: state.clusters.length,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    baseDocId: opts.baseDocId || '' // '' = the study of the first construct placed establishes the row
   });
   await dbPut('clusters', cluster);
   state.clusters.push(cluster);
@@ -100,8 +101,13 @@ async function assignSecondOrderToCluster(sec, cluster) {
   if (!sec.clusterRelations) sec.clusterRelations = {};
   // No relation is assumed: the placement starts as "not yet judged" (see secRelation)
   await dbPut('annotations', sec);
-  // The study now has a construct in this row, so an earlier "not addressed / different aspect" note no longer applies
   normalizeCluster(cluster);
+  // The first construct placed in a new row establishes it (◆); the reviewer can change this in the row header
+  if (cluster.baseDocId === '') {
+    cluster.baseDocId = sec.docId;
+    await dbPut('clusters', cluster);
+  }
+  // The study now has a construct in this row, so an earlier "not addressed / different aspect" note no longer applies
   const prevStatus = emptyCellInfo(cluster, sec.docId);
   if (prevStatus) {
     delete cluster.cellStatus[sec.docId];
@@ -224,7 +230,7 @@ async function seedIndexPaperRows() {
       if (liveClusterIds(sec).length === 0) {
         const fallback = String(sec.text || '').replace(/^\[Concept derived[^\]]*\]:\s*/, '').replace(/^"+|"+$/g, '').trim();
         const title = ((sec.note || '').trim() || fallback).slice(0, 80);
-        const cluster = await createNewClusterRow(title, { silent: true });
+        const cluster = await createNewClusterRow(title, { silent: true, baseDocId: indexDoc.id });
         cluster.autoSeeded = true;
         cluster.seededFromId = sec.id;
         await dbPut('clusters', cluster);
@@ -417,7 +423,7 @@ function renderSecondOrderPool() {
     if (studyFilter !== 'all' && sec.docId !== studyFilter) return false;
     if (state.hiddenStudyIds.has(sec.docId)) return false;
     if (refutOnly) {
-      const hasRefutInCell = !isBaselineDocId(sec.docId) && sec.clusterRelations && Object.values(sec.clusterRelations).includes('refutational');
+      const hasRefutInCell = liveClusterIds(sec).some(cid => isSecRefutational(sec, cid));
       if (!hasRefutInCell) return false;
     }
     if (q) {
@@ -895,11 +901,35 @@ function renderMatrixTable() {
           </div>
         </div>
         
-        ${cluster.baselineChange ? `<div class="cl-baseline-warn rounded border border-amber-400 bg-amber-50 p-1.5 text-[11px] text-amber-900 leading-snug">
+        ${(() => {
+          // Which study's construct established this row (◆). Its own cards are not judged in this row; every other study's are.
+          const rowDocs = state.docs.filter(d => state.annotations.some(a => a.type === 'second_order' && a.docId === d.id && (a.clusterIds || []).includes(cluster.id)));
+          const base = rowBaseDocId(cluster);
+          if (!rowDocs.length && !base) return '';
+          const opts = rowDocs.slice();
+          if (base && !opts.some(d => d.id === base)) opts.unshift(state.docs.find(d => d.id === base));
+          return `<div class="flex items-center flex-wrap gap-1 text-[11px] text-slate-600">
+            <span class="font-semibold" title="The study whose construct established this row. Its cards here are the reading the other studies are translated into, so they get no Reciprocal / Refutational judgement. In index-paper approaches this is usually study #1; choose 'No single base' if you compare every concept with all the others.">◆ Established by</span>
+            <select class="cl-base-select text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white max-w-full">
+              ${opts.map(d => `<option value="${escapeHtml(d.id)}" ${d.id === base ? 'selected' : ''}>${escapeHtml(getDisplayName(d))}${state.docs[0] && state.docs[0].id === d.id ? ' (#1)' : ''}${rowDocs.includes(d) ? '' : ' (no construct here)'}</option>`).join('')}
+              <option value="" ${base ? '' : 'selected'}>No single base: judge every study</option>
+            </select>
+          </div>`;
+        })()}
+
+        ${cluster.baselineChange ? (() => {
+          const bc = cluster.baselineChange;
+          const nowFirst = state.docs[0];
+          const canRebase = nowFirst && nowFirst.id !== rowBaseDocId(cluster) && state.annotations.some(a => a.type === 'second_order' && a.docId === nowFirst.id && (a.clusterIds || []).includes(cluster.id));
+          return `<div class="cl-baseline-warn rounded border border-amber-400 bg-amber-50 p-1.5 text-[11px] text-amber-900 leading-snug">
           <div class="font-bold">⚠ Study #1 changed after this row was built</div>
-          <div>${escapeHtml(cluster.baselineChange.fromName || 'The former #1')} → <b>${escapeHtml(cluster.baselineChange.toName)}</b>, which now establishes this row (its own Reciprocal / Refutational judgements are not shown). ${escapeHtml(cluster.baselineChange.fromName || 'The former #1')} is now translated into the row: judge whether its cards here are Reciprocal or Refutational, and whether the title still holds.</div>
-          <button type="button" class="cl-baseline-ok mt-1 px-1.5 py-0.5 rounded border border-amber-400 bg-white font-semibold cursor-pointer hover:bg-amber-100">Re-read · mark as reviewed</button>
-        </div>` : ''}
+          <div>This row was established by ${escapeHtml(bc.fromName || 'the former #1')}, which is no longer study #1 (now <b>${escapeHtml(bc.toName)}</b>). The row keeps its base: the other studies were translated into ${escapeHtml(bc.fromName || 'that study')}'s construct. Re-read it: does the row and its title still hold in the new translation order?${canRebase ? ` If ${escapeHtml(getDisplayName(nowFirst))} should establish it instead, make it the base: ${escapeHtml(bc.fromName || 'the former #1')} is then translated into the row.` : ''}</div>
+          <div class="flex flex-wrap gap-1 mt-1">
+            ${canRebase ? `<button type="button" class="cl-baseline-rebase px-1.5 py-0.5 rounded border border-amber-400 bg-white font-semibold cursor-pointer hover:bg-amber-100">Make ${escapeHtml(getDisplayName(nowFirst))} the base</button>` : ''}
+            <button type="button" class="cl-baseline-ok px-1.5 py-0.5 rounded border border-amber-400 bg-white font-semibold cursor-pointer hover:bg-amber-100">Re-read · mark as reviewed</button>
+          </div>
+        </div>`;
+        })() : ''}
 
         <!-- Always-visible 3rd Order Title -->
         <input type="text" class="cluster-title w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-indigo-600" placeholder="3rd Order Construct / Theme Name..." value="${escapeHtml(cluster.thirdOrderTitle)}">
@@ -1184,6 +1214,34 @@ function renderMatrixTable() {
       });
       seedBtn.remove();
     };
+    // Changing the study that established the row: logged, and its effect on the cards is stated
+    const setRowBase = async (nextId, extraDetail = '') => {
+      const prevId = rowBaseDocId(cluster);
+      if ((prevId || '') === (nextId || '')) return;
+      const nameOf = id => { const d = id && state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'No single base'; };
+      cluster.baseDocId = nextId || null;
+      const clearedFlag = !!(cluster.baselineChange && nextId && state.docs[0] && nextId === state.docs[0].id);
+      if (clearedFlag) delete cluster.baselineChange;
+      await dbPut('clusters', cluster);
+      await recordAuditLog({
+        clusterIds: [cluster.id],
+        category: 'third_order',
+        action: `Changed the study that established "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+        detail: [
+          prevId ? `${nameOf(prevId)} is now translated into the row: judge its cards here (Reciprocal / Refutational).` : '',
+          nextId ? `${nameOf(nextId)}'s own Reciprocal / Refutational judgements in this row are kept but not shown while it is the base.` : 'Every study in the row is now judged against the row.',
+          clearedFlag ? 'The row is now based on the current study #1, so the re-reading note is cleared.' : '',
+          extraDetail
+        ].filter(Boolean).join(' '),
+        fromVal: nameOf(prevId),
+        toVal: nameOf(nextId)
+      });
+      renderMatrixView();
+    };
+    const baseSel = tdMeta.querySelector('.cl-base-select');
+    if (baseSel) baseSel.onchange = () => setRowBase(baseSel.value || null);
+    const rebaseBtn = tdMeta.querySelector('.cl-baseline-rebase');
+    if (rebaseBtn) rebaseBtn.onclick = () => setRowBase(state.docs[0].id, 'Chosen after study #1 changed.');
     const baselineOkBtn = tdMeta.querySelector('.cl-baseline-ok');
     if (baselineOkBtn) baselineOkBtn.onclick = async () => {
       const bc = cluster.baselineChange;
@@ -1294,8 +1352,8 @@ function renderMatrixTable() {
           const firsts = quotesOf(sec.id);
           const otherClustersCount = sec.clusterIds.length - 1;
           const cellComment = (sec.clusterComments && sec.clusterComments[cluster.id]) || '';
-          const isBaselineCell = isBaselineDocId(sec.docId);
           const cellRelation = secRelation(sec, cluster.id);
+          const isBaselineCell = cellRelation === 'baseline';
           const relMeta = getCellRelationMeta(cellRelation);
           const secBadge = getConcordanceBadgeMeta(sec.concordanceStatus);
           const showConcUI = state.teamMode || sec.concordanceStatus !== 'pending' || Boolean(sec.concordanceNote);
@@ -1334,7 +1392,7 @@ function renderMatrixTable() {
             <div class="flex items-start justify-between gap-1 mb-1">
               <div class="flex items-center flex-wrap gap-1">
                 ${isBaselineCell
-                  ? `<span class="text-[11px] font-bold px-1.5 py-0.5 rounded border ${relMeta.badgeCls}" title="Study #1 establishes this row; reciprocal / refutational relations are assigned to the studies translated into it.">${relMeta.label}</span>`
+                  ? `<span class="text-[11px] font-bold px-1.5 py-0.5 rounded border ${relMeta.badgeCls}" title="This study's construct established the row; the constructs of the other studies are judged against it (Reciprocal / Refutational). Change it under Established by in the row header.">${relMeta.label}</span>`
                   : `<select class="rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${relMeta.badgeCls}" title="How this study's construct relates to the row: not yet judged, Reciprocal (translates into it) or Refutational (contrasts with it)">
                   ${CELL_RELATIONS.map(r => `<option value="${r}" ${r === cellRelation ? 'selected' : ''}>${escapeHtml(getCellRelationMeta(r).label)}</option>`).join('')}
                 </select>`}
@@ -1680,7 +1738,7 @@ if (matrixPoolResizer && matrixLeftSidebar) {
 // REFUTATION MAP: the ⚡ cards gathered by study (nothing new to enter)
 // ========================================================
 // In a row, a study whose construct is marked Refutational contrasts with the reading the row holds: the reading of
-// study #1 (which establishes the row) and of the studies translated into it as Reciprocal. Studies that are also
+// the study that established the row (◆) and of the studies translated into it as Reciprocal. Studies that are also
 // Refutational in that row are listed separately: they may share a counter-reading.
 function buildRefutationMap() {
   const live = state.clusters.filter(Boolean);
@@ -1692,7 +1750,7 @@ function buildRefutationMap() {
     const docIds = [...new Set(inRow.map(s => s.docId))];
     const refuting = docIds.filter(id => inRow.some(s => s.docId === id && isSecRefutational(s, c.id)));
     if (!refuting.length) return;
-    const holders = docIds.filter(id => !refuting.includes(id) && inRow.some(s => s.docId === id && ['baseline', 'reciprocal'].includes(secRelation(s, c.id)))); // #1 and the reciprocal studies
+    const holders = docIds.filter(id => !refuting.includes(id) && inRow.some(s => s.docId === id && ['baseline', 'reciprocal'].includes(secRelation(s, c.id)))); // the row's base and the reciprocal studies
     refuting.forEach(rid => {
       if (!byStudy.has(rid)) byStudy.set(rid, []);
       byStudy.get(rid).push({
@@ -1718,7 +1776,7 @@ function buildRefutationMap() {
 function renderRefutationMap() {
   const body = document.getElementById('refutMapBody');
   const { studies, pairList } = buildRefutationMap();
-  const nameOf = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) + (isBaselineDocId(id) ? ' [#1]' : '') : 'Study'; };
+  const nameOf = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) + (state.docs[0] && state.docs[0].id === id ? ' [#1]' : '') : 'Study'; };
   const rowLink = c => `<button type="button" class="refut-row-link font-semibold text-indigo-700 hover:underline cursor-pointer" data-cid="${escapeHtml(c.id)}">${escapeHtml(clusterLabel(c))}</button>`;
   if (!studies.length) {
     body.innerHTML = `<p class="text-slate-500">No card is marked ⚡ Refutational yet. When you mark a study's card as Refutational in a row, it appears here, gathered by study.</p>
@@ -1726,7 +1784,7 @@ function renderRefutationMap() {
     return;
   }
   body.innerHTML = `
-    <p class="text-slate-500">Built from the ⚡ cards in the matrix; nothing here is entered separately. A Refutational card contrasts with the reading the row holds: the reading of study #1 and of the studies translated into the row as Reciprocal. Studies that are also ⚡ in the same row are listed apart, because they may share a counter-reading. Hidden papers are included.</p>
+    <p class="text-slate-500">Built from the ⚡ cards in the matrix; nothing here is entered separately. A Refutational card contrasts with the reading the row holds: the reading of the study that established the row (◆) and of the studies translated into it as Reciprocal. Studies that are also ⚡ in the same row are listed apart, because they may share a counter-reading. Hidden papers are included.</p>
     <section class="space-y-1.5">
       <h3 class="text-xs font-bold text-slate-800">Studies in tension (pairs)</h3>
       <table class="w-full border-collapse text-xs">
