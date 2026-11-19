@@ -468,6 +468,26 @@ await group('Each row records the study that established it (◆); #1 is not the
   await p.context().close();
 });
 
+await group('Line of argument drawer lists the ◇ cells; only ticked ones are reported as used', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const n = await p.evaluate(() => getOtherAspectCells().length);
+  await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(400);
+  check('every ◇ cell is listed in the drawer', n > 0 && (await p.locator('#loaAspectList .loa-aspect-use').count()) === n);
+  await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  check('nothing ticked: Methods asks, and claims no use', await p.evaluate(() => getOtherAspectCells().every(x => !x.used)) && (await p.locator('#pubPreviewContainer').innerText()).includes('whether and how these different aspects were used'));
+  await tab(p, 'matrix'); await p.waitForTimeout(400);
+  if (!(await p.locator('#loaAspectList').isVisible())) { await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(400); }
+  await p.locator('#loaAspectList .loa-aspect-use').first().check(); await p.waitForTimeout(400);
+  check('ticking is saved and logged with the row', await p.evaluate(() => getOtherAspectCells()[0].used && state.logs[0].category === 'line_of_argument' && state.logs[0].clusterIds.includes(getOtherAspectCells()[0].cluster.id)));
+  await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  check('Methods reports the ticked ones', (await p.locator('#pubPreviewContainer').innerText()).includes('the line-of-argument synthesis drew on'));
+  await p.locator('[data-pub=table2]').click(); await p.waitForTimeout(300);
+  check('Table 2 marks it', (await p.locator('#pubPreviewContainer').innerText()).includes('(used in the line of argument)'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Constructs not translated: reason in the pool, Appendix B, Methods; provisional agreement', async () => {
   const p = await openDemo();
   await p.evaluate(async () => { const s = state.annotations.find(a => a.type === 'second_order' && a.docId !== state.docs[0].id); s.clusterIds = []; await dbPut('annotations', s); });

@@ -129,7 +129,7 @@ function relTag(s, cid) {
 function cellStatusLines(c) {
   return state.docs.map(d => {
     const info = emptyCellInfo(c, d.id);
-    return info ? `${info.symbol} ${info.label}: ${getDisplayName(d)}${info.note ? ' — ' + info.note : ''}` : '';
+    return info ? `${info.symbol} ${info.label}: ${getDisplayName(d)}${info.note ? ' — ' + info.note : ''}${info.status === 'other_aspect' && info.usedInLoa ? ' (used in the line of argument)' : ''}` : '';
   }).filter(Boolean);
 }
 
@@ -635,8 +635,12 @@ function getMethodSections() {
     });
   });
   const unjudgedHtml = unjudgedCells ? ` ${PH(`${unjudgedCells} placement(s) of a construct in a row have no reciprocal / refutational judgement yet (○ in Table 2b)`)}` : '';
-  const otherAspect = state.clusters.reduce((n, c) => n + Object.values(c.cellStatus || {}).filter(v => v && v.status === 'other_aspect').length, 0);
-  const otherAspectHtml = otherAspect ? ` In ${otherAspect} instance(s) a study addressed a different aspect of a theme rather than translating into it (◇ in Table 2b). ${PH('how these different aspects were used in the line-of-argument synthesis, if they were')}` : '';
+  const aspectCells = getOtherAspectCells();
+  const otherAspect = aspectCells.length, aspectUsed = aspectCells.filter(x => x.used).length;
+  const otherAspectHtml = !otherAspect ? ''
+    : ` In ${otherAspect} instance(s) a study addressed a different aspect of a theme rather than translating into it (◇ in Table 2b)`
+      + (aspectUsed ? `; the line-of-argument synthesis drew on ${aspectUsed === otherAspect ? (otherAspect === 1 ? 'it' : 'all of them') : aspectUsed + ' of them'} (marked in Table 2). ${PH('how these different aspects were brought into the line of argument')}`
+        : `. ${PH('whether and how these different aspects were used in the line-of-argument synthesis (none is marked as used in the Research Aim & Overall Model drawer)')}`);
   // How the rows were based: on the construct of one study (◆), or with no single base (every placement judged)
   const rowsWithCards = state.clusters.filter(c => clusterSecsIn(c).length);
   const nBased = rowsWithCards.filter(c => rowBaseDocId(c)).length, nNoBase = rowsWithCards.length - nBased;
