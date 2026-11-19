@@ -715,6 +715,43 @@ await group('A renamed PDF reconnects by its fingerprint; website shows the app 
   check('site Tailwind pinned to an exact version', !/@tailwindcss\/browser@4"/.test(index + manual + fs.readFileSync(path.join(ROOT, 'site/meta-ethnography-101.html'), 'utf8')));
 });
 
+await group('Layout at laptop widths: no overlap in the header or view toolbars, nothing cut off', async () => {
+  const p = await openDemo();
+  const measure = () => p.evaluate(() => {
+    const vis = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && el.offsetParent !== null && !el.closest('details:not([open]) > :not(summary)'); };
+    const out = [];
+    const hdr = document.querySelector('header');
+    const regions = [...hdr.children].map(c => { const rs = [...c.querySelectorAll('*')].filter(e => vis(e) && !e.closest('#settingsDropdown')).map(e => e.getBoundingClientRect()); return rs.length ? { l: Math.min(...rs.map(r => r.left)), r: Math.max(...rs.map(r => r.right)) } : null; }).filter(Boolean);
+    for (let i = 0; i < regions.length - 1; i++) if (regions[i].r > regions[i + 1].l + 1) out.push('header regions overlap');
+    const ctrls = [...document.querySelectorAll('header button, header input, header label, #saveStatusBadge, .view-toolbar button, .view-toolbar label, .view-toolbar select, .view-toolbar > div button')].filter(vis);
+    ctrls.forEach(e => { const r = e.getBoundingClientRect(); if (r.right > innerWidth + 1 || r.left < -1) out.push('cut off: ' + (e.id || e.textContent.trim().slice(0, 20))); });
+    for (let i = 0; i < ctrls.length; i++) for (let j = i + 1; j < ctrls.length; j++) {
+      const a = ctrls[i], c = ctrls[j]; if (a.contains(c) || c.contains(a)) continue;
+      const A = a.getBoundingClientRect(), C = c.getBoundingClientRect();
+      if (Math.min(A.right, C.right) - Math.max(A.left, C.left) > 2 && Math.min(A.bottom, C.bottom) - Math.max(A.top, C.top) > 2) out.push(`overlap: ${a.id || a.textContent.trim().slice(0, 15)} × ${c.id || c.textContent.trim().slice(0, 15)}`);
+    }
+    if (document.documentElement.scrollWidth > innerWidth + 1) out.push('page scrolls sideways');
+    return [...new Set(out)];
+  });
+  const problems = [];
+  for (const w of [1024, 1280, 1366, 1440]) {
+    await p.setViewportSize({ width: w, height: 800 });
+    for (const t of ['extract', 'matrix', 'audit', 'pub']) {
+      await tab(p, t); await p.waitForTimeout(350);
+      (await measure()).forEach(x => problems.push(`${w}px ${t}: ${x}`));
+    }
+  }
+  check('no overlap or cut-off controls at 1024–1440 px', problems.length === 0, problems.slice(0, 5).join(' | '));
+  await p.setViewportSize({ width: 1024, height: 800 }); await tab(p, 'extract'); await p.waitForTimeout(400);
+  check('the PDF toolbar stays inside the PDF pane', await p.evaluate(() => { const bar = document.getElementById('zoomOutBtn').parentElement, pane = document.getElementById('pdfViewerContainer'); const b = bar.getBoundingClientRect(), q = pane.getBoundingClientRect(); return b.left >= q.left - 1 && b.right <= q.right + 1; }));
+  check('shortened tab labels keep the full name as a tooltip', await p.evaluate(() => document.getElementById('viewPubBtn').title === '4. Export Tables'));
+  await p.context().close();
+  const pages = ['index.html', 'manual.html', 'meta-ethnography-101.html'].map(f => fs.readFileSync(path.join(ROOT, 'site', f), 'utf8'));
+  check('website uses its prebuilt Tailwind CSS, not a CDN', pages.every(h => h.includes('href="css/tailwind.css"') && !/tailwindcss\/browser|unpkg\.com/.test(h)) && fs.existsSync(path.join(ROOT, 'site/css/tailwind.css')));
+  const css = fs.readFileSync(path.join(ROOT, 'site/css/tailwind.css'), 'utf8');
+  check('the prebuilt CSS has the classes the pages use', ['shadow-xs', 'min-w-0', 'bg-indigo-700'].every(c => css.includes('.' + c)));
+});
+
 await group('Offline edition (file://) starts without errors and renders PDFs', async () => {
   const p = await openDemo('file://' + path.join(ROOT, 'me_canvas.html') + '?demo');
   await p.waitForTimeout(2500);

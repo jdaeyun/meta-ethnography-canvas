@@ -1,0 +1,6 @@
+/* Tailwind v4 input for the documentation pages (site/). Built into site/css/tailwind.css by `npm run css:site`.
+   The app itself uses Tailwind 3 (tools/tailwind.input.css); v4 comes nested under @tailwindcss/cli, so it is imported
+   by path. Only the pages and site/js are scanned. */
+@import "../../node_modules/@tailwindcss/cli/node_modules/tailwindcss/index.css" source(none);
+@source "../../site/*.html";
+@source "../../site/js/*.js";
