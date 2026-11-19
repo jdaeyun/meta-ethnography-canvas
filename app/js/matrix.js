@@ -87,7 +87,7 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
     await recordAuditLog({
       clusterIds: [cluster.id],
       category: 'third_order',
-      action: 'Created New 3rd Order Concept Cluster (Row)',
+      action: 'Created New 3rd Order Row',
       toVal: initialTitle || '(Untitled Concept Row)'
     });
   }
@@ -123,9 +123,9 @@ async function assignSecondOrderToCluster(sec, cluster) {
   await recordAuditLog({
     clusterIds: [cluster.id],
     category: 'matrix_mapping',
-    action: `Mapped 2nd Order Construct into 3rd Order Cluster`,
+    action: `Placed 2nd Order Construct in a 3rd Order Row`,
     detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note ? sec.note + ' — ' : ''}"${sec.text.slice(0, 75)}..."`,
-    toVal: `Cluster: ${cluster.thirdOrderTitle || '(Untitled Row)'} [Total mapped rows: ${sec.clusterIds.length}]`,
+    toVal: `Row: ${cluster.thirdOrderTitle || '(Untitled Row)'} [in ${sec.clusterIds.length} row(s)]`,
     isMinorOp: true
   });
 }
@@ -147,9 +147,9 @@ async function removeSecondOrderFromCluster(sec, cluster) {
   await recordAuditLog({
     clusterIds: [cluster.id],
     category: 'matrix_mapping',
-    action: `Removed 2nd Order Construct from 3rd Order Cluster`,
+    action: `Removed 2nd Order Construct from a 3rd Order Row`,
     detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note || '"' + sec.text.slice(0, 60) + '..."'}`,
-    fromVal: `Cluster: ${cluster.thirdOrderTitle || '(Untitled Row)'}`,
+    fromVal: `Row: ${cluster.thirdOrderTitle || '(Untitled Row)'}`,
     isMinorOp: true
   });
 }
@@ -888,7 +888,7 @@ function renderMatrixTable() {
         <div class="flex items-center justify-between">
           <div class="flex items-center flex-wrap gap-1">
             <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">3rd Order</span>
-            <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order Cluster">@${escapeHtml(cluster.by || 'Unknown')}</button>
+            <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
             <span class="cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
             ${(() => { const n = state.logs.filter(l => (l.clusterIds || []).includes(cluster.id)).length; return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
             ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from the Index Paper's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
@@ -1022,7 +1022,7 @@ function renderMatrixTable() {
           </div>
           <div>
             <label class="block text-[11px] font-semibold text-indigo-900 mb-0.5">Co-Reviewer / Supervisor Discussion Note</label>
-            <textarea class="cl-conc-note w-full text-xs border border-slate-200 rounded p-1.5 h-16 resize-y bg-white focus:outline-none focus:border-indigo-500" placeholder="Record team agreement or supervisory feedback on this 3rd order construct...">${escapeHtml(cluster.concordanceNote)}</textarea>
+            <textarea class="cl-conc-note w-full text-xs border border-slate-200 rounded p-1.5 h-16 resize-y bg-white focus:outline-none focus:border-indigo-500" placeholder="Record how the team read this 3rd order construct, or supervisory feedback...">${escapeHtml(cluster.concordanceNote)}</textarea>
           </div>
         </div>
       </div>
@@ -1149,7 +1149,7 @@ function renderMatrixTable() {
         await recordAuditLog({
           clusterIds: [cluster.id],
           category: 'third_order',
-          action: `Updated Step B 3rd Order Definition & Interpretation for "${cluster.thirdOrderTitle || 'Untitled Cluster'}"`,
+          action: `Updated Step B 3rd Order Definition & Interpretation for "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
           fromVal: oldNote || '(Empty)',
           toVal: newNote
         });
@@ -1195,7 +1195,7 @@ function renderMatrixTable() {
         clusterIds: [cluster.id],
         category: 'concordance',
         action: `3rd Order Team Perspective Updated ("${cluster.thirdOrderTitle || 'Untitled Row'}")`,
-        detail: newNote ? `Team Discussion Note: ${newNote}` : 'Updated agreement status.',
+        detail: newNote ? `Team Discussion Note: ${newNote}` : 'Updated team status.',
         fromVal: `${oldStatus.toUpperCase()}${oldNote ? ' (' + oldNote + ')' : ''}`,
         toVal: `${newStatus.toUpperCase()}${newNote ? ' (' + newNote + ')' : ''}`
       });
@@ -1329,7 +1329,7 @@ function renderMatrixTable() {
       await recordAuditLog({
         clusterIds: [cluster.id],
         category: 'third_order',
-        action: 'Deleted 3rd Order Concept Cluster Row',
+        action: 'Deleted 3rd Order Row',
         fromVal: cluster.thirdOrderTitle || '(Untitled Row)'
       });
       renderMatrixView();
@@ -1649,7 +1649,7 @@ function renderMatrixTable() {
   }
 }
 
-// --- C. 3rd Order Cluster Row Reordering (▲ / ▼) ---
+// --- C. 3rd Order Row Reordering (▲ / ▼) ---
 async function persistClusterOrder() {
   for (let i = 0; i < state.clusters.length; i++) {
     state.clusters[i].order = i;

@@ -100,6 +100,21 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   Scroll position is kept by an anchor row (`data-cluster-id`) and corrected when a placeholder above the viewport is built; overflow-anchor is off on purpose.
 - Stance: this is a qualitative (Big Q) tool. Differences between reviewers are readings to discuss, not errors; agreement is provisional
   ("Agreed (for now)"); quality appraisal is never a ranking criterion; the Index Paper is a reasoned choice by the reviewer, not a sort result.
+- Big Q wording, in UI text, logs, exports, demo data and the site. Read new text for these before committing; the smoke test
+  ("Big Q wording") blocks some of them, but most need judgement:
+  | Avoid (small q) | Write instead |
+  |---|---|
+  | consensus, resolve / resolved, discrepancy, concordance (as a label) | team perspectives, agreed (for now), work through, different readings, team status |
+  | inter-rater / inter-reviewer agreement, reliability, kappa | provisional agreement, discussed |
+  | verify, validate, real / raw data | trace, ground in participants' accounts, participant quotes (as reported in the primary studies) |
+  | coding (of the included papers) | reading, extracting constructs, translating |
+  | bias, sampling bias, deviant case | limits of context / sample, disconfirming or contrasting case |
+  | weight / weighted, score, rank (of studies or findings) | inform, read, judge; appraisal is a judgement with reasons |
+  | handle / control reflexivity, bracketing | reflect on, how the reviewers' positions shaped the reading |
+  | rigour (as a property the tool guarantees) | quality, transparency, reflexivity |
+  Legitimate uses stay: "accuracy" of extracted text against the source (eMERGe Item 9), counts of studies in CERQual
+  adequacy, and quoted wording of external instruments (CASP's "sufficiently rigorous"). A difference between studies that a
+  finding explains is part of the finding, not a CERQual coherence concern by itself.
 - A row's Reciprocal / Refutational character is derived from its cells (`clusterTranslationType()`); there is no per-row setting.
 - Escape every user value interpolated into HTML with `escapeHtml()`.
 - Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`);

@@ -598,8 +598,17 @@ await group('Compare: bulk import comes in as Discuss; Big Q wording in the expo
   check('no "Resolution Mode", "Inter-Reviewer Agreement", "discrepancies were resolved" or "Concordance:" label', !/Resolution Mode|Inter-Reviewer Agreement|discrepancies were resolved|Concordance:/.test(code));
   const pages = ['site/index.html', 'site/meta-ethnography-101.html', 'README.md'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n') + code;
   check('no "raw participant quotes", "real data" or "coding full-text PDFs"', !/raw participant quote|grounded in real data|coding full-text PDFs/.test(pages));
+  const site = ['site/index.html', 'site/manual.html', 'site/meta-ethnography-101.html'].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+  check('site: no "simply groups", "orders of data", "rigorous meta-ethnography", "Divergent Interpretations", "settled together", "Combining findings" or a sort that sets the Index Paper', !/simply groups|\(\"orders\"\) of data|"orders"\) of data|rigorous meta-ethnography|Divergent Interpretations|settled together|Combining findings|to set your <strong>Index Paper/.test(site));
   const app = fs.readdirSync(path.join(ROOT, 'app/js')).map(f => fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')).join('\n') + fs.readFileSync(path.join(ROOT, 'me_canvas.html'), 'utf8');
-  check('no "consensus", "deviant case", "sampling bias" or "was resolved" in the app', !/consensus|deviant case|sampling bias|was resolved/i.test(app));
+  check('no "consensus", "deviant case", "sampling bias", "was resolved", "weighted", "reflexivity was handled" or "reviewer concordance" in the app', !/consensus|deviant case|sampling bias|was resolved|weighted|reflexivity was handled|reviewer concordance/i.test(app));
+  check('no "Concept Cluster" / "Order Cluster", appraisal "weighting", or "team agreement" in the app', !/Concept Cluster|Order Cluster|weighting, sensitivity|team agreement/i.test(app));
+  check('project setup and aim edits are logged as Phase 1, not Line of Argument', await p.evaluate(() => state.logs.filter(l => l.action.startsWith('Configured Project')).every(l => l.category === 'aim_question') && state.logs.some(l => l.category === 'aim_question') && getCategoryMeta('aim_question').label.startsWith('Phase 1')) && (await p.locator('#auditFilterCategory option[value=aim_question]').count()) === 1);
+  await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  const m = await p.locator('#pubPreviewContainer').innerText();
+  check('Methods: no ratio of refutational placements; heading says Quality, not Rigor', !/judged placements of a construct/.test(m) && m.includes('Quality, Reflexivity, and Confidence in Findings') && !m.includes('Rigor'));
+  check('demo CERQual: an explained difference is not a coherence concern (adequacy carries it)', await p.evaluate(() => { const c = state.clusters.find(x => x.thirdOrderTitle === 'Responsibility without back-up'); return c.cerqualCoherence === 'Minor' && c.cerqualAdequacy === 'Moderate' && !/not fully consistent/.test(c.cerqualCohNote); }));
+  check('Methods: no doubled full stop after the aim or question, and "each … finding" is singular', !/[.?!]\.(\s|$)/.test(m) && !/each synthesized third-order findings/.test(m) && !/instance\(s\)/.test(m));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });

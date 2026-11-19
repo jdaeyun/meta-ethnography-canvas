@@ -468,7 +468,7 @@ function renderLoaClusterChips() {
 
 // eMERGe fields added for items 3, 9, 13 and 16: [loa key, input id, audit category]
 const LOA_EXTRA_FIELDS = [
-  ['reviewQuestion', 'loaQuestionInput', 'line_of_argument'],
+  ['reviewQuestion', 'loaQuestionInput', 'aim_question'],
   ['readingApproach', 'loaReadingInput', 'reading_extraction'],
   ['extractionScope', 'loaExtractionScopeInput', 'reading_extraction'],
   ['unitsTerminology', 'loaUnitsInput', 'reading_extraction'],
@@ -509,12 +509,13 @@ document.getElementById('saveLoaBtn').addEventListener('click', async () => {
   LOA_EXTRA_FIELDS.forEach(([k, id]) => { ids[k] = id; });
   const oldV = {}, newV = {};
   Object.keys(ids).forEach(k => { oldV[k] = state.loa[k] || ''; newV[k] = (document.getElementById(ids[k])?.value || '').trim(); });
-  const loaChanged = ['aim', 'title', 'flow', 'narrative', 'synthStudies'].some(k => oldV[k] !== newV[k]);
+  const aimChanged = oldV.aim !== newV.aim;
+  const loaChanged = ['title', 'flow', 'narrative', 'synthStudies'].some(k => oldV[k] !== newV[k]);
   const relChanged = ['relateProcess', 'relateOutcome'].some(k => oldV[k] !== newV[k]);
   const apprChanged = ['appraisalPolicy', 'appraisalUse'].some(k => oldV[k] !== newV[k]);
   const extraChanged = LOA_EXTRA_FIELDS.filter(([k]) => oldV[k] !== newV[k]);
 
-  if (!loaChanged && !relChanged && !apprChanged && extraChanged.length === 0) {
+  if (!aimChanged && !loaChanged && !relChanged && !apprChanged && extraChanged.length === 0) {
     alert('No changes in Aim / Phase 4 / Line of Argument to save.');
     return;
   }
@@ -524,11 +525,20 @@ document.getElementById('saveLoaBtn').addEventListener('click', async () => {
   populateLoaInputs();
   updateHeaderProjectUI();
 
+  if (aimChanged) {
+    await recordAuditLog({
+      category: 'aim_question',
+      action: 'Updated Phase 1 Research Aim',
+      detail: newV.aim || '(cleared)',
+      fromVal: oldV.aim ? oldV.aim.slice(0, 90) : '(none)',
+      toVal: newV.aim ? newV.aim.slice(0, 90) : '(cleared)'
+    });
+  }
   if (loaChanged) {
     await recordAuditLog({
       category: 'line_of_argument',
-      action: `Updated Review Aim / Line of Argument Synthesis${newV.title ? ': "' + newV.title + '"' : ''}`,
-      detail: `${newV.aim ? 'Aim: ' + newV.aim + '\n' : ''}${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.synthStudies ? 'Studies synthesized: ' + newV.synthStudies + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
+      action: `Updated Line of Argument Synthesis${newV.title ? ': "' + newV.title + '"' : ''}`,
+      detail: `${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.synthStudies ? 'Studies synthesized: ' + newV.synthStudies + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
       fromVal: oldV.title || oldV.flow || oldV.narrative ? `${oldV.title || '(Untitled)'} — ${(oldV.narrative || oldV.flow).slice(0, 70)}...` : '(Initial Draft)',
       toVal: `${newV.title || '(Untitled)'} — ${(newV.narrative || newV.flow).slice(0, 70)}...`
     });

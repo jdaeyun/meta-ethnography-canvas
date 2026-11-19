@@ -433,7 +433,7 @@
       <div class="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shrink-0">
         <div class="flex-1 min-w-[18rem]">
           <h2 class="text-sm font-bold text-slate-800">Cross-Study Synthesis Matrix & GRADE-CERQual</h2>
-          <p class="text-[13px] text-slate-500">Drag 2nd Order concepts from the left pool into 3rd Order theme rows. Use the tabs inside each row to write your synthesis, rate CERQual, or record team agreement.</p>
+          <p class="text-[13px] text-slate-500">Drag 2nd Order concepts from the left pool into 3rd Order theme rows. Use the tabs inside each row to write your synthesis, rate CERQual, or record team perspectives.</p>
         </div>
         <div class="view-toolbar flex flex-wrap items-center justify-end gap-2 *:whitespace-nowrap">
           <button id="toggleLoaDrawerBtn" class="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1.5 transition">
@@ -531,7 +531,7 @@
                 <textarea id="loaAppraisalPolicyInput" class="w-full text-xs border border-purple-200 rounded p-2 h-20 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., The team's stance on appraisal (some meta-ethnographies appraise, some do not) and why; the tool and who rated."></textarea>
               </div>
               <div>
-                <label class="block text-xs font-semibold text-purple-900 mb-0.5">Use — how appraisal results shaped the synthesis (exclusion, weighting, sensitivity, none)</label>
+                <label class="block text-xs font-semibold text-purple-900 mb-0.5">Use — how appraisal informed the synthesis (e.g., exclusion, the reading of studies, CERQual methodological limitations, or not used)</label>
                 <textarea id="loaAppraisalUseInput" class="w-full text-xs border border-purple-200 rounded p-2 h-20 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., No study was excluded on quality grounds; ratings informed CERQual 'methodological limitations' only."></textarea>
               </div>
             </div>
@@ -737,18 +737,19 @@
       <div class="px-5 py-3 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shrink-0">
         <div class="flex-1 min-w-[18rem]">
           <h2 class="text-sm font-bold text-slate-800">Audit Trail & Reflexive Log</h2>
-          <p class="text-[13px] text-slate-500">Automatically records your synthesis decisions, team agreements, and reflexive notes for eMERGe reporting.</p>
+          <p class="text-[13px] text-slate-500">Automatically records your synthesis decisions, team discussions, and reflexive notes for eMERGe reporting.</p>
         </div>
         <div class="view-toolbar flex flex-wrap items-center justify-end gap-2 *:whitespace-nowrap">
           <label class="inline-flex items-center space-x-1.5 text-xs text-slate-600 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-200 cursor-pointer select-none" title="When unchecked (default), routine drag-and-drop quote linking and matrix placement operations are not auto-recorded, keeping the Audit Trail focused on interpretive decisions.">
             <input type="checkbox" id="logMinorOpsToggle" class="rounded text-indigo-600">
             <span>Also log minor drag-and-drop actions</span>
           </label>
-          <select id="auditFilterRow" class="text-xs border border-purple-300 rounded-md px-2.5 py-1.5 bg-purple-50 text-purple-900 max-w-[240px]" title="Show only the history of one 3rd Order row (title changes, translation, placements, CERQual, team agreement, memos)">
+          <select id="auditFilterRow" class="text-xs border border-purple-300 rounded-md px-2.5 py-1.5 bg-purple-50 text-purple-900 max-w-[240px]" title="Show only the history of one 3rd Order row (title changes, translation, placements, CERQual, team status, memos)">
             <option value="all">🟣 All 3rd Order rows</option>
           </select>
           <select id="auditFilterCategory" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 bg-slate-50 text-slate-700">
             <option value="all">All Categories</option>
+            <option value="aim_question">🎯 Phase 1: Aim &amp; Review Question</option>
             <option value="reflexive_memo">📝 Reflexive / Analytic Memos</option>
             <option value="concordance">🤝 Team Perspectives & Peer Merge</option>
             <option value="cerqual">📊 GRADE-CERQual Assessment</option>
@@ -792,7 +793,7 @@
               </select>
             </div>
             <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-0.5">Related Cluster / Study (Optional)</label>
+              <label class="block text-xs font-semibold text-slate-600 mb-0.5">Related 3rd Order Row (Optional)</label>
               <select id="memoTargetRef" class="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-slate-50">
                 <option value="">General (Whole Synthesis)</option>
               </select>
@@ -907,7 +908,7 @@
         <div class="bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
           <div class="text-xs text-amber-800 font-semibold uppercase">For discussion</div>
           <div id="cmpDiscussStat" class="text-sm font-extrabold text-amber-900">—</div>
-          <div class="text-[11px] text-amber-800 mt-0.5">Differences between reviewers are treated as interpretive lenses that enrich the translation, not as coding errors.</div>
+          <div class="text-[11px] text-amber-800 mt-0.5">Differences between reviewers are treated as interpretive lenses that enrich the translation, not as errors.</div>
         </div>
 
         <!-- Comparison Tabs -->
@@ -1076,7 +1077,7 @@
         <label for="initialReviewQuestionInput" class="block text-xs font-bold text-purple-950 mt-1">Review Question(s) <span class="text-[11px] font-medium text-purple-700">(eMERGe Item 3 · optional)</span></label>
         <textarea id="initialReviewQuestionInput" rows="2" placeholder="e.g., How do ward nurses experience their role when caring for older patients?" class="w-full text-xs text-slate-800 bg-white border border-purple-200 rounded-lg p-2.5 focus:outline-none focus:border-purple-600 leading-relaxed resize-y"></textarea>
         <p class="text-[11px] text-slate-500 leading-snug">
-          Following Noblit & Hare (Phase 1) and eMERGe (Items 1–4), defining your aim and review question upfront anchors your extraction (Tab 1) and cross-study translation (Tab 2).
+          Following Noblit & Hare (Phase 1) and eMERGe (Items 1–4), stating your aim and review question at the start keeps your extraction (Tab 1) and cross-study translation (Tab 2) focused. They may be refined as you read: note any refinements (Item 3).
         </p>
       </div>
 
