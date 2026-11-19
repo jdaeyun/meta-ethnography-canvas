@@ -647,7 +647,10 @@ function renderComparisonTabContent() {
         `;
         row.querySelector('.imp-cl')?.addEventListener('click', async () => {
           await mergePeerAuditLogs();
-          const newCl = normalizeCluster({ ...pc, by: cmp.peerReviewer });
+          // The peer's base study is one of their studies: point it to the matching local study (an unmatched one stays as is,
+          // so it applies if that study is added later with the same id)
+          const pBase = ('baseDocId' in pc) ? pc.baseDocId : null;
+          const newCl = normalizeCluster({ ...pc, by: cmp.peerReviewer, baseDocId: pBase ? (cmp.docMapPeerToLocal[pBase] || pBase) : pBase });
           await dbPut('clusters', newCl);
           state.clusters.push(newCl);
           await recordAuditLog({

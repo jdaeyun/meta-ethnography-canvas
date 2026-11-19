@@ -216,7 +216,7 @@ async function persistDocOrder() {
   await checkBaselineChange();
 }
 
-// ---- Study #1 is the basis of every row: when it changes, the translation in the affected rows has to be re-read ----
+// ---- Study #1 is where translation starts: when it changes, rows established by the former #1 have to be re-read ----
 // The #1 study is remembered in the project (loa.baselineDocId), so every path that reorders, deletes or restores studies is covered.
 async function checkBaselineChange() {
   const prevId = state.loa.baselineDocId || null;
@@ -230,42 +230,36 @@ async function checkBaselineChange() {
   await flagRowsForBaselineChange(prevId, prevName, now);
 }
 
+// Rows keep the study that established them (cluster.baseDocId): a new #1 does not change any row's base. Rows established
+// by the former #1 are marked for re-reading, because the translation order they were built on has changed.
 async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
-  const secsOf = docId => state.annotations.filter(a => a.type === 'second_order' && a.docId === docId).map(normalizeAnnotation);
-  const prevSecs = secsOf(prevId), nowSecs = secsOf(nowDoc.id);
-  const live = new Set(state.clusters.map(c => c.id));
   // A row whose flag started from the study that is #1 again (moved back, or a deletion undone) is back on the basis it was
-  // built on: its flag is cleared instead of renewed.
-  const reverted = state.clusters.filter(c => c.baselineChange && c.baselineChange.fromDocId === nowDoc.id);
+  // built on: its flag is cleared instead of renewed. So is a row whose base already is the new #1.
+  const reverted = state.clusters.filter(c => c.baselineChange && (c.baselineChange.fromDocId === nowDoc.id || c.baseDocId === nowDoc.id));
   for (const c of reverted) { delete c.baselineChange; await dbPut('clusters', c); }
   if (reverted.length) {
     await recordAuditLog({
       category: 'study_order',
-      action: `Study #1 is ${getDisplayName(nowDoc)} again: ${reverted.length} row(s) are back on the basis they were built on`,
+      action: `Study #1 is ${getDisplayName(nowDoc)}: ${reverted.length} row(s) are back on the basis they were built on`,
       detail: `Re-reading flag cleared for: ${reverted.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
       clusterIds: reverted.map(c => c.id)
     });
   }
   const revertedIds = new Set(reverted.map(c => c.id));
-  const affected = state.clusters.filter(c => !revertedIds.has(c.id) && [...prevSecs, ...nowSecs].some(s => s.clusterIds.includes(c.id)));
+  // Rows established by the former #1, and rows already flagged by an earlier change (A → B → C keeps A)
+  const affected = state.clusters.filter(c => !revertedIds.has(c.id) && (c.baseDocId === prevId || c.baselineChange));
   if (affected.length === 0) return;
-  // Relations the new #1 study had as a translated study: they are kept but no longer shown or exported (a baseline has none)
-  let hiddenRefut = 0;
-  nowSecs.forEach(s => s.clusterIds.filter(id => live.has(id)).forEach(id => { if (s.clusterRelations && s.clusterRelations[id] === 'refutational') hiddenRefut++; }));
-  const prevCells = prevSecs.reduce((n, s) => n + s.clusterIds.filter(id => live.has(id)).length, 0);
   const at = Date.now();
   for (const c of affected) {
-    // Chained changes (A → B → C) keep the study the row was originally built on
     const orig = c.baselineChange;
     c.baselineChange = { at, fromDocId: orig ? orig.fromDocId : prevId, fromName: orig ? orig.fromName : prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) };
     await dbPut('clusters', c);
   }
   await recordAuditLog({
     category: 'study_order',
-    action: `Study #1 changed: the translation in ${affected.length} 3rd Order row(s) needs re-reading`,
-    detail: `#1 was ${prevName || 'another study'}; it is now ${getDisplayName(nowDoc)}, which now establishes these rows.`
-      + (prevCells ? ` ${prevName || 'The former #1'} is now translated into ${prevCells} cell(s); its cards there have no reciprocal / refutational judgement as a translated study unless one was recorded before: judge them.` : '')
-      + (hiddenRefut ? ` ${hiddenRefut} Refutational judgement(s) of ${getDisplayName(nowDoc)} are no longer shown, because study #1 has no relation of its own.` : '')
+    action: `Study #1 changed: ${affected.length} 3rd Order row(s) established by an earlier #1 need re-reading`,
+    detail: `#1 was ${prevName || 'another study'}; it is now ${getDisplayName(nowDoc)}. These rows keep the study that established them`
+      + ` (the other studies were translated into its construct); no judgement was changed. Re-read each row, or make the new #1 its base.`
       + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
     fromVal: `#1: ${prevName}`,
     toVal: `#1: ${getDisplayName(nowDoc)}`,
