@@ -30,6 +30,8 @@ async function openDemo(url = BASE + '?demo') {
   const page = await ctx.newPage();
   page.pageErrors = [];
   page.on('pageerror', e => page.pageErrors.push(e.message));
+  page.cspRefusals = []; // anything the Content-Security-Policy blocked
+  page.on('console', m => { if (/Content Security Policy/i.test(m.text())) page.cspRefusals.push(m.text()); });
   page.on('dialog', d => d.accept());
   await page.goto(url);
   await page.waitForFunction(() => typeof state !== 'undefined' && state.docs && state.docs.length > 0, null, { timeout: 20000 });
@@ -865,6 +867,29 @@ await group('Layout at laptop widths: no overlap in the header or view toolbars,
   check('website uses its prebuilt Tailwind CSS, not a CDN', pages.every(h => h.includes('href="css/tailwind.css"') && !/tailwindcss\/browser|unpkg\.com/.test(h)) && fs.existsSync(path.join(ROOT, 'site/css/tailwind.css')));
   const css = fs.readFileSync(path.join(ROOT, 'site/css/tailwind.css'), 'utf8');
   check('the prebuilt CSS has the classes the pages use', ['shadow-xs', 'min-w-0', 'bg-indigo-700'].every(c => css.includes('.' + c)));
+});
+
+await group('Content-Security-Policy: the app works under it, and no request can leave the site (http and file://)', async () => {
+  for (const url of [BASE + '?demo', 'file://' + path.join(ROOT, 'me_canvas.html') + '?demo']) {
+    const where = url.startsWith('file') ? 'file://' : 'http';
+    const p = await openDemo(url);
+    await p.waitForTimeout(1500);
+    check(`${where}: the policy is in place`, (await p.locator('meta[http-equiv="Content-Security-Policy"]').count()) === 1);
+    check(`${where}: PDF pages render under it`, (await p.locator('#pdfPagesWrapper canvas').count()) > 0);
+    await tab(p, 'pub'); await p.waitForTimeout(400);
+    const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
+    check(`${where}: Word export works under it`, (await dl.path()) !== null);
+    check(`${where}: nothing the app needs is blocked`, p.cspRefusals.length === 0, p.cspRefusals.slice(0, 2).join(' | '));
+    const sent = await p.evaluate(async () => {
+      const r = [];
+      try { await fetch('https://example.com/x'); r.push('fetch'); } catch (e) {}
+      await new Promise(res => { const i = new Image(); i.onload = () => { r.push('img'); res(); }; i.onerror = res; i.src = 'https://example.com/x.png'; });
+      return r;
+    });
+    check(`${where}: data cannot be sent out (fetch, image beacon)`, sent.length === 0, sent.join(','));
+    check(`${where}: no page errors`, p.pageErrors.length === 0, p.pageErrors.join(' | '));
+    await p.context().close();
+  }
 });
 
 await group('Offline edition (file://) starts without errors and renders PDFs', async () => {

@@ -117,6 +117,11 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   finding explains is part of the finding, not a CERQual coherence concern by itself.
 - A row's Reciprocal / Refutational character is derived from its cells (`clusterTranslationType()`); there is no per-row setting.
 - Escape every user value interpolated into HTML with `escapeHtml()`.
+- Security: `me_canvas.html` has a Content-Security-Policy `<meta>` (everything from 'self' / file:, no outbound requests,
+  no inline scripts, no eval; inline styles allowed). Keep it that way: no inline `<script>` or `on…=` handlers, no
+  `eval` / `new Function`, no CDN or external fetch. A new resource type means updating the policy and the smoke test
+  "Content-Security-Policy". PDF.js stays 3.11.174 (4.x+ ships only ES modules, which file:// cannot load) with
+  `isEvalSupported: false` (CVE-2024-4367) on every `getDocument` call.
 - Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`);
   change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
 - UI text is English.
