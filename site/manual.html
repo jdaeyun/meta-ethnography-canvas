@@ -80,7 +80,7 @@
     <section id="getting-started" class="bg-white p-8 md:p-10 rounded-2xl border border-slate-200 shadow-xs space-y-6">
       <div class="flex items-center space-x-3">
         <span class="px-3 py-1 rounded-lg bg-indigo-700 text-white font-bold text-sm">Section 1</span>
-        <h2 class="text-2xl font-bold text-slate-900">Getting Started, Reviewer Tag & Saving</h2>
+        <h2 class="text-2xl font-bold text-slate-900">Getting Started, Reviewer ID & Saving</h2>
       </div>
 
       <!-- Workflow Scope Callout (Post-Screening QES Tool) -->
@@ -121,12 +121,12 @@
       </div>
 
       <div class="space-y-4 text-slate-700">
-        <h3 class="text-lg font-bold text-slate-900">1.1 Project Code & Reviewer Name</h3>
+        <h3 class="text-lg font-bold text-slate-900">1.1 Project Code & Reviewer ID</h3>
         <p>
-          When you open the app for the first time, a setup window will ask for your <strong>Reviewer Name or Initials</strong> (e.g., <code>DYJ</code>) and a <strong>Project Code</strong> (e.g., <code>NURSING-2026</code>). 
+          When you open the app for the first time, a setup window will ask for your <strong>Reviewer ID</strong> (your name or initials, e.g., <code>DYJ</code>) and a <strong>Project Code</strong> (e.g., <code>NURSING-2026</code>). 
         </p>
         <ul class="list-disc pl-6 space-y-2">
-          <li><strong>Reviewer Name:</strong> Every quote you extract and theme you create will automatically carry your tag (such as <span class="text-xs font-mono bg-slate-200 text-slate-800 px-2 py-0.5 rounded font-bold">@DYJ</span>). You can change it anytime in the top bar.</li>
+          <li><strong>Reviewer ID:</strong> Every quote you extract and theme you create will automatically carry your tag (such as <span class="text-xs font-mono bg-slate-200 text-slate-800 px-2 py-0.5 rounded font-bold">@DYJ</span>). You can change it anytime in the top bar (<strong>Rev ID</strong>).</li>
           <li><strong>Project Code:</strong> This unique code prevents you from accidentally merging or overwriting backup files from a different systematic review project.</li>
           <li><strong>Phase 1 Aim:</strong> You can optionally enter your research question here; it will be displayed in your Line of Argument drawer to keep you focused during synthesis.</li>
         </ul>
@@ -180,7 +180,7 @@
           <li>Click <strong>+ Add PDF</strong> in the left sidebar (or drag and drop PDF files anywhere on the window).</li>
           <li><strong>DOI and file fingerprint:</strong> When a PDF is added, the app reads its DOI (from the PDF's metadata or page 1; you can correct it in <em>Edit Study Info</em>) and stores a fingerprint of the file. Both are used only to recognise the same paper in a co-reviewer's backup, even if the file was renamed.</li>
           <li><strong>Index Paper (#1):</strong> The study at the top of the left sidebar is automatically marked with an orange <span class="text-[11px] bg-amber-500 text-white px-1 py-0.2 rounded font-bold uppercase">Index</span> badge. It appears as the first column in your Synthesis Matrix.</li>
-          <li><strong>Quick sorting:</strong> Use the <span class="text-xs font-semibold bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded">Year▲</span> button to sort studies chronologically by publication year, or <span class="text-xs font-semibold bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded">Rich★</span> to sort by Conceptual Richness (richest first; quality appraisal is not used for ranking, and studies rated alike keep their order). The study at #1 is your Index Paper: it is your choice, and you can change it. You can also drag and drop studies manually at any time. Every order change is automatically logged in your Audit Trail.</li>
+          <li><strong>Quick sorting:</strong> Use the <span class="text-xs font-semibold bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded">Year▲</span> button to sort studies chronologically by publication year, or <span class="text-xs font-semibold bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded">Rich★</span> to sort by Conceptual Richness (richest first; how ties are handled is in 2.3). The study at #1 is your Index Paper: it is your choice, and you can change it. You can also drag and drop studies manually at any time. Every order change is automatically logged in your Audit Trail.</li>
           <li><strong>Changing #1 after you have started translating:</strong> Study #1 is where translation starts, and the rows you started from it are established by it (see 3.2). Changing #1 does not change which study established a row, and no judgement is changed. Every row established by the former #1 gets an amber <em>⚠ Study #1 changed after this row was built</em> box in Tab 2, because the translation order it was built on has changed: re-read the row and check whether it and its title still hold. If the new #1 should establish the row instead (and has a construct in it), click <strong>Make … the base</strong>: the former #1 is then translated into the row, so judge its cards. Otherwise click <strong>Re-read · mark as reviewed</strong> (you can note what you checked). Until then, Table 2 marks the row as not yet re-read. This also happens when #1 is deleted or a sort puts another study first.</li>
         </ul>
       </div>
@@ -267,6 +267,7 @@
         </figure>
         <ul class="list-disc pl-6 space-y-2">
           <li><strong>How the rows start (asked once):</strong> The first time study #1 has 2nd Order concepts and the matrix has no rows, the app asks whether to <em>start from study #1</em> (each of its concepts becomes a provisional row, as in index-paper approaches) or <em>start with an empty matrix</em> (you create every row, comparing each concept with those of all the other studies). The choice and your reason are saved in the project and the Audit Trail; you can change it later with <strong>★ Auto-place #1 Study</strong>. The index-paper approach is widely used, but neither Noblit &amp; Hare nor eMERGe require it: eMERGe asks you to describe how you translated (criterion 13).</li>
+          <li><strong>Inside each row:</strong> The row header has three tabs. <strong>📝 Synthesis</strong> holds <strong>Step A · Translation Summary</strong> (how the studies' concepts translate into one another, in their own terms), <strong>Step B · 3rd Order Construct</strong> (your interpretation, derived from Step A) and an optional <strong>Reflexive note</strong>. <strong>📊 CERQual</strong> is described in 3.4; <strong>🤝 Team</strong> holds the row's team status (Pending, Discuss, Agreed (for now)) and a discussion note.</li>
           <li><strong>Adding a Theme Row:</strong> Click <strong>+ Add Theme Row (3rd Order)</strong> at either the top-right toolbar or the <strong>bottom of the matrix table</strong>. You can also drag a 2nd Order card from the left pool onto the dashed drop zone to create a new row automatically.</li>
           <li><strong>Placing Concepts into the Matrix:</strong> Drag any 2nd Order concept from the left pool and drop it into a theme row. It will automatically snap into the column for its study! A single 2nd Order concept can be placed into multiple rows if it relates to more than one theme.</li>
           <li><strong>Using Unlinked 1st Order Quotes:</strong> If a primary study is mostly descriptive and has a rich quote without a clear author concept, click <strong>+ Convert to 2nd Order</strong> (or drag the quote directly into a matrix row) to wrap it into a concept card.</li>
@@ -313,14 +314,8 @@
       <hr class="border-slate-100">
 
       <div class="space-y-4 text-slate-700">
-        <h3 class="text-lg font-bold text-slate-900">3.4 Using Compact View, GRADE-CERQual & Line of Argument</h3>
+        <h3 class="text-lg font-bold text-slate-900">3.4 GRADE-CERQual & Line of Argument</h3>
         <ul class="list-disc pl-6 space-y-2">
-          <li><strong>🔭 Compact View:</strong> When you have many studies and themes, check <strong>🔭 Compact View</strong> in the top toolbar to show only a 3-line preview of each 2nd order interpretation (memos and notes are hidden) so you can see your entire matrix at a glance.</li>
-          <li><strong>📝 Notes &amp; row history:</strong> The <em>Note on how this concept fits into this theme</em> in each cell shows up to 3 lines; click it to edit the full text. Changes to it are logged in the Audit Trail. A <strong>🕘 n</strong> badge in a row header means that row has recorded history; click it to open that row's history in the Audit Trail.</li>
-          <li><strong>Storyline stays in view:</strong> If you wrote a <em>Study Overview / Key Metaphors</em> for a paper, it appears as a collapsible box under the study header in Tab 1 (and in the Study Context Row of Tab 2), so you can keep the whole account in mind while extracting and translating.</li>
-          <li><strong>Fold the theme column:</strong> Click <strong>◀</strong> in the header of the <em>3rd Order Theme</em> column to fold it into a narrow strip (row number and a vertical title). The study columns get much more room, and you can still drop cards on any row. Click the strip or <strong>▶</strong> to open it again. Your choice is remembered. (<em>Compact View</em> is different: it shortens the theme panels and the cards but keeps the column wide.)</li>
-          <li><strong>Long drawers scroll:</strong> The <em>Research Aim & Overall Model</em> drawer in Tab 2 takes at most 60% of the window height and scrolls inside, so the matrix stays visible below it.</li>
-          <li><strong>Text boxes grow as you type:</strong> Every text box (Step A / Step B, reflexive note, memos, notes on cards, the Research Aim fields and more) gets taller with your text, up to about 60% of the window height, and then scrolls. You can still drag a box's corner to resize it.</li>
           <li><strong>📊 CERQual Tab (Inside Each Row Header):</strong> Click the <strong>📊 CERQual</strong> mini-tab on the left side of any row to assess <em>Methodological Limitations</em>, <em>Coherence</em>, <em>Adequacy</em>, and <em>Relevance</em> (every domain starts as <em>Not assessed</em>). Write why you chose each rating, then set the overall confidence (High, Moderate, Low, Very low) and explain it as a reasoned judgement across the four components; the app warns you if a confidence level has no explanation.</li>
           <li><strong>🔗 Research Aim & Overall Model Drawer:</strong> Click the purple <strong>🔗 Research Aim & Overall Model</strong> button in the top bar to open a drawer where you can keep your Phase 1 research question visible and write your overarching <strong>Line of Argument</strong> model. Click your 3rd Order theme chips (<code>+ [Theme Name]</code>) and arrow buttons (<code>➔</code>, <code>⇄</code>, <code>⚡</code>) to build a text diagram showing how your themes connect. Under <strong>◇ Aspects</strong>, every empty cell you marked <em>◇ Addresses a different aspect of the topic</em> is listed with its study, row and note: tick the ones your line of argument draws on (logged; Table 2 marks them, and the Methods Summary reports only the ticked ones, so it never claims that a ◇ was used when it was not). Under <strong>Concept relationship map</strong>, add relations between themes (leads to, mutually related, in tension, <em>encompasses</em> for nesting, or <em>metaphor</em> for “is understood through the metaphor of”) to draw a circular or left-to-right map, and use <strong>Download .svg</strong> to save it.</li>
         </ul>
@@ -344,6 +339,20 @@
           <img src="img/04-subgroup-bar.png" alt="The Papers on view bar with one button for each subgroup" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
           <figcaption class="text-xs text-slate-500 mt-1.5">The Papers on view bar with the subgroup buttons.</figcaption>
         </figure>
+      </div>
+
+      <hr class="border-slate-100">
+
+      <div class="space-y-4 text-slate-700">
+        <h3 class="text-lg font-bold text-slate-900">3.6 Display &amp; Workspace Tips</h3>
+        <ul class="list-disc pl-6 space-y-2">
+          <li><strong>🔭 Compact View:</strong> When you have many studies and themes, check <strong>🔭 Compact View</strong> in the top toolbar to show only a 3-line preview of each 2nd order interpretation (memos and notes are hidden) so you can see your entire matrix at a glance.</li>
+          <li><strong>📝 Notes &amp; row history:</strong> The <em>Note on how this concept fits into this theme</em> in each cell shows up to 3 lines; click it to edit the full text. Changes to it are logged in the Audit Trail. A <strong>🕘 n</strong> badge in a row header means that row has recorded history; click it to open that row's history in the Audit Trail.</li>
+          <li><strong>Storyline stays in view:</strong> If you wrote a <em>Study Overview / Key Metaphors</em> for a paper, it appears as a collapsible box under the study header in Tab 1 (and in the Study Context Row of Tab 2), so you can keep the whole account in mind while extracting and translating.</li>
+          <li><strong>Fold the theme column:</strong> Click <strong>◀</strong> in the header of the <em>3rd Order Theme</em> column to fold it into a narrow strip (row number and a vertical title). The study columns get much more room, and you can still drop cards on any row. Click the strip or <strong>▶</strong> to open it again. Your choice is remembered. (<em>Compact View</em> is different: it shortens the theme panels and the cards but keeps the column wide.)</li>
+          <li><strong>Long drawers scroll:</strong> The <em>Research Aim & Overall Model</em> drawer in Tab 2 takes at most 60% of the window height and scrolls inside, so the matrix stays visible below it.</li>
+          <li><strong>Text boxes grow as you type:</strong> Every text box (Step A / Step B, reflexive note, memos, notes on cards, the Research Aim fields and more) gets taller with your text, up to about 60% of the window height, and then scrolls. You can still drag a box's corner to resize it.</li>
+        </ul>
       </div>
     </section>
 
@@ -430,7 +439,7 @@
               <strong>Co-Reviewers Restore & Reconnect PDFs:</strong> Co-reviewers open the app, set their own <strong>Reviewer ID</strong>, and load the starter <code>.json</code> via <strong>Settings (⚙️) ➔ Restore Project</strong>. They then drag and drop the PDFs from the shared folder into the window—the app will automatically link every PDF to its study entry by filename.
             </li>
             <li>
-              <strong>Extract Independently, Then Compare & Merge:</strong> After each reviewer extracts quotes and concepts on their own computer, have your co-reviewer click <strong>Backup</strong> and send you their <code>.json</code> file. Click the teal <strong>Compare</strong> button in the top bar and drop their file in to review the <strong>◇ Read Differently</strong> and <strong>🔍 Unique Extractions</strong> tabs, then <strong>Import & Agree</strong> or <strong>Import as Discuss</strong> in one click. <strong>+ Import All as Discuss</strong> brings in every remaining construct at once as <em>Discuss</em>: agreement, always provisional, is recorded one construct at a time after reading it.
+              <strong>Extract Independently, Then Compare & Merge:</strong> After each reviewer extracts quotes and concepts on their own computer, have your co-reviewer click <strong>Backup</strong> and send you their <code>.json</code> file. Click the teal <strong>Compare</strong> button in the top bar and drop their file in to review the <strong>◇ Read Differently</strong> and <strong>🔍 Unique Extractions</strong> tabs, then <strong>Import & Agree</strong>, <strong>Import as Discuss</strong> or <strong>Set Aside</strong> (not imported now; it stays in their file) in one click. <strong>+ Import All as Discuss</strong> brings in every remaining construct at once as <em>Discuss</em>: agreement, always provisional, is recorded one construct at a time after reading it.
               <ul class="mec-sublist pl-6 mt-1 space-y-1">
                 <li><strong>Which study is which:</strong> the <strong>📚 Studies &amp; Order</strong> tab matches their studies to yours by identical PDF file, DOI, file name or title; a study with only the same first author and year is offered as a ★ suggestion for you to confirm.</li>
                 <li><strong>Translation order:</strong> both reviewers' orders are shown side by side. A different #1 or order is a difference to discuss, and you can record it in the Audit Trail. The pairing of constructs does not depend on the order of either file.</li>
