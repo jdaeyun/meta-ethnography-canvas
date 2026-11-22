@@ -86,12 +86,24 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 - Classic `<script>` files sharing one global scope (not ES modules, so `file://` works).
   Keep the load order in `me_canvas.html`; `version.js`, then `core.js` first. Top-level code may only call
   functions from files loaded earlier — anything else must run inside handlers or DOMContentLoaded.
-- No backward compatibility with older project files is maintained (decided for v1.1.0).
+- Backward compatibility from v1.4.7 on (data format 1): a project saved by 1.4.7 or later must open in every later
+  version with the same meaning. Backups carry `formatVersion` (`PROJECT_FORMAT`, core.js). A change to the data shape or to
+  what a field means raises `PROJECT_FORMAT` and adds an upgrade step: in `upgradeProjectData()` for backup / compare files
+  and in `normalize*()` for the browser's own database. A file from a newer format is refused with a message, nothing changed.
+  The smoke test "Compatibility" restores tools/test/fixtures/project-format-1.json and compares its meaning (row bases,
+  cell symbols, translation labels, CERQual, team status, counts) with project-format-1.expected.json: never rewrite the
+  expected file (`WRITE_FIXTURE=1`) to make a test pass; add the upgrade step instead. Files from before 1.4.7 (no
+  formatVersion) open on a best-effort basis through the small bridges already in place (`baseDocId` derived in
+  `normalizeCluster()`, `loa.baselineDocId` and PDF fingerprints filled in at startup).
 - Data stores: `docs`, `pdf_binaries` (PDF bytes, separate from docs), `annotations`, `clusters`, `logs`, `meta` (`loa_main`).
   Annotation shape is defined by `normalizeAnnotation()`; 1st→2nd order links are `parentIds[]` (many-to-many);
   2nd order → rows are `clusterIds[]` with per-row `clusterRelations` / `clusterComments`. Each row records the study whose construct
   established it (`cluster.baseDocId`; null = no single base, '' = set by the first construct placed): only that study's cards are
-  unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row.
+  unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row. A placed card is judged 'reciprocal',
+  'refutational' or 'other_aspect' (◇, Noblit & Hare's third relation; `aspectUsedInLoa[rowId]` marks those the line of
+  argument draws on), or stays 'unjudged'.
+  Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
+  was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
 - Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit
@@ -117,6 +129,11 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   finding explains is part of the finding, not a CERQual coherence concern by itself.
 - A row's Reciprocal / Refutational character is derived from its cells (`clusterTranslationType()`); there is no per-row setting.
 - Escape every user value interpolated into HTML with `escapeHtml()`.
+- Security: `me_canvas.html` has a Content-Security-Policy `<meta>` (everything from 'self' / file:, no outbound requests,
+  no inline scripts, no eval; inline styles allowed). Keep it that way: no inline `<script>` or `on…=` handlers, no
+  `eval` / `new Function`, no CDN or external fetch. A new resource type means updating the policy and the smoke test
+  "Content-Security-Policy". PDF.js stays 3.11.174 (4.x+ ships only ES modules, which file:// cannot load) with
+  `isEvalSupported: false` (CVE-2024-4367) on every `getDocument` call.
 - Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`);
   change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
 - UI text is English.

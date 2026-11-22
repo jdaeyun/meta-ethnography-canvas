@@ -16,6 +16,19 @@ function lsRemove(key) { try { localStorage.removeItem(LS_PREFIX + key); } catch
 
 const DB_NAME = DEMO_MODE ? 'MetaEthnoCanvasDB_demo' : 'MetaEthnoCanvasDB';
 const DB_VERSION = 6;
+// Project data format, written into every backup (formatVersion). From v1.4.7 on, a project saved in this format must open
+// with the same meaning in every later version: a change to the data shape raises PROJECT_FORMAT and adds an upgrade step
+// to upgradeProjectData() (and to normalize*() for the browser's own database). Files without the number are older
+// (before 1.4.7) and are opened on a best-effort basis.
+const PROJECT_FORMAT = 1;
+function upgradeProjectData(data) {
+  const f = Number(data && data.formatVersion) || 0;
+  if (f > PROJECT_FORMAT) {
+    throw new Error(`This file was saved by a newer version of Meta-Ethnography Canvas (${(data && data.appVersion) || 'unknown version'}, data format ${f}; this app reads format ${PROJECT_FORMAT}). Update the app, or download the latest offline edition, to open it. Nothing was changed.`);
+  }
+  // Format 1 is the current one: nothing to upgrade yet. Later formats add their steps here, oldest first.
+  return data;
+}
 let dbInstancePromise = null;
 
 function initDB() {
@@ -442,6 +455,9 @@ function secEvidenceText(s) {
 // "into" the row, so no reciprocal/refutational relation applies to them there. In index-paper approaches this is usually
 // study #1, but a row can also start from a later study (a concept #1 does not have), and the reviewer can choose that no
 // single study establishes a row (baseDocId null: every placement is judged). '' = not set yet: the first study placed sets it.
+// A row's history covers its own entries and those of the rows it was merged from or split off
+function rowHistoryIds(c) { return new Set([c.id, ...((c && c.historyFrom) || [])]); }
+function logIsForRow(l, c) { const ids = rowHistoryIds(c); return (l.clusterIds || []).some(id => ids.has(id)); }
 function clusterById(cid) { return state.clusters.find(c => c && c.id === cid) || null; }
 function rowBaseDocId(c) {
   const id = c && c.baseDocId;
@@ -453,14 +469,17 @@ function isSecRefutational(sec, cid) {
 }
 // How a study's construct relates to a row it was placed in. A placement starts as 'unjudged': silence is not agreement,
 // and refutational translation is the one most often overlooked (eMERGe criterion 13).
-const CELL_RELATIONS = ['unjudged', 'reciprocal', 'refutational'];
+// 'other_aspect': the construct belongs near the row but neither agrees nor contrasts with it: it speaks to another aspect
+// of the topic (Noblit & Hare's third relation, the material of a line of argument; eMERGe criterion 12).
+const CELL_RELATIONS = ['unjudged', 'reciprocal', 'refutational', 'other_aspect'];
 function secRelation(sec, cid) {
   if (isRowBase(sec, cid)) return 'baseline';
   const r = sec.clusterRelations && sec.clusterRelations[cid];
   return CELL_RELATIONS.includes(r) ? r : 'unjudged';
 }
 // A row's reciprocal / refutational character is derived from its judged cells (each study's relation is set per cell),
-// not stored per row: 'reciprocal', 'refutational' (all judged studies refute), 'mixed', 'unjudged' (nothing judged yet),
+// not stored per row: 'reciprocal', 'refutational' (no judged study is reciprocal), 'mixed', 'aspects' (only different
+// aspects), 'unjudged' (nothing judged yet),
 // or 'untranslated' (fewer than two studies in the row: nothing has been translated yet, so it is not "reciprocal").
 function clusterSecsIn(c) {
   return state.annotations.filter(a => a.type === 'second_order' && (a.clusterIds || []).includes(c.id));
@@ -472,23 +491,25 @@ function clusterTranslationType(c) {
   if (new Set(clusterSecsIn(c).map(a => a.docId)).size < 2) return 'untranslated';
   const rels = clusterSecsTranslated(c).map(a => secRelation(a, c.id)).filter(r => r !== 'unjudged');
   if (rels.length === 0) return 'unjudged';
-  const refut = rels.filter(r => r === 'refutational').length;
+  const recip = rels.filter(r => r === 'reciprocal').length, refut = rels.filter(r => r === 'refutational').length;
+  if (!recip && !refut) return 'aspects'; // every judged study speaks to a different aspect
   if (refut === 0) return 'reciprocal';
-  return refut === rels.length ? 'refutational' : 'mixed';
+  return recip ? 'mixed' : 'refutational';
 }
 function clusterUnjudgedCount(c) { return clusterSecsTranslated(c).filter(a => secRelation(a, c.id) === 'unjudged').length; }
 function clusterTranslationLabel(c) {
   const t = clusterTranslationType(c);
   if (t === 'untranslated') return 'Not yet translated (one study only)';
-  const base = t === 'unjudged' ? 'Not yet judged' : t === 'refutational' ? 'Refutational' : t === 'mixed' ? 'Reciprocal + Refutational' : 'Reciprocal';
+  const base = t === 'unjudged' ? 'Not yet judged' : t === 'aspects' ? 'Different aspects only' : t === 'refutational' ? 'Refutational' : t === 'mixed' ? 'Reciprocal + Refutational' : 'Reciprocal';
+  const aspects = t === 'aspects' || t === 'unjudged' ? 0 : clusterSecsTranslated(c).filter(a => secRelation(a, c.id) === 'other_aspect').length;
   const n = t === 'unjudged' ? 0 : clusterUnjudgedCount(c);
-  return base + (n ? ` (${n} placement${n === 1 ? '' : 's'} not yet judged)` : '');
+  return base + (aspects ? ` + ${aspects} different aspect${aspects === 1 ? '' : 's'}` : '') + (n ? ` (${n} placement${n === 1 ? '' : 's'} not yet judged)` : '');
 }
 // Symbol for a study's contribution to a row (Table 2b, grid exports)
-const CONTRIB_SYMBOLS = { baseline: '◆', reciprocal: '●', refutational: '⚡', unjudged: '○' };
+const CONTRIB_SYMBOLS = { baseline: '◆', reciprocal: '●', refutational: '⚡', other_aspect: '◇', unjudged: '○' };
 function contribSymbol(docSecs, cid) {
   if (docSecs.length && isRowBase(docSecs[0], cid)) return '◆';
-  const kinds = ['reciprocal', 'refutational', 'unjudged'].filter(k => docSecs.some(sc => secRelation(sc, cid) === k));
+  const kinds = ['reciprocal', 'refutational', 'other_aspect', 'unjudged'].filter(k => docSecs.some(sc => secRelation(sc, cid) === k));
   return kinds.map(k => CONTRIB_SYMBOLS[k]).join(' / ');
 }
 // An empty cell (no construct of this study in this row) says nothing by itself. The reviewer can record that the study was
@@ -521,6 +542,15 @@ function getCellRelationMeta(rel) {
       badgeCls: 'bg-amber-100 text-amber-800 border-amber-300',
       quoteBorderCls: 'border-amber-100',
       dividerCls: 'border-amber-100'
+    };
+  }
+  if (rel === 'other_aspect') {
+    return {
+      label: '◇ Different aspect',
+      cardCls: 'bg-sky-50/40 border-sky-300',
+      badgeCls: 'bg-sky-100 text-sky-800 border-sky-300',
+      quoteBorderCls: 'border-sky-200',
+      dividerCls: 'border-sky-200'
     };
   }
   if (rel === 'refutational') {
@@ -562,6 +592,8 @@ function normalizeCluster(c) {
     const d0 = state.docs[0];
     c.baseDocId = d0 && state.annotations.some(a => a.type === 'second_order' && a.docId === d0.id && (a.clusterIds || []).includes(c.id)) ? d0.id : null;
   } else if (c.baseDocId !== null && typeof c.baseDocId !== 'string') c.baseDocId = null;
+  // Rows this row was merged from or split off (their history belongs to this row's history too)
+  if (!Array.isArray(c.historyFrom)) c.historyFrom = [];
   delete c.translationType; // removed: a row's reciprocal / refutational character is derived from its cells (clusterTranslationType)
   return c;
 }

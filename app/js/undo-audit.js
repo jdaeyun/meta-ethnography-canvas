@@ -131,6 +131,61 @@ async function performUndoStep() {
     });
     updateAuditBadge();
     if (!divAudit.classList.contains('hidden')) renderAuditTimeline();
+  } else if (last.type === 'row_merge' || last.type === 'row_split') {
+    // Put back only what the merge / split changed and is still as it left it; later edits are kept (and named in the log)
+    const same = (x, y) => JSON.stringify(x === undefined ? null : x) === JSON.stringify(y === undefined ? null : y);
+    const opId = last.type === 'row_merge' ? last.tgtId : last.newId; // the row the cards were moved into
+    const ids = [last.srcId, opId];
+    const kept = [];
+    const PER_ROW = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+    for (let i = 0; i < last.before.anns.length; i++) {
+      const b = last.before.anns[i], af = last.after.anns[i];
+      const a = state.annotations.find(x => x.id === b.id);
+      if (!a) continue;
+      // membership in the two rows
+      ids.forEach((rid, j) => {
+        const nowIn = (a.clusterIds || []).includes(rid);
+        if (nowIn === af.member[j] && nowIn !== b.member[j]) a.clusterIds = b.member[j] ? [...a.clusterIds, rid] : a.clusterIds.filter(x => x !== rid);
+      });
+      PER_ROW.forEach((k, ki) => ids.forEach((rid, j) => {
+        const cur = (a[k] || {})[rid];
+        if (same(cur, af.keys[ki][j])) {
+          if (b.keys[ki][j] === undefined) { if (a[k] && rid in a[k]) { a[k] = { ...a[k] }; delete a[k][rid]; } }
+          else a[k] = { ...(a[k] || {}), [rid]: b.keys[ki][j] };
+        } else if (!same(cur, b.keys[ki][j])) kept.push(`${k === 'clusterRelations' ? 'a judgement' : k === 'clusterComments' ? 'a cell note' : 'a line-of-argument mark'} on p.${a.page}`);
+      }));
+      await dbPut('annotations', normalizeAnnotation(a));
+    }
+    if (last.type === 'row_merge') {
+      const tgt = state.clusters.find(c => c.id === last.tgtId);
+      if (tgt) {
+        Object.keys(last.before.tgt).forEach(f => {
+          if (same(tgt[f], last.after.tgt[f])) { if (last.before.tgt[f] === undefined) delete tgt[f]; else tgt[f] = last.before.tgt[f]; }
+          else kept.push(`"${f}" of the merged row`);
+        });
+        await dbPut('clusters', tgt);
+      }
+      const src = normalizeCluster(last.before.src);
+      await dbPut('clusters', src);
+      if (!state.clusters.some(c => c.id === src.id)) state.clusters.push(src);
+      state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
+      // Concept-map relations: back to before, plus any relation added since
+      const nowLinks = state.loa.links || [];
+      const afterIds = new Set((last.after.links || []).map(l => l.id));
+      const added = nowLinks.filter(l => !afterIds.has(l.id));
+      if (added.length) kept.push(`${added.length} concept-map relation(s) added since`);
+      state.loa = { ...state.loa, links: [...last.before.links, ...added] };
+      await dbPut('meta', state.loa);
+    } else {
+      // Only the row the split created goes; every other row (including rows added since) stays in its place
+      await dbDelete('clusters', last.newId);
+      state.clusters = state.clusters.filter(c => c.id !== last.newId);
+      await persistClusterOrder();
+    }
+    await recordAuditLog({ category: 'third_order', action: `Undid: ${last.label}`, clusterIds: ids,
+      detail: kept.length ? `Kept what was changed after it: ${[...new Set(kept)].join('; ')}.` : '' });
+    renderLoaClusterChips();
+    if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   } else if (last.type === 'unassign_cluster') {
     const sec = state.annotations.find(a => a.id === last.secId);
     if (sec) {

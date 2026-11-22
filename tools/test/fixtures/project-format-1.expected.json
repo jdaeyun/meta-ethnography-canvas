@@ -1,0 +1,96 @@
+{
+  "studies": [
+    [
+      "Hartwell et al. (2018)",
+      "High",
+      "Rich",
+      "Nurses' views"
+    ],
+    [
+      "Sato et al. (2020)",
+      "Moderate",
+      "Moderate",
+      "Nurses' views"
+    ],
+    [
+      "Nguyen et al. (2021)",
+      "Moderate",
+      "Rich",
+      "Managers' views"
+    ],
+    [
+      "Reyes et al. (2022)",
+      "Moderate",
+      "Moderate",
+      "Managers' views"
+    ]
+  ],
+  "rows": [
+    {
+      "title": "Responsibility without back-up",
+      "base": "AI-GENERATED_Hartwell-2018_staff-nurses-UK.pdf",
+      "translation": "Reciprocal + Refutational",
+      "cells": [
+        "◆",
+        "◇",
+        "⚡",
+        "●"
+      ],
+      "cerqual": [
+        "Moderate",
+        "Minor",
+        "Minor",
+        "Moderate",
+        "Minor"
+      ],
+      "team": "pending"
+    },
+    {
+      "title": "Fatigue is normalised and left to the individual",
+      "base": "AI-GENERATED_Hartwell-2018_staff-nurses-UK.pdf",
+      "translation": "Reciprocal (1 placement not yet judged)",
+      "cells": [
+        "◆",
+        "● / ○",
+        "●",
+        "—"
+      ],
+      "cerqual": [
+        "High",
+        "Minor",
+        "No/Very minor",
+        "Minor",
+        "Minor"
+      ],
+      "team": "pending"
+    },
+    {
+      "title": "Night work sits outside the organisation’s view",
+      "base": "AI-GENERATED_Hartwell-2018_staff-nurses-UK.pdf",
+      "translation": "Reciprocal (1 placement not yet judged)",
+      "cells": [
+        "◆",
+        "",
+        "●",
+        "● / ○"
+      ],
+      "cerqual": [
+        "Moderate",
+        "Minor",
+        "No/Very minor",
+        "Moderate",
+        "Minor"
+      ],
+      "team": "pending"
+    }
+  ],
+  "constructs": 13,
+  "quotes": 15,
+  "notTranslated": 1,
+  "auditEntries": 89,
+  "lineOfArgument": [
+    "Night work as an unseen, individually carried burden",
+    "manual",
+    3
+  ]
+}

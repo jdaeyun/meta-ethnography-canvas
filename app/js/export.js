@@ -123,6 +123,7 @@ function teamModelsHtml() {
 // Relation tag for a construct in a Table 2 row (the study that established the row has none)
 function relTag(s, cid) {
   const r = secRelation(s, cid);
+  if (r === 'other_aspect') return '[◇ Different aspect' + (s.aspectUsedInLoa && s.aspectUsedInLoa[cid] ? ', used in the line of argument' : '') + '] ';
   return r === 'refutational' ? '[⚡Refutational] ' : r === 'unjudged' ? '[○ Not yet judged] ' : '';
 }
 // Studies with nothing in the row but a recorded reason: "different aspect" (line of argument) and "checked, not addressed"
@@ -579,7 +580,7 @@ function appCitationHtml() {
 // ---- Methods Summary: built ONCE as sections, rendered identically to HTML / Markdown / Word ----
 // A sentence ending: no second full stop after a text that already ends with . ? or !
 const endStop = t => /[.?!]\s*$/.test(String(t || '')) ? '' : '.';
-const PH = (t) => `<span style="color:#2563eb; font-weight:bold;">[Author to insert: ${t}]</span>`;
+const PH = (t) => `<span class="mec-gap" style="color:#2563eb; font-weight:bold;">[Author to insert: ${t}]</span>`;
 function getMethodSections() {
   const docCount = state.docs.length;
   const tools = new Set();
@@ -638,7 +639,9 @@ function getMethodSections() {
   });
   const unjudgedHtml = unjudgedCells ? ` ${PH(`${unjudgedCells} placement(s) of a construct in a row have no reciprocal / refutational judgement yet (○ in Table 2b)`)}` : '';
   const aspectCells = getOtherAspectCells();
-  const otherAspect = aspectCells.length, aspectUsed = aspectCells.filter(x => x.used).length;
+  // Counted per study and row (a study with two ◇ cards in one row is one instance)
+  const byPair = new Map(); aspectCells.forEach(x => { const k = x.cluster.id + '|' + x.doc.id; byPair.set(k, (byPair.get(k) || false) || x.used); });
+  const otherAspect = byPair.size, aspectUsed = [...byPair.values()].filter(Boolean).length;
   const otherAspectHtml = !otherAspect ? ''
     : ` In ${otherAspect} ${otherAspect === 1 ? 'instance' : 'instances'} a study addressed a different aspect of a theme rather than translating into it (◇ in Table 2b)`
       + (aspectUsed ? `; the line-of-argument synthesis drew on ${aspectUsed === otherAspect ? (otherAspect === 1 ? 'it' : 'all of them') : aspectUsed + ' of them'} (marked in Table 2). ${PH('how these different aspects were brought into the line of argument')}`
@@ -745,7 +748,7 @@ function buildMethodHtml() {
   return `
     <div class="mb-5">
       <h3 style="font-family: Georgia, serif; font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 8px;">Methods Summary (structured around eMERGe)</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic; margin-bottom: 16px;">Compiled from your project data and audit trail. Expand with your analytical rationale before submission.</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic; margin-bottom: 16px;">Compiled from your project data and audit trail. The [Author to insert] gaps are for when you write up: nothing here has to be filled while you are still reading and translating. Expand with your analytical rationale before submission.</p>
       <div style="font-family: Georgia, serif; font-size: 13.5px; color: #1e293b; line-height: 1.6;">${body}</div>
     </div>
     ${buildeMERGeTableHtml()}
@@ -756,7 +759,7 @@ function buildeMERGeTableHtml() {
   const rows = getEmergeChecklist().map(r => {
     const status = r.level === 'app' ? `<b>${escapeHtml(r.text)}</b>`
       : r.level === 'partial' ? `<span style="color:#b45309; font-weight:bold;">Partly: ${escapeHtml(r.text)}</span>`
-      : `<span style="color:#2563eb; font-weight:bold;">[${escapeHtml(r.text)}]</span>`;
+      : `<span class="mec-gap" style="color:#2563eb; font-weight:bold;">[${escapeHtml(r.text)}]</span>`;
     const ph = r.phase ? `<b>${escapeHtml(r.phase).replace('\n', '<br>')}</b>` : '';
     return `<tr><td>${ph}</td><td>${escapeHtml(String(r.no))}. ${escapeHtml(r.title)}</td><td>${escapeHtml(r.desc)}</td><td>${status}</td></tr>`;
   }).join('');
@@ -798,8 +801,12 @@ function buildeMERGeTableHtml() {
   });
 })();
 
+// Gaps for the write-up are shown quietly (grey) while working; exports always keep the full [Author to insert] text
+function quietGaps() { try { return lsGet('me_quiet_gaps') !== '0'; } catch (e) { return true; } }
 function renderPublicationView() {
   const container = document.getElementById('pubPreviewContainer');
+  container.classList.toggle('gaps-quiet', quietGaps());
+  const qt = document.getElementById('quietGapsToggle'); if (qt) qt.checked = quietGaps();
   if (state.activePubTable === 'method') container.innerHTML = buildMethodHtml();
   else if (state.activePubTable === 'table1') container.innerHTML = buildTable1Html();
   else if (state.activePubTable === 'table2') container.innerHTML = buildTable2Html();
@@ -1447,4 +1454,9 @@ document.getElementById('exportCsvBtn').addEventListener('click', () => {
   a.download = `meta_ethnography_synthesis_${projTag}${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+document.getElementById('quietGapsToggle')?.addEventListener('change', e => {
+  try { lsSet('me_quiet_gaps', e.target.checked ? '1' : '0'); } catch (err) {}
+  renderPublicationView();
 });

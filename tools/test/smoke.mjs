@@ -30,6 +30,8 @@ async function openDemo(url = BASE + '?demo') {
   const page = await ctx.newPage();
   page.pageErrors = [];
   page.on('pageerror', e => page.pageErrors.push(e.message));
+  page.cspRefusals = []; // anything the Content-Security-Policy blocked
+  page.on('console', m => { if (/Content Security Policy/i.test(m.text())) page.cspRefusals.push(m.text()); });
   page.on('dialog', d => d.accept());
   await page.goto(url);
   await page.waitForFunction(() => typeof state !== 'undefined' && state.docs && state.docs.length > 0, null, { timeout: 20000 });
@@ -865,6 +867,191 @@ await group('Layout at laptop widths: no overlap in the header or view toolbars,
   check('website uses its prebuilt Tailwind CSS, not a CDN', pages.every(h => h.includes('href="css/tailwind.css"') && !/tailwindcss\/browser|unpkg\.com/.test(h)) && fs.existsSync(path.join(ROOT, 'site/css/tailwind.css')));
   const css = fs.readFileSync(path.join(ROOT, 'site/css/tailwind.css'), 'utf8');
   check('the prebuilt CSS has the classes the pages use', ['shadow-xs', 'min-w-0', 'bg-indigo-700'].every(c => css.includes('.' + c)));
+});
+
+await group('A placed card can be judged ◇ Different aspect: symbol, row label, line-of-argument list, Table 2', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const t = await p.evaluate(() => {
+    const c = state.clusters.find(x => clusterSecsTranslated(x).some(a => secRelation(a, x.id) === 'reciprocal'));
+    const sec = clusterSecsTranslated(c).find(a => secRelation(a, c.id) === 'reciprocal');
+    return { cid: c.id, sid: sec.id };
+  });
+  await p.evaluate(cid => document.querySelector(`tr[data-cluster-id="${cid}"]`).scrollIntoView({ block: 'center' }), t.cid); await p.waitForTimeout(600);
+  const sel = p.locator(`tr[data-cluster-id="${t.cid}"] .rel-select`);
+  const idx = await p.evaluate(x => { const c = clusterById(x.cid); const secs = state.docs.flatMap(d => state.annotations.filter(a => a.type === 'second_order' && a.docId === d.id && (a.clusterIds || []).includes(c.id) && secRelation(a, c.id) !== 'baseline')); return secs.findIndex(a => a.id === x.sid); }, t);
+  check('the judgement menu offers ◇ Different aspect', (await sel.nth(Math.max(idx, 0)).locator('option[value=other_aspect]').count()) === 1);
+  await p.evaluate(async x => { const s = state.annotations.find(a => a.id === x.sid); s.clusterRelations[x.cid] = 'other_aspect'; await dbPut('annotations', s); renderMatrixView(); }, t);
+  const r = await p.evaluate(x => { const s = state.annotations.find(a => a.id === x.sid), c = clusterById(x.cid); return { rel: secRelation(s, x.cid), sym: contribSymbol([s], x.cid), label: clusterTranslationLabel(c), refut: isSecRefutational(s, x.cid), listed: getOtherAspectCells().some(y => y.sec && y.sec.id === x.sid) }; }, t);
+  check('it shows ◇ in the grid and is neither reciprocal nor refutational', r.rel === 'other_aspect' && r.sym === '◇' && !r.refut);
+  check('the row label counts it', /different aspect/.test(r.label));
+  check('it is listed beside the line of argument', r.listed);
+  await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(400);
+  const i = await p.evaluate(x => getOtherAspectCells().findIndex(y => y.sec && y.sec.id === x.sid), t);
+  await p.locator('#loaAspectList .loa-aspect-use').nth(i).check(); await p.waitForTimeout(400);
+  check('ticking it records that the line of argument draws on it', await p.evaluate(x => !!state.annotations.find(a => a.id === x.sid).aspectUsedInLoa[x.cid] && state.logs[0].category === 'line_of_argument', t));
+  await tab(p, 'pub'); await p.locator('[data-pub=table2]').click(); await p.waitForTimeout(300);
+  check('Table 2 tags it, and says it is used', (await p.locator('#pubPreviewContainer').innerText()).includes('[◇ Different aspect, used in the line of argument]'));
+  // A row whose judged cards are all ◇ is "Different aspects only"
+  const only = await p.evaluate(x => { const c = clusterById(x.cid); clusterSecsTranslated(c).forEach(a => { a.clusterRelations[c.id] = 'other_aspect'; }); return clusterTranslationLabel(c); }, t);
+  check('a row with only ◇ judgements reads "Different aspects only"', only.startsWith('Different aspects only'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Rows can be merged and split: judgements, texts, map relations and history travel; Ctrl+Z restores', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const snap = () => p.evaluate(() => JSON.stringify({ c: state.clusters.map(c => ({ ...c })), a: state.annotations.filter(x => x.type === 'second_order'), l: state.loa.links || [] }));
+  await p.evaluate(async () => { state.loa = { ...state.loa, links: [{ id: 'lk1', from: state.clusters[1].id, to: state.clusters[2].id, type: 'leads' }, { id: 'lk2', from: state.clusters[0].id, to: state.clusters[1].id, type: 'mutual' }] }; await dbPut('meta', state.loa); });
+  const before = await snap();
+  // Open the dialog from the row header (UI path), then merge row 2 into row 1
+  await p.locator('.cl-rowops').first().click(); await p.waitForTimeout(200);
+  check('the merge / split dialog opens from the row header', await p.evaluate(() => !document.getElementById('rowOpsModal').classList.contains('hidden')));
+  await p.click('#rowOpsCloseBtn');
+  const m = await p.evaluate(async () => {
+    const [tgt, src] = [state.clusters[0], state.clusters[1]];
+    const srcSecs = rowSecs(src).map(s => ({ id: s.id, rel: (s.clusterRelations || {})[src.id] || null }));
+    const srcTitle = clusterLabel(src), srcId = src.id, srcStepA = src.translationSummary;
+    await mergeRows(src, tgt, 'Both rows describe the same burden');
+    const log = state.logs[0];
+    return {
+      gone: !state.clusters.some(c => c.id === srcId),
+      cardsMoved: srcSecs.every(x => { const a = state.annotations.find(y => y.id === x.id); return a.clusterIds.includes(tgt.id) && !a.clusterIds.includes(srcId); }),
+      relKept: srcSecs.filter(x => x.rel).every(x => { const a = state.annotations.find(y => y.id === x.id); return a.clusterRelations[tgt.id] === x.rel || rowSecs(tgt).some(s => s.id === x.id); }),
+      stepA: !srcStepA || tgt.translationSummary.includes(`[From row "${srcTitle}"]`),
+      links: state.loa.links.map(l => [l.from === tgt.id, l.to]).length === 1 && state.loa.links[0].from === tgt.id,
+      history: tgt.historyFrom.includes(srcId) && state.logs.some(l => (l.clusterIds || []).includes(srcId) && l !== log && logIsForRow(l, tgt)),
+      logged: log.action.startsWith('Merged row') && log.rationale === 'Both rows describe the same burden' && log.clusterIds.includes(tgt.id)
+    };
+  });
+  check('merging moves the cards with their judgements and removes the row', m.gone && m.cardsMoved && m.relKept);
+  check('the merged row keeps the other row\'s Step A, marked with its origin', m.stepA);
+  check('concept-map relations follow the row (a relation between the two is dropped)', m.links);
+  check('the merged row\'s history includes the history of the row it absorbed', m.history);
+  check('the merge is logged with its reason', m.logged);
+  await p.evaluate(() => performUndo()); await p.waitForTimeout(500);
+  const afterUndo = JSON.parse(await snap()), orig = JSON.parse(before);
+  check('Ctrl+Z undoes the merge exactly (rows, cards, relations, map)', JSON.stringify(afterUndo) === JSON.stringify(orig));
+  // Split one card of row 1 into a new row
+  const sp = await p.evaluate(async () => {
+    const src = state.clusters[0];
+    const sec = rowSecs(src).find(s => (s.clusterRelations || {})[src.id] === 'refutational') || rowSecs(src)[1];
+    const rel = (sec.clusterRelations || {})[src.id] || null, n = state.clusters.length;
+    await splitRow(src, [sec.id], 'A split-off reading', 'Reads as a separate idea');
+    const nw = state.clusters[1];
+    return { n2: state.clusters.length === n + 1, placed: nw.thirdOrderTitle === 'A split-off reading', moved: sec.clusterIds.includes(nw.id) && !sec.clusterIds.includes(src.id),
+      rel: (sec.clusterRelations || {})[nw.id] === rel || rel === null, hist: nw.historyFrom.includes(src.id), logged: state.logs[0].action.startsWith('Split 1 construct') && state.logs[0].rationale === 'Reads as a separate idea' };
+  });
+  check('splitting moves the ticked cards into a new row right below, with their judgements', sp.n2 && sp.placed && sp.moved && sp.rel);
+  check('the new row\'s history starts from the row it was split from; the split is logged with its reason', sp.hist && sp.logged);
+  await p.evaluate(() => performUndo()); await p.waitForTimeout(500);
+  check('Ctrl+Z undoes the split', await p.evaluate(n => state.clusters.length === n, JSON.parse(before).c.length));
+  // Undo keeps what was changed after the operation
+  const k = await p.evaluate(async () => {
+    const [tgt, src] = [state.clusters[0], state.clusters[1]];
+    // a construct in both rows, read differently in each
+    const shared = rowSecs(src).find(x => !x.clusterIds.includes(tgt.id) && secRelation(x, src.id) !== 'baseline');
+    shared.clusterIds.push(tgt.id); shared.clusterRelations[tgt.id] = 'reciprocal'; shared.clusterRelations[src.id] = 'refutational'; await dbPut('annotations', shared);
+    state.loa = { ...state.loa, links: [{ id: 'm1', from: tgt.id, to: state.clusters[2].id, type: 'mutual' }, { id: 'm2', from: state.clusters[2].id, to: src.id, type: 'mutual' }] };
+    await mergeRows(src, tgt, '');
+    const noted = (shared.clusterComments[tgt.id] || '').includes('judged Refutational there') && state.logs[0].detail.includes('Read differently in the two rows');
+    const oneLink = state.loa.links.length === 1;
+    tgt.synthesisNote = 'Rewritten after the merge'; await dbPut('clusters', tgt);
+    await performUndo();
+    const t2 = state.clusters.find(c => c.id === tgt.id);
+    const r = { noted, oneLink, keptEdit: t2.synthesisNote === 'Rewritten after the merge', srcBack: state.clusters.some(c => c.id === src.id), loggedKept: state.logs[0].detail.includes('Kept what was changed after it') };
+    // split, then add a row, then undo the split: the added row stays
+    const n0 = state.clusters.length;
+    await splitRow(state.clusters[0], [rowSecs(state.clusters[0])[0].id], 'tmp', '');
+    const added = await createNewClusterRow('Added after the split', { silent: true });
+    await performUndo();
+    r.addedStays = state.clusters.some(c => c.id === added.id) && state.clusters.length === n0 + 1 && state.logs[0].clusterIds.length === 2;
+    return r;
+  });
+  check('merging a construct read differently in the two rows keeps the other reading as a note, and logs it', k.noted);
+  check('a symmetric relation is not duplicated by a merge (A–C and C–A)', k.oneLink);
+  check('undoing a merge keeps an edit made after it, and says so in the log', k.keptEdit && k.srcBack && k.loggedKept);
+  check('undoing a split keeps a row added after it; the undo is in both rows\' history', k.addedStays);
+  // Quiet gaps: grey in the preview while working, full text in exports
+  await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  const q = await p.evaluate(() => ({ on: document.getElementById('pubPreviewContainer').classList.contains('gaps-quiet'), color: getComputedStyle(document.querySelector('#pubPreviewContainer .mec-gap')).color }));
+  check('write-up gaps are quiet (grey) by default while working', q.on && q.color === 'rgb(148, 163, 184)');
+  await p.locator('#quietGapsToggle').uncheck(); await p.waitForTimeout(200);
+  check('unticking Quiet gaps shows them in blue', await p.evaluate(() => getComputedStyle(document.querySelector('#pubPreviewContainer .mec-gap')).color === 'rgb(37, 99, 235)'));
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
+  check('exports keep the full [Author to insert] text', readZipEntry(fs.readFileSync(await dl.path()), 'word/document.xml').includes('Author to insert'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Compatibility: a format-1 (v1.4.7) backup opens with the same meaning; newer formats are refused', async () => {
+  // The fixture is a backup written by v1.4.7 from the demo. Its "meaning" (who established each row, how each study is read
+  // in it, CERQual, team status, …) must stay the same in every later version. WRITE_FIXTURE=1 npm test rewrites the
+  // expected file; do that only when a change is MEANT to change the meaning, and add an upgrade step for older files.
+  const fixDir = path.join(ROOT, 'tools/test/fixtures');
+  const json = fs.readFileSync(path.join(fixDir, 'project-format-1.json'), 'utf8');
+  const meaning = () => p.evaluate(() => ({
+    studies: state.docs.map(d => [getDisplayName(d), d.quality || '', d.richness || '', d.group || '']),
+    rows: state.clusters.map(c => ({
+      title: c.thirdOrderTitle,
+      base: (state.docs.find(d => d.id === rowBaseDocId(c)) || {}).name || null,
+      translation: clusterTranslationLabel(c),
+      cells: state.docs.map(d => contribSymbol(state.annotations.filter(a => a.type === 'second_order' && a.docId === d.id && (a.clusterIds || []).includes(c.id)), c.id) || ((emptyCellInfo(c, d.id) || {}).symbol || '')),
+      cerqual: [c.cerqualConfidence, c.cerqualLimitations, c.cerqualCoherence, c.cerqualAdequacy, c.cerqualRelevance],
+      team: c.concordanceStatus
+    })),
+    constructs: state.annotations.filter(a => a.type === 'second_order').length,
+    quotes: state.annotations.filter(a => a.type === 'first_order').length,
+    notTranslated: state.annotations.filter(a => a.type === 'second_order' && !(a.clusterIds || []).length).length,
+    auditEntries: state.logs.length,
+    lineOfArgument: [state.loa.title || '', state.loa.seedChoice || '', (state.loa.links || []).length]
+  }));
+  const p = await openDemo();
+  const alerts = [];
+  p.removeAllListeners('dialog'); p.on('dialog', d => { if (d.type() === 'alert') alerts.push(d.message()); d.accept(); }); // OK = clean restore
+  await p.setInputFiles('#jsonFileInput', { name: 'v1.4.7.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(3000);
+  const got = await meaning();
+  const expFile = path.join(fixDir, 'project-format-1.expected.json');
+  if (process.env.WRITE_FIXTURE) fs.writeFileSync(expFile, JSON.stringify(got, null, 2) + '\n');
+  const exp = JSON.parse(fs.readFileSync(expFile, 'utf8'));
+  check('the v1.4.7 backup opens with the same meaning', JSON.stringify(got) === JSON.stringify(exp),
+    JSON.stringify(got).length + ' vs ' + JSON.stringify(exp).length);
+  // A backup records its format, so a later version knows how to read it
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#backupJsonBtn')]);
+  const written = JSON.parse(fs.readFileSync(await dl.path(), 'utf8'));
+  check('a new backup records its data format', written.formatVersion === await p.evaluate(() => PROJECT_FORMAT) && !!written.appVersion);
+  // A file from a NEWER format is refused, and nothing changes
+  const before = await meaning();
+  const newer = JSON.stringify({ ...JSON.parse(json), formatVersion: 999, appVersion: '9.9.9' });
+  alerts.length = 0;
+  await p.setInputFiles('#jsonFileInput', { name: 'future.json', mimeType: 'application/json', buffer: Buffer.from(newer) }); await p.waitForTimeout(1500);
+  check('a file from a newer version is refused with a clear message, and nothing changes', alerts.some(a => a.includes('newer version')) && JSON.stringify(await meaning()) === JSON.stringify(before));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Content-Security-Policy: the app works under it, and no request can leave the site (http and file://)', async () => {
+  for (const url of [BASE + '?demo', 'file://' + path.join(ROOT, 'me_canvas.html') + '?demo']) {
+    const where = url.startsWith('file') ? 'file://' : 'http';
+    const p = await openDemo(url);
+    await p.waitForTimeout(1500);
+    check(`${where}: the policy is in place`, (await p.locator('meta[http-equiv="Content-Security-Policy"]').count()) === 1);
+    check(`${where}: PDF pages render under it`, (await p.locator('#pdfPagesWrapper canvas').count()) > 0);
+    await tab(p, 'pub'); await p.waitForTimeout(400);
+    const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
+    check(`${where}: Word export works under it`, (await dl.path()) !== null);
+    check(`${where}: nothing the app needs is blocked`, p.cspRefusals.length === 0, p.cspRefusals.slice(0, 2).join(' | '));
+    const sent = await p.evaluate(async () => {
+      const r = [];
+      try { await fetch('https://example.com/x'); r.push('fetch'); } catch (e) {}
+      await new Promise(res => { const i = new Image(); i.onload = () => { r.push('img'); res(); }; i.onerror = res; i.src = 'https://example.com/x.png'; });
+      return r;
+    });
+    check(`${where}: data cannot be sent out (fetch, image beacon)`, sent.length === 0, sent.join(','));
+    check(`${where}: no page errors`, p.pageErrors.length === 0, p.pageErrors.join(' | '));
+    await p.context().close();
+  }
 });
 
 await group('Offline edition (file://) starts without errors and renders PDFs', async () => {

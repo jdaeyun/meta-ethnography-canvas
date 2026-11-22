@@ -15,6 +15,7 @@ function backupTimestamp(d = new Date()) {
 document.getElementById('backupJsonBtn').addEventListener('click', () => {
   const payload = {
     version: DB_VERSION,
+    formatVersion: PROJECT_FORMAT,
     appVersion: (window.ME_CANVAS && window.ME_CANVAS.version) || '',
     projectCode: state.projectCode || 'UNSET',
     reviewerId: state.reviewerId,
@@ -72,7 +73,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
   if (!file) return;
   try {
     const text = await file.text();
-    const data = JSON.parse(text);
+    const data = upgradeProjectData(JSON.parse(text));
     if (!data.docs || !data.annotations) throw new Error('Invalid backup format');
 
     const incomingProjCode = sanitizeProjectCode(data.projectCode || data.loa?.projectCode || '');

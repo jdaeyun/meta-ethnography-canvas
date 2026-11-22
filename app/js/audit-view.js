@@ -14,7 +14,7 @@ function clusterTitleHistory(cluster) {
   const titles = [];
   const add = t => { t = (t || '').trim(); if (t && !/^\(untitled/i.test(t) && !titles.includes(t)) titles.push(t); };
   state.logs
-    .filter(l => l.action === 'Refined 3rd Order Construct Title' && (l.clusterIds || []).includes(cluster.id))
+    .filter(l => l.action === 'Refined 3rd Order Construct Title' && logIsForRow(l, cluster))
     .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
     .forEach(l => { add(l.fromVal); add(l.toVal); });
   add(cluster.thirdOrderTitle);
@@ -112,7 +112,7 @@ function renderAuditTimeline() {
   const rowCluster = rowFilter !== 'all' ? state.clusters.find(c => c.id === rowFilter) : null;
   if (rowCluster) {
     const titles = clusterTitleHistory(rowCluster);
-    list = list.filter(l => (l.clusterIds || []).includes(rowCluster.id));
+    list = list.filter(l => logIsForRow(l, rowCluster));
     // Oldest first: read the row's evolution top to bottom
     list = [...list].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
     const head = document.createElement('div');

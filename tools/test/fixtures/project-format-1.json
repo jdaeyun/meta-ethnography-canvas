@@ -1,0 +1,2698 @@
+{
+  "version": 6,
+  "formatVersion": 1,
+  "appVersion": "1.4.7",
+  "projectCode": "AI-DEMO-NIGHTSHIFT",
+  "reviewerId": "Reviewer A",
+  "exportedAt": "2026-11-22T10:49:18.261Z",
+  "docs": [
+    {
+      "id": "doc_1794738756926_gdra",
+      "name": "AI-GENERATED_Hartwell-2018_staff-nurses-UK.pdf",
+      "hasBinary": true,
+      "author": "Hartwell",
+      "etAl": true,
+      "year": "2018",
+      "title": "Alone on the ward: staff nurses' experiences of night shifts on acute medical wards",
+      "setting": "UK, acute medical wards (one teaching hospital)",
+      "participants": "14 staff nurses",
+      "methodology": "Semi-structured interviews; reflexive thematic analysis",
+      "appraisalTool": "CASP",
+      "quality": "High",
+      "richness": "Rich",
+      "contextNote": "",
+      "studyOverview": "",
+      "order": 0,
+      "addedAt": "2026-11-15T10:32:36.926Z",
+      "group": "Nurses' views",
+      "funder": "",
+      "companionOf": "",
+      "conceptLinks": [
+        {
+          "id": "cl_demo_0",
+          "from": "a_1794738771731_cdif",
+          "to": "a_1794738768730_1gd5",
+          "type": "leads",
+          "note": "Discussion: because night work is not seen, its risks are left to the nurse on shift."
+        }
+      ],
+      "appraisalItems": {
+        "CASP": {
+          "q1": {
+            "a": "yes",
+            "note": "Aim stated in the abstract and introduction."
+          },
+          "q2": {
+            "a": "yes",
+            "note": "Asks how nurses experience nights."
+          },
+          "q3": {
+            "a": "yes",
+            "note": "Interviews suit the experiential aim."
+          },
+          "q4": {
+            "a": "yes",
+            "note": "Nurses working at least three nights a month; criterion explained."
+          },
+          "q5": {
+            "a": "yes",
+            "note": "Recorded interviews, 40–70 min, transcribed."
+          },
+          "q6": {
+            "a": "cant_tell",
+            "note": "A reflective diary is mentioned, but its influence is not discussed."
+          },
+          "q7": {
+            "a": "cant_tell",
+            "note": "No ethics approval or consent process reported."
+          },
+          "q8": {
+            "a": "yes",
+            "note": "Reflexive thematic analysis; themes shown with quotations."
+          },
+          "q9": {
+            "a": "yes",
+            "note": "Three explicit themes linked in the discussion."
+          },
+          "q10": {
+            "a": "yes",
+            "note": "Shows night work as a different job; limits stated."
+          }
+        }
+      },
+      "appraisalSummary": {
+        "CASP": {
+          "pos": "Clear aim and design; rich quotations; limits stated.",
+          "neg": "",
+          "unk": "Ethics and the effect of the researcher are not reported."
+        }
+      }
+    },
+    {
+      "id": "doc_1794738756931_88n0",
+      "name": "AI-GENERATED_Sato-2020_staff-nurses-Japan.pdf",
+      "hasBinary": true,
+      "author": "Sato",
+      "etAl": true,
+      "year": "2020",
+      "title": "The price of the job: nurses' accounts of fatigue and recovery after night shifts in a Japanese hospital",
+      "setting": "Japan, university hospital",
+      "participants": "18 nurses in 3 focus groups",
+      "methodology": "Focus groups; content analysis with interpretive synthesis",
+      "appraisalTool": "CASP",
+      "quality": "Moderate",
+      "richness": "Moderate",
+      "contextNote": "",
+      "studyOverview": "",
+      "order": 1,
+      "addedAt": "2026-11-15T10:32:36.931Z",
+      "group": "Nurses' views",
+      "funder": "",
+      "companionOf": "",
+      "conceptLinks": [
+        {
+          "id": "cl_demo_1",
+          "from": "a_1794738784497_ktnf",
+          "to": "a_1794738782998_d4bd",
+          "type": "contradicts",
+          "note": "Nurses accept tiredness as normal, yet feel a rest is owed to them that never comes."
+        }
+      ],
+      "appraisalItems": {
+        "CASP": {
+          "q1": {
+            "a": "yes",
+            "note": "Aim stated."
+          },
+          "q2": {
+            "a": "yes",
+            "note": "Seeks nurses’ own sense-making."
+          },
+          "q3": {
+            "a": "yes",
+            "note": "Focus groups suit shared norms such as gaman."
+          },
+          "q4": {
+            "a": "cant_tell",
+            "note": "How the 18 nurses were chosen is not described."
+          },
+          "q5": {
+            "a": "yes",
+            "note": "Translated by two bilingual researchers."
+          },
+          "q6": {
+            "a": "cant_tell",
+            "note": "No discussion of the researchers’ role."
+          },
+          "q7": {
+            "a": "cant_tell",
+            "note": "No ethics approval or consent process reported."
+          },
+          "q8": {
+            "a": "cant_tell",
+            "note": "Content analysis, then team interpretation; little detail on how themes were derived."
+          },
+          "q9": {
+            "a": "yes",
+            "note": "Three explicit themes."
+          },
+          "q10": {
+            "a": "yes",
+            "note": "Cultural framing of fatigue discussed as a limit."
+          }
+        }
+      },
+      "appraisalSummary": {
+        "CASP": {
+          "pos": "Translation handled with care; culturally specific concept (gaman).",
+          "neg": "Thin description of sampling and analysis.",
+          "unk": "Researcher role; ethics."
+        }
+      }
+    },
+    {
+      "id": "doc_1794738756933_r99q",
+      "name": "AI-GENERATED_Nguyen-2021_nurse-managers-Canada.pdf",
+      "hasBinary": true,
+      "author": "Nguyen",
+      "etAl": true,
+      "year": "2021",
+      "title": "Quiet hours, loose reins: nurse managers' views of night shifts and the support of night staff",
+      "setting": "Canada, two large urban hospitals (night coordinator on every floor)",
+      "participants": "11 charge nurses and night coordinators",
+      "methodology": "Semi-structured interviews; thematic analysis",
+      "appraisalTool": "CASP",
+      "quality": "Moderate",
+      "richness": "Rich",
+      "contextNote": "",
+      "studyOverview": "",
+      "order": 2,
+      "addedAt": "2026-11-15T10:32:36.933Z",
+      "group": "Managers' views",
+      "funder": "",
+      "companionOf": "",
+      "conceptLinks": [],
+      "appraisalItems": {
+        "CASP": {
+          "q1": {
+            "a": "yes",
+            "note": "Aim stated."
+          },
+          "q2": {
+            "a": "yes",
+            "note": "Managers’ views are interpretive questions."
+          },
+          "q3": {
+            "a": "yes",
+            "note": "Interviews suit the aim."
+          },
+          "q4": {
+            "a": "cant_tell",
+            "note": "Volunteers only; the authors note they may be more confident in their staff."
+          },
+          "q5": {
+            "a": "yes",
+            "note": "Phone or video interviews of about 45 min."
+          },
+          "q6": {
+            "a": "cant_tell",
+            "note": "Not discussed."
+          },
+          "q7": {
+            "a": "cant_tell",
+            "note": "No ethics approval or consent process reported."
+          },
+          "q8": {
+            "a": "cant_tell",
+            "note": "Thematic analysis named but not described."
+          },
+          "q9": {
+            "a": "yes",
+            "note": "Explicit themes; contrasts with staff accounts discussed."
+          },
+          "q10": {
+            "a": "yes",
+            "note": "Points to the gap between manager and staff accounts."
+          }
+        }
+      },
+      "appraisalSummary": {
+        "CASP": {
+          "pos": "Rare managers’ perspective; the authors reflect on their own setting (a coordinator on every floor).",
+          "neg": "Analysis not described.",
+          "unk": "Recruitment; ethics; researcher role."
+        }
+      }
+    },
+    {
+      "id": "doc_1794738756936_l6w6",
+      "name": "AI-GENERATED_Reyes-2022_unit-managers-Australia.pdf",
+      "hasBinary": true,
+      "author": "Reyes",
+      "etAl": true,
+      "year": "2022",
+      "title": "Out of our line of sight: unit managers and after-hours coordinators on escalation and rostering at night",
+      "setting": "Australia, two regional hospitals",
+      "participants": "10 unit managers and after-hours coordinators",
+      "methodology": "Ethnography (60 h observation) and interviews",
+      "appraisalTool": "CASP",
+      "quality": "Moderate",
+      "richness": "Moderate",
+      "contextNote": "",
+      "studyOverview": "",
+      "order": 3,
+      "addedAt": "2026-11-15T10:32:36.936Z",
+      "group": "Managers' views",
+      "funder": "",
+      "companionOf": "",
+      "conceptLinks": [
+        {
+          "id": "cl_demo_2",
+          "from": "a_1794738807412_czav",
+          "to": "a_1794738804396_ejth",
+          "type": "leads",
+          "note": "Managers link not seeing nights to staff having no one to escalate to."
+        }
+      ],
+      "appraisalItems": {
+        "CASP": {
+          "q1": {
+            "a": "yes",
+            "note": "Aim stated."
+          },
+          "q2": {
+            "a": "yes",
+            "note": "How managers understand escalation is interpretive."
+          },
+          "q3": {
+            "a": "yes",
+            "note": "Ethnography plus interviews suits practice at night."
+          },
+          "q4": {
+            "a": "yes",
+            "note": "Managers and coordinators across two sites, evenings and nights."
+          },
+          "q5": {
+            "a": "yes",
+            "note": "60 hours of observation, field notes and interviews."
+          },
+          "q6": {
+            "a": "cant_tell",
+            "note": "Not discussed."
+          },
+          "q7": {
+            "a": "cant_tell",
+            "note": "No ethics approval or consent process reported."
+          },
+          "q8": {
+            "a": "yes",
+            "note": "Field notes and transcripts analysed together; participants checked a summary."
+          },
+          "q9": {
+            "a": "yes",
+            "note": "Explicit themes; credibility supported by member checking."
+          },
+          "q10": {
+            "a": "yes",
+            "note": "Limits stated: staff nurses not interviewed."
+          }
+        }
+      },
+      "appraisalSummary": {
+        "CASP": {
+          "pos": "Observation at night; member checking.",
+          "neg": "",
+          "unk": "Researcher role; ethics."
+        }
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "id": "a_1794738710732_8c5x",
+      "docId": "doc_1794738756931_88n0",
+      "type": "second_order",
+      "by": "Reviewer B",
+      "text": "Nurses spoke about exhaustion as something that simply comes with nursing. Complaining was seen as weak, and the word gaman (enduring quietly) came up in all three groups.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.09693424768051634,
+            "top": 0.665335748000057,
+            "width": 0.34648618709661155,
+            "height": 0.015300811385058566
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.6806365593851156,
+            "width": 0.37783081005445746,
+            "height": 0.016905043706418432
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.697541603091534,
+            "width": 0.3630365381706333,
+            "height": 0.017354228756399026
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.714895831847933,
+            "width": 0.15402651806423961,
+            "height": 0.01574999643503927
+          }
+        ]
+      },
+      "note": "Exhaustion is part of nursing",
+      "nuanceNote": "",
+      "concordanceStatus": "discuss",
+      "concordanceNote": "Imported from @Reviewer B via JSON Diff/Merge.",
+      "clusterIds": [],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {},
+      "passages": [],
+      "notTranslatedNote": "Reviewer B’s reading of the same passage as “Fatigue as the price of the job”; kept for the team discussion rather than placed twice."
+    },
+    {
+      "id": "a_1794738716183_z6ug",
+      "docId": "doc_1794738756933_r99q",
+      "type": "first_order",
+      "by": "Reviewer B",
+      "text": "The best nurses I have grow on nights. Nobody is looking over their shoulder.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.11733806159237596,
+            "top": 0.7978809873515194,
+            "width": 0.3488523913372328,
+            "height": 0.015293681463630304
+          },
+          {
+            "left": 0.10954013715207746,
+            "top": 0.8131746688151497,
+            "width": 0.19739160510790643,
+            "height": 0.015293681463630304
+          }
+        ]
+      },
+      "note": "Manager 8",
+      "nuanceNote": "",
+      "concordanceStatus": "agreed",
+      "concordanceNote": "Imported from @Reviewer B via JSON Diff/Merge.",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738793680_ozmo"
+      ]
+    },
+    {
+      "id": "a_1794738768730_1gd5",
+      "docId": "doc_1794738756926_gdra",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as solitary accountability: responsibility that is not only heavy but also carried alone, with no one to check a judgement against.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.620458255597015,
+            "top": 0.5638199267044077,
+            "width": 0.1932500189088342,
+            "height": 0.015293681463630193
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.5791136081680379,
+            "width": 0.7633514490469946,
+            "height": 0.016905043706418432
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.5960186518744564,
+            "width": 0.054333353292658315,
+            "height": 0.015300811385058566
+          }
+        ]
+      },
+      "note": "Solitary accountability",
+      "nuanceNote": "",
+      "concordanceStatus": "agreed",
+      "concordanceNote": "[Peer @Reviewer B label: Lone responsibility]",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738819720_9rdc": "reciprocal"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738770230_pkty",
+      "docId": "doc_1794738756926_gdra",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as working against the body clock: a bodily cost that nurses manage privately and rarely raise at work.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.630405247831787,
+            "top": 0.7364638441684372,
+            "width": 0.2534400684499798,
+            "height": 0.015343590913628136
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.7518074350820654,
+            "width": 0.5847095287918516,
+            "height": 0.015343590913628136
+          }
+        ]
+      },
+      "note": "Working against the body clock",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738822700_jdwp": "reciprocal"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738771731_cdif",
+      "docId": "doc_1794738756926_gdra",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as invisibility to the day team, a gap in the organisation’s view of its own night work.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.3910756605486083,
+            "top": 0.892295406904616,
+            "width": 0.4197465743495361,
+            "height": 0.01574999643503927
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.9080454033396552,
+            "width": 0.2977444912263009,
+            "height": 0.01574999643503927
+          }
+        ]
+      },
+      "note": "Invisibility to the day team",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738825700_8t6b": "reciprocal"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738773231_hlaa",
+      "docId": "doc_1794738756926_gdra",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "After midnight it’s me and one healthcare assistant for thirty-two patients. If something goes wrong, there’s no one to ask.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.11733656464300121,
+            "top": 0.6208307784448215,
+            "width": 0.7775872012404196,
+            "height": 0.015293681463630304
+          },
+          {
+            "left": 0.10954013715207746,
+            "top": 0.6361244599084518,
+            "width": 0.07682486007462687,
+            "height": 0.015293681463630304
+          }
+        ]
+      },
+      "note": "Nurse 3",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738768730_1gd5"
+      ]
+    },
+    {
+      "id": "a_1794738774998_xbwe",
+      "docId": "doc_1794738756926_gdra",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "You make the call, and you carry it home with you.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.11735527651018555,
+            "top": 0.659945527400288,
+            "width": 0.36151607093334004,
+            "height": 0.013689449142270438
+          }
+        ]
+      },
+      "note": "Nurse 9",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738768730_1gd5"
+      ]
+    },
+    {
+      "id": "a_1794738776762_c86x",
+      "docId": "doc_1794738756926_gdra",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "Around four in the morning my brain just stops. You check the chart three times and still don’t trust it.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.1173539765278338,
+            "top": 0.7765625222810044,
+            "width": 0.7203268391992739,
+            "height": 0.013689449142270438
+          }
+        ]
+      },
+      "note": "Nurse 5",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738770230_pkty"
+      ]
+    },
+    {
+      "id": "a_1794738778530_7tsx",
+      "docId": "doc_1794738756926_gdra",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "Days see the tidy ward in the morning. They never see how it got that way.",
+      "page": "2",
+      "firstPage": 2,
+      "rectsMap": {
+        "2": [
+          {
+            "left": 0.11735882191659944,
+            "top": 0.07610478132530979,
+            "width": 0.5280347497100646,
+            "height": 0.013689449142270452
+          }
+        ]
+      },
+      "note": "Nurse 1",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738771731_cdif"
+      ]
+    },
+    {
+      "id": "a_1794738780296_51iv",
+      "docId": "doc_1794738756926_gdra",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "Nobody from management has ever come on at night.",
+      "page": "2",
+      "firstPage": 2,
+      "rectsMap": {
+        "2": [
+          {
+            "left": 0.11737469745865269,
+            "top": 0.09840717555292541,
+            "width": 0.3803710543565954,
+            "height": 0.013689449142270452
+          }
+        ]
+      },
+      "note": "Nurse 8",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738771731_cdif"
+      ]
+    },
+    {
+      "id": "a_1794738782998_d4bd",
+      "docId": "doc_1794738756931_88n0",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as fatigue as the price of the job: tiredness is accepted as normal, so it is not treated as a problem for the organisation to solve.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.2550140713241226,
+            "top": 0.7169563791407019,
+            "width": 0.20831287502521179,
+            "height": 0.015293681463630193
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.7322500606043321,
+            "width": 0.3650144022287213,
+            "height": 0.016905043706418432
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.7491551043107505,
+            "width": 0.37988974573920936,
+            "height": 0.017354228756399137
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.7665093330671496,
+            "width": 0.04161791076290844,
+            "height": 0.01574286651361101
+          }
+        ]
+      },
+      "note": "Fatigue as the price of the job",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738822700_jdwp": "reciprocal"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738784497_ktnf",
+      "docId": "doc_1794738756931_88n0",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as owed recovery: the rest that nurses are due, but which is absorbed by the rest of life.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.8595368281060911,
+            "top": 0.38497297759778687,
+            "width": 0.023049317391085067,
+            "height": 0.01574999643503927
+          },
+          {
+            "left": 0.5201089148850343,
+            "top": 0.40072297403282614,
+            "width": 0.3840875857200484,
+            "height": 0.01735422875639908
+          },
+          {
+            "left": 0.5201089148850343,
+            "top": 0.4180772027892252,
+            "width": 0.3175837976502621,
+            "height": 0.015293681463630304
+          }
+        ]
+      },
+      "note": "Owed recovery",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {},
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738785996_fwzh",
+      "docId": "doc_1794738756931_88n0",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as a life out of step: night work separates nurses from the rhythm of daily life at home.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.6195044624848729,
+            "top": 0.6101216364595662,
+            "width": 0.25965043868495363,
+            "height": 0.015300811385058566
+          },
+          {
+            "left": 0.5201089148850343,
+            "top": 0.6254224478446248,
+            "width": 0.37385475494150866,
+            "height": 0.01690504370641832
+          },
+          {
+            "left": 0.5201089148850343,
+            "top": 0.6423274915510431,
+            "width": 0.08856417343182732,
+            "height": 0.015293681463630304
+          }
+        ]
+      },
+      "note": "A life out of step",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738822700_jdwp": "reciprocal"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738787495_5dgt",
+      "docId": "doc_1794738756931_88n0",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "Everyone is tired. If you say it out loud it sounds like you are not suited to the job.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.1173369191836426,
+            "top": 0.79076532576611,
+            "width": 0.3434417466090157,
+            "height": 0.015300811385058566
+          },
+          {
+            "left": 0.10954013715207746,
+            "top": 0.8060661371511686,
+            "width": 0.23304988465611137,
+            "height": 0.015300811385058566
+          }
+        ]
+      },
+      "note": "Group 2, Nurse C",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738782998_d4bd"
+      ]
+    },
+    {
+      "id": "a_1794738789245_s97d",
+      "docId": "doc_1794738756931_88n0",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "After a night shift I tell myself I will sleep all day, but then the laundry, then the shopping, and it is evening.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.5404672688079871,
+            "top": 0.44188401043820497,
+            "width": 0.35050423557886246,
+            "height": 0.01574999643503927
+          },
+          {
+            "left": 0.5327148043565954,
+            "top": 0.45763400687324424,
+            "width": 0.34112986587333605,
+            "height": 0.01735422875639908
+          },
+          {
+            "left": 0.5327148043565954,
+            "top": 0.4749882356296433,
+            "width": 0.06028790275816864,
+            "height": 0.015293681463630304
+          }
+        ]
+      },
+      "note": "Group 3, Nurse B",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738784497_ktnf"
+      ]
+    },
+    {
+      "id": "a_1794738790997_c15c",
+      "docId": "doc_1794738756931_88n0",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "My children are going to school when I get home. We pass each other at the door.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.5405194256756757,
+            "top": 0.6670469291428408,
+            "width": 0.3520531842476805,
+            "height": 0.015293681463630304
+          },
+          {
+            "left": 0.5327148043565954,
+            "top": 0.6823406106064711,
+            "width": 0.22087740142194434,
+            "height": 0.015293681463630304
+          }
+        ]
+      },
+      "note": "Group 1, Nurse D",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738785996_fwzh"
+      ]
+    },
+    {
+      "id": "a_1794738793680_ozmo",
+      "docId": "doc_1794738756933_r99q",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as autonomy in the quiet hours: what staff may experience as being alone, managers read as being trusted.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.3351573530153288,
+            "top": 0.683944842927831,
+            "width": 0.1359805175978217,
+            "height": 0.015350720835056397
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.6992955637628874,
+            "width": 0.3114079360377168,
+            "height": 0.016954953156416264
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.7162505169193036,
+            "width": 0.3551852750605083,
+            "height": 0.017354228756399026
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.7336047456757027,
+            "width": 0.05237557987091568,
+            "height": 0.01574999643503927
+          }
+        ]
+      },
+      "note": "Autonomy in the quiet hours",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ],
+      "clusterComments": {
+        "cl_1794738819720_9rdc": "Same night conditions, read differently: managers (not staff) call it trust and autonomy. Both hospitals had a night coordinator on every floor, so nights may feel safer from the manager’s seat."
+      },
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738819720_9rdc": "refutational"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738795177_lmhg",
+      "docId": "doc_1794738756933_r99q",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as support at a distance: help that exists on paper but arrives late or in the form of a phone call.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.5802459409035902,
+            "top": 0.3359618976998873,
+            "width": 0.32419936844493746,
+            "height": 0.015749996435039326
+          },
+          {
+            "left": 0.5201089148850343,
+            "top": 0.35171189413492665,
+            "width": 0.3787188949677289,
+            "height": 0.01735422875639908
+          },
+          {
+            "left": 0.5201089148850343,
+            "top": 0.36906612289132573,
+            "width": 0.07732216241427992,
+            "height": 0.015293681463630249
+          }
+        ]
+      },
+      "note": "Support at a distance",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738825700_8t6b": "reciprocal"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738796678_lwhd",
+      "docId": "doc_1794738756933_r99q",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as fatigue as an individual matter: the organisation provides the roster, and the nurse is expected to cope with the rest.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.7510280102864058,
+            "top": 0.5265019179488643,
+            "width": 0.13597831156716422,
+            "height": 0.01570008698504133
+          },
+          {
+            "left": 0.5201089148850343,
+            "top": 0.5422020049339056,
+            "width": 0.3363342703711174,
+            "height": 0.017354228756399137
+          },
+          {
+            "left": 0.5201089148850343,
+            "top": 0.5595562336903047,
+            "width": 0.3721396448920936,
+            "height": 0.016954953156416264
+          },
+          {
+            "left": 0.5201089148850343,
+            "top": 0.576511186846721,
+            "width": 0.09151095766942319,
+            "height": 0.015300811385058455
+          }
+        ]
+      },
+      "note": "Fatigue as an individual matter",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ],
+      "clusterComments": {
+        "cl_1794738822700_jdwp": "The manager’s version of the same idea: the roster is fair, the tiredness is yours."
+      },
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738822700_jdwp": "reciprocal"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738798179_p3ct",
+      "docId": "doc_1794738756933_r99q",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "At night they run their own ship. I trust them to.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.11739565474989916,
+            "top": 0.7578678682960914,
+            "width": 0.3406079820492134,
+            "height": 0.013689449142270438
+          }
+        ]
+      },
+      "note": "Manager 2",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738793680_ozmo"
+      ]
+    },
+    {
+      "id": "a_1794738799945_57zh",
+      "docId": "doc_1794738756933_r99q",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "I’m on the phone from home if they need me, but I can’t be on the ward.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.5404288208450988,
+            "top": 0.3929727494403012,
+            "width": 0.3537467854981847,
+            "height": 0.01574999643503927
+          },
+          {
+            "left": 0.5327148043565954,
+            "top": 0.40872274587534047,
+            "width": 0.15011203484267843,
+            "height": 0.01574999643503927
+          }
+        ]
+      },
+      "note": "Manager 6",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738795177_lmhg"
+      ]
+    },
+    {
+      "id": "a_1794738801694_jqzy",
+      "docId": "doc_1794738756933_r99q",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "I can roster fairly, but I can’t roster away tiredness. That’s on them to manage.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.5406626600947962,
+            "top": 0.6012234945170905,
+            "width": 0.2927360137656313,
+            "height": 0.015300811385058566
+          },
+          {
+            "left": 0.5327148043565954,
+            "top": 0.616524305902149,
+            "width": 0.26073761786506655,
+            "height": 0.015300811385058455
+          }
+        ]
+      },
+      "note": "Manager 4",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738796678_lwhd"
+      ]
+    },
+    {
+      "id": "a_1794738804396_ejth",
+      "docId": "doc_1794738756936_l6w6",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as escalation without back-up: a duty to act that is not matched by someone to act with.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.49751490646430013,
+            "top": 0.5620231865044847,
+            "width": 0.40114563899253736,
+            "height": 0.013689449142270438
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.5789211002894749,
+            "width": 0.3307835820895522,
+            "height": 0.013689449142270438
+          }
+        ]
+      },
+      "note": "Escalation without back-up",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ],
+      "clusterComments": {
+        "cl_1794738819720_9rdc": "Managers confirm what staff describe: a duty to act with nobody to act with."
+      },
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738819720_9rdc": "reciprocal"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738805896_m3v6",
+      "docId": "doc_1794738756936_l6w6",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as rostering as a hidden inequity: the burden of night work falls most on the people with the least say.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.37345231192012907,
+            "top": 0.7009568354556733,
+            "width": 0.4926122396883824,
+            "height": 0.015293681463630304
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.7162505169193036,
+            "width": 0.3384741988957241,
+            "height": 0.015293681463630193
+          }
+        ]
+      },
+      "note": "Rostering as a hidden inequity",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {},
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738807412_czav",
+      "docId": "doc_1794738756936_l6w6",
+      "type": "second_order",
+      "by": "Reviewer A",
+      "text": "We interpret this as nights outside our line of sight: the organisation cannot fix what it does not see.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.39219537868091975,
+            "top": 0.821980121779058,
+            "width": 0.477179164355587,
+            "height": 0.013689449142270438
+          },
+          {
+            "left": 0.09693424768051634,
+            "top": 0.8397906655068661,
+            "width": 0.21874629701996773,
+            "height": 0.013689449142270438
+          }
+        ]
+      },
+      "note": "Nights outside our line of sight",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ],
+      "clusterComments": {},
+      "origin": "author_passage",
+      "noteSource": "author",
+      "clusterRelations": {
+        "cl_1794738825700_8t6b": "reciprocal"
+      },
+      "passages": [],
+      "notTranslatedNote": ""
+    },
+    {
+      "id": "a_1794738808912_c1yi",
+      "docId": "doc_1794738756936_l6w6",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "We say ‘just escalate’, but escalate to whom? There is nobody.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.11742693311315046,
+            "top": 0.6412366135725184,
+            "width": 0.44469804167507065,
+            "height": 0.013689449142270438
+          }
+        ]
+      },
+      "note": "Manager 5",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738804396_ejth"
+      ]
+    },
+    {
+      "id": "a_1794738810661_g2g6",
+      "docId": "doc_1794738756936_l6w6",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "Nights go to whoever can’t say no. Usually the new grads and the casuals.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.11744178442668415,
+            "top": 0.7400573245682832,
+            "width": 0.5288591748815047,
+            "height": 0.013689449142270438
+          }
+        ]
+      },
+      "note": "Manager 3",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738805896_m3v6"
+      ]
+    },
+    {
+      "id": "a_1794738812410_ykgi",
+      "docId": "doc_1794738756936_l6w6",
+      "type": "first_order",
+      "by": "Reviewer A",
+      "text": "I find out about a bad night from the incident report on Monday.",
+      "page": "1",
+      "firstPage": 1,
+      "rectsMap": {
+        "1": [
+          {
+            "left": 0.1174462358814038,
+            "top": 0.861993240834486,
+            "width": 0.458001430768455,
+            "height": 0.013689449142270438
+          }
+        ]
+      },
+      "note": "Manager 1",
+      "nuanceNote": "",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "clusterIds": [],
+      "clusterComments": {},
+      "parentIds": [
+        "a_1794738807412_czav"
+      ]
+    }
+  ],
+  "clusters": [
+    {
+      "id": "cl_1794738819720_9rdc",
+      "by": "Reviewer A",
+      "thirdOrderTitle": "Responsibility without back-up",
+      "translationSummary": "Hartwell’s “solitary accountability” and Reyes’s “escalation without back-up” describe the same thing from two sides: a nurse who must decide alone. Nguyen’s “autonomy in the quiet hours” describes the same conditions but reads them as trust, so it is translated refutationally.",
+      "synthesisNote": "At night, responsibility is carried by one person with little back-up. Whether this is felt as isolation or as autonomy depends on who is speaking: staff nurses report isolation, managers report trust.",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "cerqualLimitations": "Minor",
+      "cerqualCoherence": "Minor",
+      "cerqualAdequacy": "Moderate",
+      "cerqualRelevance": "Minor",
+      "cerqualConfidence": "Moderate",
+      "cerqualExplanation": "Moderate confidence: the finding holds once the speaker's role is taken into account, but the managers' reading of autonomy rests on a single study.",
+      "cerqualLimNote": "Minor concerns in two of the three studies (limited reflexivity).",
+      "cerqualCohNote": "Nguyen reads the same conditions as autonomy; the finding includes this difference and explains it by who is speaking (staff nurses or managers), so it is not by itself a coherence concern.",
+      "cerqualAdeqNote": "Three studies with rich quotes, but the managers' reading of autonomy rests on one study (Nguyen).",
+      "cerqualRelNote": "Hospital wards in three countries; relevant to the review question.",
+      "order": 0,
+      "createdAt": 1794738819720,
+      "seedConfirmed": false,
+      "cellStatus": {
+        "doc_1794738756931_88n0": {
+          "status": "other_aspect",
+          "note": "Sato’s nurses describe the same nights through fatigue and recovery, not through who carries decisions: a different side of the topic for the line of argument."
+        }
+      },
+      "reflexiveNote": "",
+      "baseDocId": "doc_1794738756926_gdra"
+    },
+    {
+      "id": "cl_1794738822700_jdwp",
+      "by": "Reviewer A",
+      "thirdOrderTitle": "Fatigue is normalised and left to the individual",
+      "translationSummary": "Hartwell’s “working against the body clock” matches Sato’s “fatigue as the price of the job”: tiredness is expected and managed privately. Sato’s “owed recovery” and “a life out of step” extend this into days off and home life. Nguyen’s “fatigue as an individual matter” shows managers holding the same view.",
+      "synthesisNote": "Staff nurses and managers both treat the costs of night work as normal and as the individual’s to manage, so fatigue is rarely raised as an organisational problem.",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "cerqualLimitations": "Minor",
+      "cerqualCoherence": "No/Very minor",
+      "cerqualAdequacy": "Minor",
+      "cerqualRelevance": "Minor",
+      "cerqualConfidence": "High",
+      "cerqualExplanation": "High confidence: consistent across the three studies that address it, in both subgroups.",
+      "cerqualLimNote": "Minor concerns only.",
+      "cerqualCohNote": "Staff and manager accounts agree.",
+      "cerqualAdeqNote": "Three studies with good quotes.",
+      "cerqualRelNote": "Relevant to the review question.",
+      "order": 1,
+      "createdAt": 1794738822700,
+      "seedConfirmed": false,
+      "cellStatus": {
+        "doc_1794738756936_l6w6": {
+          "status": "absent",
+          "note": "Read the whole account again: managers in Reyes do not speak about staff fatigue."
+        }
+      },
+      "reflexiveNote": "",
+      "baseDocId": "doc_1794738756926_gdra"
+    },
+    {
+      "id": "cl_1794738825700_8t6b",
+      "by": "Reviewer A",
+      "thirdOrderTitle": "Night work sits outside the organisation’s view",
+      "translationSummary": "Hartwell’s “invisibility to the day team” corresponds to Reyes’s “nights outside our line of sight”: nurses and managers both say nights are not seen. Nguyen’s “support at a distance” and Reyes’s “rostering as a hidden inequity” show what follows when no one is looking.",
+      "synthesisNote": "The organisation cannot see night work, so support arrives late and the burden falls on those with the least say.",
+      "concordanceStatus": "pending",
+      "concordanceNote": "",
+      "cerqualLimitations": "Minor",
+      "cerqualCoherence": "No/Very minor",
+      "cerqualAdequacy": "Moderate",
+      "cerqualRelevance": "Minor",
+      "cerqualConfidence": "Moderate",
+      "cerqualExplanation": "Moderate confidence: consistent, but parts of the finding rest on a single study.",
+      "cerqualLimNote": "Minor concerns.",
+      "cerqualCohNote": "Consistent across studies.",
+      "cerqualAdeqNote": "Fewer quotes for the rostering idea (one study only).",
+      "cerqualRelNote": "Relevant to the review question.",
+      "order": 2,
+      "createdAt": 1794738825700,
+      "seedConfirmed": false,
+      "cellStatus": {},
+      "reflexiveNote": "",
+      "baseDocId": "doc_1794738756926_gdra"
+    }
+  ],
+  "logs": [
+    {
+      "id": "log_demo_10_1794739492345",
+      "timestamp": 1794739492345,
+      "isoTime": "2026-11-15T10:44:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "detail": "CASP Checklist: For Qualitative Research (2024). Judgements are recorded with reasons and not added up into a score.",
+      "category": "context_appraisal",
+      "action": "Appraisal (CASP) for Reyes et al. (2022): judgement and reason recorded for each of the 10 questions"
+    },
+    {
+      "id": "log_demo_9_1794739432345",
+      "timestamp": 1794739432345,
+      "isoTime": "2026-11-15T10:43:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "detail": "CASP Checklist: For Qualitative Research (2024). Judgements are recorded with reasons and not added up into a score.",
+      "category": "context_appraisal",
+      "action": "Appraisal (CASP) for Nguyen et al. (2021): judgement and reason recorded for each of the 10 questions"
+    },
+    {
+      "id": "log_demo_8_1794739372345",
+      "timestamp": 1794739372345,
+      "isoTime": "2026-11-15T10:42:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "detail": "CASP Checklist: For Qualitative Research (2024). Judgements are recorded with reasons and not added up into a score.",
+      "category": "context_appraisal",
+      "action": "Appraisal (CASP) for Sato et al. (2020): judgement and reason recorded for each of the 10 questions"
+    },
+    {
+      "id": "log_demo_7_1794739312345",
+      "timestamp": 1794739312345,
+      "isoTime": "2026-11-15T10:41:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "detail": "CASP Checklist: For Qualitative Research (2024). Judgements are recorded with reasons and not added up into a score.",
+      "category": "context_appraisal",
+      "action": "Appraisal (CASP) for Hartwell et al. (2018): judgement and reason recorded for each of the 10 questions"
+    },
+    {
+      "id": "log_demo_6_1794739252345",
+      "timestamp": 1794739252345,
+      "isoTime": "2026-11-15T10:40:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "Reviewer B’s reading of the same passage as “Fatigue as the price of the job”; kept for the team discussion rather than placed twice.",
+      "rationale": "",
+      "detail": "Sato et al. (2020) (p.1): Exhaustion is part of nursing",
+      "category": "translation_process",
+      "action": "Noted why a 2nd Order construct was not translated into any 3rd Order row"
+    },
+    {
+      "id": "log_demo_5_1794739192345",
+      "timestamp": 1794739192345,
+      "isoTime": "2026-11-15T10:39:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "Nights outside our line of sight ➔ Escalation without back-up",
+      "rationale": "",
+      "detail": "Managers link not seeing nights to staff having no one to escalate to.",
+      "category": "reading_extraction",
+      "action": "Recorded how two concepts relate within Reyes et al. (2022)"
+    },
+    {
+      "id": "log_demo_4_1794739132345",
+      "timestamp": 1794739132345,
+      "isoTime": "2026-11-15T10:38:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "Owed recovery ⚡ Fatigue as the price of the job",
+      "rationale": "",
+      "detail": "Nurses accept tiredness as normal, yet feel a rest is owed to them that never comes.",
+      "category": "reading_extraction",
+      "action": "Recorded how two concepts relate within Sato et al. (2020)"
+    },
+    {
+      "id": "log_demo_3_1794739072345",
+      "timestamp": 1794739072345,
+      "isoTime": "2026-11-15T10:37:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "",
+      "toVal": "Invisibility to the day team ➔ Solitary accountability",
+      "rationale": "",
+      "detail": "Discussion: because night work is not seen, its risks are left to the nurse on shift.",
+      "category": "reading_extraction",
+      "action": "Recorded how two concepts relate within Hartwell et al. (2018)"
+    },
+    {
+      "id": "log_demo_2_1794739012345",
+      "timestamp": 1794739012345,
+      "isoTime": "2026-11-15T10:36:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "Not yet checked",
+      "toVal": "Checked: not addressed in this study",
+      "rationale": "",
+      "detail": "Read the whole account again: managers in Reyes do not speak about staff fatigue.",
+      "category": "relating_studies",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ],
+      "action": "Reyes et al. (2022) in \"Fatigue is normalised and left to the individual\": Checked: not addressed in this study"
+    },
+    {
+      "id": "log_demo_1_1794738952345",
+      "timestamp": 1794738952345,
+      "isoTime": "2026-11-15T10:35:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "Not yet checked",
+      "toVal": "Addresses a different aspect of the topic",
+      "rationale": "",
+      "detail": "Sato’s nurses describe the same nights through fatigue and recovery, not through who carries decisions: a different side of the topic for the line of argument.",
+      "category": "relating_studies",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ],
+      "action": "Sato et al. (2020) in \"Responsibility without back-up\": Addresses a different aspect of the topic"
+    },
+    {
+      "id": "log_demo_0_1794738892345",
+      "timestamp": 1794738892345,
+      "isoTime": "2026-11-15T10:34:52.345Z",
+      "reviewer": "Reviewer A",
+      "fromVal": "(not decided)",
+      "toVal": "Empty matrix",
+      "rationale": "Hartwell was the first account we read, not a chosen index paper; we wanted each concept compared with all the others before any row existed.",
+      "detail": "",
+      "category": "translation_process",
+      "action": "Rows are created by the reviewer: study #1 is not placed automatically"
+    },
+    {
+      "id": "log_1794738832345_03x8",
+      "timestamp": 1794738832345,
+      "isoTime": "2026-11-15T10:33:52.345Z",
+      "reviewer": "Reviewer A",
+      "category": "reflexive_memo",
+      "action": "[Refutational Tension] — Cluster: Responsibility without back-up",
+      "detail": "Nguyen’s “autonomy” reading is the main tension. I did not treat it as a mistake: it may show how managers see nights from where they sit.",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738831894_3k9a",
+      "timestamp": 1794738831894,
+      "isoTime": "2026-11-15T10:33:51.894Z",
+      "reviewer": "Reviewer A",
+      "category": "reflexive_memo",
+      "action": "[Reflexivity (Positionality)] ",
+      "detail": "I have worked night shifts as a ward nurse. I expected the “alone” theme to dominate, so I looked harder at the manager papers for views that challenge it.",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738830365_ijr6",
+      "timestamp": 1794738830365,
+      "isoTime": "2026-11-15T10:33:50.365Z",
+      "reviewer": "Reviewer A",
+      "category": "team_model",
+      "action": "Updated How independent models were merged",
+      "detail": "How independent models were merged: Reviewer A and Reviewer B extracted independently. Differences were discussed and merged in the Compare step.",
+      "fromVal": "(Initial Draft)",
+      "toVal": "Reviewer A and Reviewer B extracted independently. Differences were discussed and merged i",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738830365_ixxh",
+      "timestamp": 1794738830365,
+      "isoTime": "2026-11-15T10:33:50.365Z",
+      "reviewer": "Reviewer A",
+      "category": "relating_studies",
+      "action": "Updated Phase 4: Process / Outcome of Relating Studies (eMERGe items 11–12)",
+      "detail": "Process: Studies were compared by their main concepts and by who was speaking (staff nurses or managers) and where.\nOutcome: Staff and manager studies agree on fatigue and on nights being unseen. They differ on whether working alone is isolation or autonomy.",
+      "fromVal": "(Initial Draft)",
+      "toVal": "Studies were compared by their main concepts and by who was speaking (...",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738830364_e1j3",
+      "timestamp": 1794738830364,
+      "isoTime": "2026-11-15T10:33:50.364Z",
+      "reviewer": "Reviewer A",
+      "category": "line_of_argument",
+      "action": "Updated Context where the model applies (Item 16)",
+      "detail": "Context where the model applies (Item 16): Applies to hospital wards with small night teams. It may not apply where a senior nurse is always on the ward.",
+      "fromVal": "(Initial Draft)",
+      "toVal": "Applies to hospital wards with small night teams. It may not apply where a senior nurse is",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738830361_s59q",
+      "timestamp": 1794738830361,
+      "isoTime": "2026-11-15T10:33:50.361Z",
+      "reviewer": "Reviewer A",
+      "category": "translation_process",
+      "action": "Updated Working definitions (Item 13) / Translation process (Item 13) / Alternative interpretations (Items 13/15)",
+      "detail": "Working definitions (Item 13): Reciprocal: concepts that describe the same idea in different words. Refutational: concepts that describe the same conditions but disagree about what they mean.\nTranslation process (Item 13): Reviewer A translated study by study, starting from Hartwell (index paper: richest account). Reviewer B’s extraction was compared and merged before translation.\nAlternative interpretations (Items 13/15): We considered whether the “autonomy” reading reflects role (manager) or setting (night coordinator on every floor). The papers cannot separate the two.",
+      "fromVal": "(Initial Draft)",
+      "toVal": "Reciprocal: concepts that describe the same idea in different words. Refutational: concept",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738830359_am8j",
+      "timestamp": 1794738830359,
+      "isoTime": "2026-11-15T10:33:50.359Z",
+      "reviewer": "Reviewer A",
+      "category": "line_of_argument",
+      "action": "Updated Line of Argument Synthesis: \"Night work as an unseen, individually carried burden\"",
+      "detail": "Model Flow: [Night work is out of view] ➔ [Responsibility without back-up] + [Fatigue left to the individual] ➔ [Nurses endure alone]\nNarrative: Night work sits outside the organisation’s view. Because it is not seen, nurses carry responsibility with little back-up and manage their own fatigue. Staff describe this as isolation, while managers describe it as trust: the same conditions, two readings.",
+      "fromVal": "(Initial Draft)",
+      "toVal": "Night work as an unseen, individually carried burden — Night work sits outside the organisation’s view. Because it is not see...",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738830039_a3qc",
+      "timestamp": 1794738830039,
+      "isoTime": "2026-11-15T10:33:50.039Z",
+      "reviewer": "Reviewer A",
+      "category": "line_of_argument",
+      "action": "Added relation: \"Responsibility without back-up\" ⇄ \"Fatigue is normalised and left to the individual\"",
+      "detail": "is mutually related to",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc",
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738829689_d59n",
+      "timestamp": 1794738829689,
+      "isoTime": "2026-11-15T10:33:49.689Z",
+      "reviewer": "Reviewer A",
+      "category": "line_of_argument",
+      "action": "Added relation: \"Night work sits outside the organisation’s view\" ➔ \"Fatigue is normalised and left to the individual\"",
+      "detail": "leads to",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b",
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738829340_3ep5",
+      "timestamp": 1794738829340,
+      "isoTime": "2026-11-15T10:33:49.340Z",
+      "reviewer": "Reviewer A",
+      "category": "line_of_argument",
+      "action": "Added relation: \"Night work sits outside the organisation’s view\" ➔ \"Responsibility without back-up\"",
+      "detail": "leads to",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b",
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738827947_hh1o",
+      "timestamp": 1794738827947,
+      "isoTime": "2026-11-15T10:33:47.947Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
+      "detail": "Methodological limitations — Minor concerns.\nCoherence — Consistent across studies.\nAdequacy — Fewer quotes for the rostering idea (one study only).\nRelevance — Relevant to the review question.\nOverall — Moderate confidence: consistent, but parts of the finding rest on a single study.",
+      "fromVal": "Moderate [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "toVal": "Moderate [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738827929_x0v5",
+      "timestamp": 1794738827929,
+      "isoTime": "2026-11-15T10:33:47.929Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
+      "detail": "Methodological limitations — Minor concerns.\nCoherence — Consistent across studies.\nAdequacy — Fewer quotes for the rostering idea (one study only).\nRelevance — Relevant to the review question.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "toVal": "Moderate [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738827925_qjwg",
+      "timestamp": 1794738827925,
+      "isoTime": "2026-11-15T10:33:47.925Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
+      "detail": "Methodological limitations — Minor concerns.\nCoherence — Consistent across studies.\nAdequacy — Fewer quotes for the rostering idea (one study only).",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738827916_h5zg",
+      "timestamp": 1794738827916,
+      "isoTime": "2026-11-15T10:33:47.916Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
+      "detail": "Methodological limitations — Minor concerns.\nCoherence — Consistent across studies.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738827906_6ot7",
+      "timestamp": 1794738827906,
+      "isoTime": "2026-11-15T10:33:47.906Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
+      "detail": "Methodological limitations — Minor concerns.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738827895_jwfv",
+      "timestamp": 1794738827895,
+      "isoTime": "2026-11-15T10:33:47.895Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738827884_fof2",
+      "timestamp": 1794738827884,
+      "isoTime": "2026-11-15T10:33:47.884Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Not assessed, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Moderate, R:Not assessed]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738827879_atgk",
+      "timestamp": 1794738827879,
+      "isoTime": "2026-11-15T10:33:47.879Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Minor, C:Not assessed, A:Not assessed, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Not assessed, R:Not assessed]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738827872_muaq",
+      "timestamp": 1794738827872,
+      "isoTime": "2026-11-15T10:33:47.872Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Night work sits outside the organisation’s view\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Not assessed, C:Not assessed, A:Not assessed, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:Not assessed, A:Not assessed, R:Not assessed]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738826604_4qc7",
+      "timestamp": 1794738826604,
+      "isoTime": "2026-11-15T10:33:46.604Z",
+      "reviewer": "Reviewer A",
+      "category": "third_order",
+      "action": "Updated Step B 3rd Order Definition & Interpretation for \"Night work sits outside the organisation’s view\"",
+      "fromVal": "(Empty)",
+      "toVal": "The organisation cannot see night work, so support arrives late and the burden falls on those with the least say.",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738826592_8orb",
+      "timestamp": 1794738826592,
+      "isoTime": "2026-11-15T10:33:46.592Z",
+      "reviewer": "Reviewer A",
+      "category": "translation_process",
+      "action": "Updated Step A Translation Summary for \"Night work sits outside the organisation’s view\"",
+      "fromVal": "(Empty)",
+      "toVal": "Hartwell’s “invisibility to the day team” corresponds to Reyes’s “nights outside our line of sight”: nurses and managers both say nights are not seen. Nguyen’s “support at a distance” and Reyes’s “rostering as a hidden inequity” show what follows when no one is looking.",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738825702_nv8p",
+      "timestamp": 1794738825702,
+      "isoTime": "2026-11-15T10:33:45.702Z",
+      "reviewer": "Reviewer A",
+      "category": "third_order",
+      "action": "Created New 3rd Order Concept Cluster (Row)",
+      "fromVal": "",
+      "toVal": "Night work sits outside the organisation’s view",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738825700_8t6b"
+      ]
+    },
+    {
+      "id": "log_1794738824976_391k",
+      "timestamp": 1794738824976,
+      "isoTime": "2026-11-15T10:33:44.976Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
+      "detail": "Methodological limitations — Minor concerns only.\nCoherence — Staff and manager accounts agree.\nAdequacy — Three studies with good quotes.\nRelevance — Relevant to the review question.\nOverall — High confidence: consistent across the three studies that address it, in both subgroups.",
+      "fromVal": "High [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "toVal": "High [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738824959_072p",
+      "timestamp": 1794738824959,
+      "isoTime": "2026-11-15T10:33:44.959Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
+      "detail": "Methodological limitations — Minor concerns only.\nCoherence — Staff and manager accounts agree.\nAdequacy — Three studies with good quotes.\nRelevance — Relevant to the review question.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "toVal": "High [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738824952_7fm2",
+      "timestamp": 1794738824952,
+      "isoTime": "2026-11-15T10:33:44.952Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
+      "detail": "Methodological limitations — Minor concerns only.\nCoherence — Staff and manager accounts agree.\nAdequacy — Three studies with good quotes.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738824944_bj7c",
+      "timestamp": 1794738824944,
+      "isoTime": "2026-11-15T10:33:44.944Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
+      "detail": "Methodological limitations — Minor concerns only.\nCoherence — Staff and manager accounts agree.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738824935_n1w2",
+      "timestamp": 1794738824935,
+      "isoTime": "2026-11-15T10:33:44.935Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
+      "detail": "Methodological limitations — Minor concerns only.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738824921_z1jo",
+      "timestamp": 1794738824921,
+      "isoTime": "2026-11-15T10:33:44.921Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738824911_gzyz",
+      "timestamp": 1794738824911,
+      "isoTime": "2026-11-15T10:33:44.911Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Minor, C:No/Very minor, A:Not assessed, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Minor, R:Not assessed]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738824902_1jzl",
+      "timestamp": 1794738824902,
+      "isoTime": "2026-11-15T10:33:44.902Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Minor, C:Not assessed, A:Not assessed, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:No/Very minor, A:Not assessed, R:Not assessed]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738824898_c1x3",
+      "timestamp": 1794738824898,
+      "isoTime": "2026-11-15T10:33:44.898Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Fatigue is normalised and left to the individual\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Not assessed, C:Not assessed, A:Not assessed, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:Not assessed, A:Not assessed, R:Not assessed]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738823604_k9jj",
+      "timestamp": 1794738823604,
+      "isoTime": "2026-11-15T10:33:43.604Z",
+      "reviewer": "Reviewer A",
+      "category": "third_order",
+      "action": "Updated Step B 3rd Order Definition & Interpretation for \"Fatigue is normalised and left to the individual\"",
+      "fromVal": "(Empty)",
+      "toVal": "Staff nurses and managers both treat the costs of night work as normal and as the individual’s to manage, so fatigue is rarely raised as an organisational problem.",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738823586_g0g7",
+      "timestamp": 1794738823586,
+      "isoTime": "2026-11-15T10:33:43.586Z",
+      "reviewer": "Reviewer A",
+      "category": "translation_process",
+      "action": "Updated Step A Translation Summary for \"Fatigue is normalised and left to the individual\"",
+      "fromVal": "(Empty)",
+      "toVal": "Hartwell’s “working against the body clock” matches Sato’s “fatigue as the price of the job”: tiredness is expected and managed privately. Sato’s “owed recovery” and “a life out of step” extend this into days off and home life. Nguyen’s “fatigue as an individual matter” shows managers holding the same view.",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738822701_r264",
+      "timestamp": 1794738822701,
+      "isoTime": "2026-11-15T10:33:42.701Z",
+      "reviewer": "Reviewer A",
+      "category": "third_order",
+      "action": "Created New 3rd Order Concept Cluster (Row)",
+      "fromVal": "",
+      "toVal": "Fatigue is normalised and left to the individual",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738822700_jdwp"
+      ]
+    },
+    {
+      "id": "log_1794738821978_l3ty",
+      "timestamp": 1794738821978,
+      "isoTime": "2026-11-15T10:33:41.978Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
+      "detail": "Methodological limitations — Minor concerns in two of the three studies (limited reflexivity).\nCoherence — Nguyen reads the same conditions as autonomy; the finding includes this difference and explains it by who is speaking (staff nurses or managers), so it is not by itself a coherence concern.\nAdequacy — Three studies with rich quotes, but the managers' reading of autonomy rests on one study (Nguyen).\nRelevance — Hospital wards in three countries; relevant to the review question.\nOverall — Moderate confidence: the finding holds once the speaker's role is taken into account, but the managers' reading of autonomy rests on a single study.",
+      "fromVal": "Moderate [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "toVal": "Moderate [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738821946_tnot",
+      "timestamp": 1794738821946,
+      "isoTime": "2026-11-15T10:33:41.946Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
+      "detail": "Methodological limitations — Minor concerns in two of the three studies (limited reflexivity).\nCoherence — Nguyen reads the same conditions as autonomy; the finding includes this difference and explains it by who is speaking (staff nurses or managers), so it is not by itself a coherence concern.\nAdequacy — Three studies with rich quotes, but the managers' reading of autonomy rests on one study (Nguyen).\nRelevance — Hospital wards in three countries; relevant to the review question.",
+      "fromVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "toVal": "Moderate [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738821936_wijv",
+      "timestamp": 1794738821936,
+      "isoTime": "2026-11-15T10:33:41.936Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
+      "detail": "Methodological limitations — Minor concerns in two of the three studies (limited reflexivity).\nCoherence — Nguyen reads the same conditions as autonomy; the finding includes this difference and explains it by who is speaking (staff nurses or managers), so it is not by itself a coherence concern.\nAdequacy — Three studies with rich quotes, but the managers' reading of autonomy rests on one study (Nguyen).",
+      "fromVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "toVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738821930_55qt",
+      "timestamp": 1794738821930,
+      "isoTime": "2026-11-15T10:33:41.930Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
+      "detail": "Methodological limitations — Minor concerns in two of the three studies (limited reflexivity).\nCoherence — Nguyen reads the same conditions as autonomy; the finding includes this difference and explains it by who is speaking (staff nurses or managers), so it is not by itself a coherence concern.",
+      "fromVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "toVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738821918_y866",
+      "timestamp": 1794738821918,
+      "isoTime": "2026-11-15T10:33:41.918Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
+      "detail": "Methodological limitations — Minor concerns in two of the three studies (limited reflexivity).",
+      "fromVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "toVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738821904_jl5s",
+      "timestamp": 1794738821904,
+      "isoTime": "2026-11-15T10:33:41.904Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Minor]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738821897_q0x2",
+      "timestamp": 1794738821897,
+      "isoTime": "2026-11-15T10:33:41.897Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Minor, C:Moderate, A:Not assessed, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:Minor, A:Moderate, R:Not assessed]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738821893_goly",
+      "timestamp": 1794738821893,
+      "isoTime": "2026-11-15T10:33:41.893Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Minor, C:Not assessed, A:Not assessed, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:Moderate, A:Not assessed, R:Not assessed]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738821886_aga3",
+      "timestamp": 1794738821886,
+      "isoTime": "2026-11-15T10:33:41.886Z",
+      "reviewer": "Reviewer A",
+      "category": "cerqual",
+      "action": "Updated GRADE-CERQual Assessment for \"Responsibility without back-up\"",
+      "detail": "Updated component ratings.",
+      "fromVal": "Not assessed [L:Not assessed, C:Not assessed, A:Not assessed, R:Not assessed]",
+      "toVal": "Not assessed [L:Minor, C:Not assessed, A:Not assessed, R:Not assessed]",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738820621_jcwu",
+      "timestamp": 1794738820621,
+      "isoTime": "2026-11-15T10:33:40.621Z",
+      "reviewer": "Reviewer A",
+      "category": "third_order",
+      "action": "Updated Step B 3rd Order Definition & Interpretation for \"Responsibility without back-up\"",
+      "fromVal": "(Empty)",
+      "toVal": "At night, responsibility is carried by one person with little back-up. Whether this is felt as isolation or as autonomy depends on who is speaking: staff nurses report isolation, managers report trust.",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738820609_6lyy",
+      "timestamp": 1794738820609,
+      "isoTime": "2026-11-15T10:33:40.609Z",
+      "reviewer": "Reviewer A",
+      "category": "translation_process",
+      "action": "Updated Step A Translation Summary for \"Responsibility without back-up\"",
+      "fromVal": "(Empty)",
+      "toVal": "Hartwell’s “solitary accountability” and Reyes’s “escalation without back-up” describe the same thing from two sides: a nurse who must decide alone. Nguyen’s “autonomy in the quiet hours” describes the same conditions but reads them as trust, so it is translated refutationally.",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738820594_ukgs",
+      "timestamp": 1794738820594,
+      "isoTime": "2026-11-15T10:33:40.594Z",
+      "reviewer": "Reviewer A",
+      "category": "third_order",
+      "action": "Changed Translation Type for \"Responsibility without back-up\"",
+      "fromVal": "reciprocal",
+      "toVal": "refutational",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738819721_am6q",
+      "timestamp": 1794738819721,
+      "isoTime": "2026-11-15T10:33:39.721Z",
+      "reviewer": "Reviewer A",
+      "category": "third_order",
+      "action": "Created New 3rd Order Concept Cluster (Row)",
+      "fromVal": "",
+      "toVal": "Responsibility without back-up",
+      "rationale": "",
+      "clusterIds": [
+        "cl_1794738819720_9rdc"
+      ]
+    },
+    {
+      "id": "log_1794738817893_qhqj",
+      "timestamp": 1794738817893,
+      "isoTime": "2026-11-15T10:33:37.893Z",
+      "reviewer": "Reviewer A",
+      "category": "concordance",
+      "action": "Imported Peer Construct from @Reviewer B as AGREED (Nguyen et al. (2021), p.1)",
+      "detail": "\"The best nurses I have grow on nights. Nobody is looking over their shoulder....\"",
+      "fromVal": "",
+      "toVal": "1st Order [AGREED]",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738817359_gb2j",
+      "timestamp": 1794738817359,
+      "isoTime": "2026-11-15T10:33:37.359Z",
+      "reviewer": "Reviewer A",
+      "category": "concordance",
+      "action": "Imported Peer Construct from @Reviewer B as DISCUSS (Sato et al. (2020), p.1)",
+      "detail": "\"Nurses spoke about exhaustion as something that simply comes with nursing. Compl...\"",
+      "fromVal": "",
+      "toVal": "2nd Order [DISCUSS]",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738816155_y07u",
+      "timestamp": 1794738816155,
+      "isoTime": "2026-11-15T10:33:36.155Z",
+      "reviewer": "Reviewer A",
+      "category": "concordance",
+      "action": "Confirmed Inter-Reviewer Agreement with @Reviewer B (Hartwell et al. (2018), p.1)",
+      "detail": "\"We interpret this as solitary accountability: responsibility that is not on...\"",
+      "fromVal": "",
+      "toVal": "AGREED",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738816154_hopr",
+      "timestamp": 1794738816154,
+      "isoTime": "2026-11-15T10:33:36.154Z",
+      "reviewer": "Reviewer A",
+      "category": "concordance",
+      "action": "Merged 13 audit trail entries from @Reviewer B",
+      "detail": "Both reviewers' decisions now appear in one trail.",
+      "fromVal": "",
+      "toVal": "",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738766846_1vcd",
+      "timestamp": 1794738766846,
+      "isoTime": "2026-11-15T10:32:46.846Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Reyes et al. (2022)",
+      "detail": "Setting: Australia, two regional hospitals | Sample: 10 unit managers and after-hours coordinators | Note: -",
+      "fromVal": "CASP:Moderate| Richness:None",
+      "toVal": "CASP:Moderate| Richness:Moderate",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738766830_misn",
+      "timestamp": 1794738766830,
+      "isoTime": "2026-11-15T10:32:46.830Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Reyes et al. (2022)",
+      "detail": "Setting: Australia, two regional hospitals | Sample: 10 unit managers and after-hours coordinators | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:Moderate| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738766829_bair",
+      "timestamp": 1794738766829,
+      "isoTime": "2026-11-15T10:32:46.829Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Reyes et al. (2022)",
+      "fromVal": "(none)",
+      "toVal": "Managers' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738765136_emi2",
+      "timestamp": 1794738765136,
+      "isoTime": "2026-11-15T10:32:45.136Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Nguyen et al. (2021)",
+      "detail": "Setting: Canada, two large urban hospitals (night coordinator on every floor) | Sample: 11 charge nurses and night coordinators | Note: -",
+      "fromVal": "CASP:Moderate| Richness:None",
+      "toVal": "CASP:Moderate| Richness:Rich",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738765131_thxg",
+      "timestamp": 1794738765131,
+      "isoTime": "2026-11-15T10:32:45.131Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Nguyen et al. (2021)",
+      "detail": "Setting: Canada, two large urban hospitals (night coordinator on every floor) | Sample: 11 charge nurses and night coordinators | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:Moderate| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738765129_s9bf",
+      "timestamp": 1794738765129,
+      "isoTime": "2026-11-15T10:32:45.129Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Nguyen et al. (2021)",
+      "fromVal": "(none)",
+      "toVal": "Managers' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738763439_ob5o",
+      "timestamp": 1794738763439,
+      "isoTime": "2026-11-15T10:32:43.439Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Sato et al. (2020)",
+      "detail": "Setting: Japan, university hospital | Sample: 18 nurses in 3 focus groups | Note: -",
+      "fromVal": "CASP:Moderate| Richness:None",
+      "toVal": "CASP:Moderate| Richness:Moderate",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738763431_tyzh",
+      "timestamp": 1794738763431,
+      "isoTime": "2026-11-15T10:32:43.431Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Sato et al. (2020)",
+      "detail": "Setting: Japan, university hospital | Sample: 18 nurses in 3 focus groups | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:Moderate| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738763430_2awm",
+      "timestamp": 1794738763430,
+      "isoTime": "2026-11-15T10:32:43.430Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Sato et al. (2020)",
+      "fromVal": "(none)",
+      "toVal": "Nurses' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738761752_8foi",
+      "timestamp": 1794738761752,
+      "isoTime": "2026-11-15T10:32:41.752Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Hartwell et al. (2018)",
+      "detail": "Setting: UK, acute medical wards (one teaching hospital) | Sample: 14 staff nurses | Note: -",
+      "fromVal": "CASP:High| Richness:None",
+      "toVal": "CASP:High| Richness:Rich",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738761738_ku4w",
+      "timestamp": 1794738761738,
+      "isoTime": "2026-11-15T10:32:41.738Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Hartwell et al. (2018)",
+      "detail": "Setting: UK, acute medical wards (one teaching hospital) | Sample: 14 staff nurses | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:High| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738761733_2edq",
+      "timestamp": 1794738761733,
+      "isoTime": "2026-11-15T10:32:41.733Z",
+      "reviewer": "Reviewer A",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Hartwell et al. (2018)",
+      "fromVal": "(none)",
+      "toVal": "Nurses' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738756544_kat7",
+      "timestamp": 1794738756544,
+      "isoTime": "2026-11-15T10:32:36.544Z",
+      "reviewer": "Reviewer A",
+      "category": "aim_question",
+      "action": "Configured Project [AI-DEMO-NIGHTSHIFT] & Phase 1 Research Aim",
+      "detail": "Phase 1 Aim: [AI-GENERATED DEMO] To synthesise qualitative evidence on how nurses and nurse managers experience night shifts in hospitals.\nReview question: How do nurses and nurse managers experience night shifts in hospitals, and how do their accounts differ?",
+      "fromVal": "(Initial Setup)",
+      "toVal": "[AI-DEMO-NIGHTSHIFT] [AI-GENERATED DEMO] To synthesise qualitative evidence on ho",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738698638_4vi9",
+      "timestamp": 1794738698638,
+      "isoTime": "2026-11-15T10:31:38.638Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Reyes et al. (2022)",
+      "detail": "Setting: Australia, two regional hospitals | Sample: 10 unit managers and after-hours coordinators | Note: -",
+      "fromVal": "CASP:Moderate| Richness:None",
+      "toVal": "CASP:Moderate| Richness:Moderate",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738698632_f183",
+      "timestamp": 1794738698632,
+      "isoTime": "2026-11-15T10:31:38.632Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Reyes et al. (2022)",
+      "fromVal": "(none)",
+      "toVal": "Managers' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738698632_f1zu",
+      "timestamp": 1794738698632,
+      "isoTime": "2026-11-15T10:31:38.632Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Reyes et al. (2022)",
+      "detail": "Setting: Australia, two regional hospitals | Sample: 10 unit managers and after-hours coordinators | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:Moderate| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738696970_5xef",
+      "timestamp": 1794738696970,
+      "isoTime": "2026-11-15T10:31:36.970Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Nguyen et al. (2021)",
+      "detail": "Setting: Canada, two large urban hospitals (night coordinator on every floor) | Sample: 11 charge nurses and night coordinators | Note: -",
+      "fromVal": "CASP:Moderate| Richness:None",
+      "toVal": "CASP:Moderate| Richness:Rich",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738696960_0xwy",
+      "timestamp": 1794738696960,
+      "isoTime": "2026-11-15T10:31:36.960Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Nguyen et al. (2021)",
+      "detail": "Setting: Canada, two large urban hospitals (night coordinator on every floor) | Sample: 11 charge nurses and night coordinators | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:Moderate| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738696956_sd2n",
+      "timestamp": 1794738696956,
+      "isoTime": "2026-11-15T10:31:36.956Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Nguyen et al. (2021)",
+      "fromVal": "(none)",
+      "toVal": "Managers' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738695282_djq0",
+      "timestamp": 1794738695282,
+      "isoTime": "2026-11-15T10:31:35.282Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Sato et al. (2020)",
+      "detail": "Setting: Japan, university hospital | Sample: 18 nurses in 3 focus groups | Note: -",
+      "fromVal": "CASP:Moderate| Richness:None",
+      "toVal": "CASP:Moderate| Richness:Moderate",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738695273_fs8n",
+      "timestamp": 1794738695273,
+      "isoTime": "2026-11-15T10:31:35.273Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Sato et al. (2020)",
+      "detail": "Setting: Japan, university hospital | Sample: 18 nurses in 3 focus groups | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:Moderate| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738695271_rci3",
+      "timestamp": 1794738695271,
+      "isoTime": "2026-11-15T10:31:35.271Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Sato et al. (2020)",
+      "fromVal": "(none)",
+      "toVal": "Nurses' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738693617_zzfc",
+      "timestamp": 1794738693617,
+      "isoTime": "2026-11-15T10:31:33.617Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Hartwell et al. (2018)",
+      "detail": "Setting: UK, acute medical wards (one teaching hospital) | Sample: 14 staff nurses | Note: -",
+      "fromVal": "CASP:High| Richness:None",
+      "toVal": "CASP:High| Richness:Rich",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738693604_0b2c",
+      "timestamp": 1794738693604,
+      "isoTime": "2026-11-15T10:31:33.604Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Updated Critical Appraisal / Richness for Hartwell et al. (2018)",
+      "detail": "Setting: UK, acute medical wards (one teaching hospital) | Sample: 14 staff nurses | Note: -",
+      "fromVal": "CASP:None| Richness:None",
+      "toVal": "CASP:High| Richness:None",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738693603_tu40",
+      "timestamp": 1794738693603,
+      "isoTime": "2026-11-15T10:31:33.603Z",
+      "reviewer": "Reviewer B",
+      "category": "context_appraisal",
+      "action": "Set subgroup for Hartwell et al. (2018)",
+      "fromVal": "(none)",
+      "toVal": "Nurses' views",
+      "rationale": ""
+    },
+    {
+      "id": "log_1794738688438_hl0z",
+      "timestamp": 1794738688438,
+      "isoTime": "2026-11-15T10:31:28.438Z",
+      "reviewer": "Reviewer B",
+      "category": "aim_question",
+      "action": "Configured Project [AI-DEMO-NIGHTSHIFT] & Phase 1 Research Aim",
+      "detail": "Phase 1 Aim: [AI-GENERATED DEMO] To synthesise qualitative evidence on nurses and managers on night shifts in hospitals.\nReview question: How do nurses and nurse managers experience night shifts in hospitals?",
+      "fromVal": "(Initial Setup)",
+      "toVal": "[AI-DEMO-NIGHTSHIFT] [AI-GENERATED DEMO] To synthesise qualitative evidence on nu",
+      "rationale": ""
+    }
+  ],
+  "loa": {
+    "projectCode": "AI-DEMO-NIGHTSHIFT",
+    "aim": "[AI-GENERATED DEMO] To synthesise qualitative evidence on how nurses and nurse managers experience night shifts in hospitals.",
+    "id": "loa_main",
+    "title": "Night work as an unseen, individually carried burden",
+    "flow": "[Night work is out of view] ➔ [Responsibility without back-up] + [Fatigue left to the individual] ➔ [Nurses endure alone]",
+    "narrative": "Night work sits outside the organisation’s view. Because it is not seen, nurses carry responsibility with little back-up and manage their own fatigue. Staff describe this as isolation, while managers describe it as trust: the same conditions, two readings.",
+    "relateProcess": "Studies were compared by their main concepts and by who was speaking (staff nurses or managers) and where.",
+    "relateOutcome": "Staff and manager studies agree on fatigue and on nights being unseen. They differ on whether working alone is isolation or autonomy.",
+    "synthStudies": "",
+    "appraisalPolicy": "",
+    "appraisalUse": "",
+    "links": [
+      {
+        "id": "lk_mwhp5rm715i3",
+        "from": "cl_1794738825700_8t6b",
+        "to": "cl_1794738819720_9rdc",
+        "type": "leads",
+        "note": ""
+      },
+      {
+        "id": "lk_mwhp5rvwi8rl",
+        "from": "cl_1794738825700_8t6b",
+        "to": "cl_1794738822700_jdwp",
+        "type": "leads",
+        "note": ""
+      },
+      {
+        "id": "lk_mwhp5s5mgbxb",
+        "from": "cl_1794738819720_9rdc",
+        "to": "cl_1794738822700_jdwp",
+        "type": "mutual",
+        "note": ""
+      }
+    ],
+    "updatedAt": 1794738830345,
+    "reviewQuestion": "How do nurses and nurse managers experience night shifts in hospitals, and how do their accounts differ?",
+    "readingApproach": "",
+    "extractionScope": "",
+    "unitsTerminology": "",
+    "translationDefinitions": "Reciprocal: concepts that describe the same idea in different words. Refutational: concepts that describe the same conditions but disagree about what they mean.",
+    "translationProcess": "Reviewer A translated study by study, starting from Hartwell (index paper: richest account). Reviewer B’s extraction was compared and merged before translation.",
+    "alternativeInterpretations": "We considered whether the “autonomy” reading reflects role (manager) or setting (night coordinator on every floor). The papers cannot separate the two.",
+    "modelContext": "Applies to hospital wards with small night teams. It may not apply where a senior nurse is always on the ward.",
+    "teamMergeNote": "Reviewer A and Reviewer B extracted independently. Differences were discussed and merged in the Compare step.",
+    "seedChoice": "manual",
+    "baselineDocId": "doc_1794738756926_gdra",
+    "baselineDocName": "Hartwell et al. (2018)"
+  }
+}
