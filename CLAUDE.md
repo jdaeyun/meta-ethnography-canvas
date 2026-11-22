@@ -86,7 +86,12 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 - Classic `<script>` files sharing one global scope (not ES modules, so `file://` works).
   Keep the load order in `me_canvas.html`; `version.js`, then `core.js` first. Top-level code may only call
   functions from files loaded earlier — anything else must run inside handlers or DOMContentLoaded.
-- No backward compatibility with older project files is maintained (decided for v1.1.0).
+- No backward compatibility with older project files is guaranteed (decided for v1.1.0): a field may change meaning or
+  disappear between versions, and no version-by-version migration is kept. Where a change is cheap to bridge, a project is
+  upgraded in place when it is loaded, so work in progress does not silently change meaning: `normalizeCluster()` derives
+  `baseDocId` for rows saved without it (study #1 where it has a construct, else none), startup stores `loa.baselineDocId`
+  and fingerprints PDFs for projects made before those existed. Add such a bridge only when it is a few lines; otherwise
+  leave older files unsupported and say so in the release.
 - Data stores: `docs`, `pdf_binaries` (PDF bytes, separate from docs), `annotations`, `clusters`, `logs`, `meta` (`loa_main`).
   Annotation shape is defined by `normalizeAnnotation()`; 1st→2nd order links are `parentIds[]` (many-to-many);
   2nd order → rows are `clusterIds[]` with per-row `clusterRelations` / `clusterComments`. Each row records the study whose construct
