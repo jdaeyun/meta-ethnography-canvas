@@ -16,6 +16,19 @@ function lsRemove(key) { try { localStorage.removeItem(LS_PREFIX + key); } catch
 
 const DB_NAME = DEMO_MODE ? 'MetaEthnoCanvasDB_demo' : 'MetaEthnoCanvasDB';
 const DB_VERSION = 6;
+// Project data format, written into every backup (formatVersion). From v1.4.7 on, a project saved in this format must open
+// with the same meaning in every later version: a change to the data shape raises PROJECT_FORMAT and adds an upgrade step
+// to upgradeProjectData() (and to normalize*() for the browser's own database). Files without the number are older
+// (before 1.4.7) and are opened on a best-effort basis.
+const PROJECT_FORMAT = 1;
+function upgradeProjectData(data) {
+  const f = Number(data && data.formatVersion) || 0;
+  if (f > PROJECT_FORMAT) {
+    throw new Error(`This file was saved by a newer version of Meta-Ethnography Canvas (${(data && data.appVersion) || 'unknown version'}, data format ${f}; this app reads format ${PROJECT_FORMAT}). Update the app, or download the latest offline edition, to open it. Nothing was changed.`);
+  }
+  // Format 1 is the current one: nothing to upgrade yet. Later formats add their steps here, oldest first.
+  return data;
+}
 let dbInstancePromise = null;
 
 function initDB() {

@@ -869,6 +869,52 @@ await group('Layout at laptop widths: no overlap in the header or view toolbars,
   check('the prebuilt CSS has the classes the pages use', ['shadow-xs', 'min-w-0', 'bg-indigo-700'].every(c => css.includes('.' + c)));
 });
 
+await group('Compatibility: a format-1 (v1.4.7) backup opens with the same meaning; newer formats are refused', async () => {
+  // The fixture is a backup written by v1.4.7 from the demo. Its "meaning" (who established each row, how each study is read
+  // in it, CERQual, team status, …) must stay the same in every later version. WRITE_FIXTURE=1 npm test rewrites the
+  // expected file; do that only when a change is MEANT to change the meaning, and add an upgrade step for older files.
+  const fixDir = path.join(ROOT, 'tools/test/fixtures');
+  const json = fs.readFileSync(path.join(fixDir, 'project-format-1.json'), 'utf8');
+  const meaning = () => p.evaluate(() => ({
+    studies: state.docs.map(d => [getDisplayName(d), d.quality || '', d.richness || '', d.group || '']),
+    rows: state.clusters.map(c => ({
+      title: c.thirdOrderTitle,
+      base: (state.docs.find(d => d.id === rowBaseDocId(c)) || {}).name || null,
+      translation: clusterTranslationLabel(c),
+      cells: state.docs.map(d => contribSymbol(state.annotations.filter(a => a.type === 'second_order' && a.docId === d.id && (a.clusterIds || []).includes(c.id)), c.id) || ((emptyCellInfo(c, d.id) || {}).symbol || '')),
+      cerqual: [c.cerqualConfidence, c.cerqualLimitations, c.cerqualCoherence, c.cerqualAdequacy, c.cerqualRelevance],
+      team: c.concordanceStatus
+    })),
+    constructs: state.annotations.filter(a => a.type === 'second_order').length,
+    quotes: state.annotations.filter(a => a.type === 'first_order').length,
+    notTranslated: state.annotations.filter(a => a.type === 'second_order' && !(a.clusterIds || []).length).length,
+    auditEntries: state.logs.length,
+    lineOfArgument: [state.loa.title || '', state.loa.seedChoice || '', (state.loa.links || []).length]
+  }));
+  const p = await openDemo();
+  const alerts = [];
+  p.removeAllListeners('dialog'); p.on('dialog', d => { if (d.type() === 'alert') alerts.push(d.message()); d.accept(); }); // OK = clean restore
+  await p.setInputFiles('#jsonFileInput', { name: 'v1.4.7.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(3000);
+  const got = await meaning();
+  const expFile = path.join(fixDir, 'project-format-1.expected.json');
+  if (process.env.WRITE_FIXTURE) fs.writeFileSync(expFile, JSON.stringify(got, null, 2) + '\n');
+  const exp = JSON.parse(fs.readFileSync(expFile, 'utf8'));
+  check('the v1.4.7 backup opens with the same meaning', JSON.stringify(got) === JSON.stringify(exp),
+    JSON.stringify(got).length + ' vs ' + JSON.stringify(exp).length);
+  // A backup records its format, so a later version knows how to read it
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#backupJsonBtn')]);
+  const written = JSON.parse(fs.readFileSync(await dl.path(), 'utf8'));
+  check('a new backup records its data format', written.formatVersion === await p.evaluate(() => PROJECT_FORMAT) && !!written.appVersion);
+  // A file from a NEWER format is refused, and nothing changes
+  const before = await meaning();
+  const newer = JSON.stringify({ ...JSON.parse(json), formatVersion: 999, appVersion: '9.9.9' });
+  alerts.length = 0;
+  await p.setInputFiles('#jsonFileInput', { name: 'future.json', mimeType: 'application/json', buffer: Buffer.from(newer) }); await p.waitForTimeout(1500);
+  check('a file from a newer version is refused with a clear message, and nothing changes', alerts.some(a => a.includes('newer version')) && JSON.stringify(await meaning()) === JSON.stringify(before));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Content-Security-Policy: the app works under it, and no request can leave the site (http and file://)', async () => {
   for (const url of [BASE + '?demo', 'file://' + path.join(ROOT, 'me_canvas.html') + '?demo']) {
     const where = url.startsWith('file') ? 'file://' : 'http';

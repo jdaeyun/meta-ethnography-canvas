@@ -47,7 +47,7 @@ Meta-Ethnography Canvas is a **plain HTML and JavaScript** app with **no build s
 * **No uploads:** Your PDFs and notes never leave your browser. They are saved in the browser's built-in database (IndexedDB).
 * **Nothing can be sent out:** A Content-Security-Policy lets the app load only its own files and blocks every request to another site, as a second line of defence if a crafted PDF or file ever ran code in the page. PDF.js runs with `isEvalSupported: false`, the fix for the known PDF font vulnerability (CVE-2024-4367).
 * **PDFs are stored separately:** The PDF files are kept apart from the notes, highlights and themes.
-* **Small backup files:** A `.json` backup holds your analysis but not the PDFs. To restore a backup or share it with a co-reviewer, drop the same PDFs onto the window. They are matched by file name, or by their contents if a file was renamed (the backup keeps a fingerprint of each PDF), and the highlights reappear. A file that still does not match can be connected to its study by hand.
+* **Small backup files:** A `.json` backup holds your analysis but not the PDFs. To restore a backup or share it with a co-reviewer, drop the same PDFs onto the window. They are matched by file name, or by their contents if a file was renamed (the backup keeps a fingerprint of each PDF), and the highlights reappear. A file that still does not match can be connected to its study by hand. Backups from version 1.4.7 on open in every later version with the same meaning.
 * **Project code:** Each project has a project code. If you try to load a backup with a different code, the app warns you, so two reviews are not mixed by mistake.
 
 ### 2. PDF reading

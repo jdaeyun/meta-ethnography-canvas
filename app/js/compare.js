@@ -252,7 +252,7 @@ function setCompareTab(tab) {
 async function processPeerJsonFile(file) {
   try {
     const text = await file.text();
-    const peerData = JSON.parse(text);
+    const peerData = upgradeProjectData(JSON.parse(text));
     if (!peerData.docs || !peerData.annotations) throw new Error('Invalid Reviewer JSON file.');
 
     const incomingProjCode = sanitizeProjectCode(peerData.projectCode || peerData.loa?.projectCode || '');

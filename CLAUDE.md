@@ -86,12 +86,15 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 - Classic `<script>` files sharing one global scope (not ES modules, so `file://` works).
   Keep the load order in `me_canvas.html`; `version.js`, then `core.js` first. Top-level code may only call
   functions from files loaded earlier — anything else must run inside handlers or DOMContentLoaded.
-- No backward compatibility with older project files is guaranteed (decided for v1.1.0): a field may change meaning or
-  disappear between versions, and no version-by-version migration is kept. Where a change is cheap to bridge, a project is
-  upgraded in place when it is loaded, so work in progress does not silently change meaning: `normalizeCluster()` derives
-  `baseDocId` for rows saved without it (study #1 where it has a construct, else none), startup stores `loa.baselineDocId`
-  and fingerprints PDFs for projects made before those existed. Add such a bridge only when it is a few lines; otherwise
-  leave older files unsupported and say so in the release.
+- Backward compatibility from v1.4.7 on (data format 1): a project saved by 1.4.7 or later must open in every later
+  version with the same meaning. Backups carry `formatVersion` (`PROJECT_FORMAT`, core.js). A change to the data shape or to
+  what a field means raises `PROJECT_FORMAT` and adds an upgrade step: in `upgradeProjectData()` for backup / compare files
+  and in `normalize*()` for the browser's own database. A file from a newer format is refused with a message, nothing changed.
+  The smoke test "Compatibility" restores tools/test/fixtures/project-format-1.json and compares its meaning (row bases,
+  cell symbols, translation labels, CERQual, team status, counts) with project-format-1.expected.json: never rewrite the
+  expected file (`WRITE_FIXTURE=1`) to make a test pass; add the upgrade step instead. Files from before 1.4.7 (no
+  formatVersion) open on a best-effort basis through the small bridges already in place (`baseDocId` derived in
+  `normalizeCluster()`, `loa.baselineDocId` and PDF fingerprints filled in at startup).
 - Data stores: `docs`, `pdf_binaries` (PDF bytes, separate from docs), `annotations`, `clusters`, `logs`, `meta` (`loa_main`).
   Annotation shape is defined by `normalizeAnnotation()`; 1st→2nd order links are `parentIds[]` (many-to-many);
   2nd order → rows are `clusterIds[]` with per-row `clusterRelations` / `clusterComments`. Each row records the study whose construct
