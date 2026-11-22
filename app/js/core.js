@@ -455,6 +455,9 @@ function secEvidenceText(s) {
 // "into" the row, so no reciprocal/refutational relation applies to them there. In index-paper approaches this is usually
 // study #1, but a row can also start from a later study (a concept #1 does not have), and the reviewer can choose that no
 // single study establishes a row (baseDocId null: every placement is judged). '' = not set yet: the first study placed sets it.
+// A row's history covers its own entries and those of the rows it was merged from or split off
+function rowHistoryIds(c) { return new Set([c.id, ...((c && c.historyFrom) || [])]); }
+function logIsForRow(l, c) { const ids = rowHistoryIds(c); return (l.clusterIds || []).some(id => ids.has(id)); }
 function clusterById(cid) { return state.clusters.find(c => c && c.id === cid) || null; }
 function rowBaseDocId(c) {
   const id = c && c.baseDocId;
@@ -575,6 +578,8 @@ function normalizeCluster(c) {
     const d0 = state.docs[0];
     c.baseDocId = d0 && state.annotations.some(a => a.type === 'second_order' && a.docId === d0.id && (a.clusterIds || []).includes(c.id)) ? d0.id : null;
   } else if (c.baseDocId !== null && typeof c.baseDocId !== 'string') c.baseDocId = null;
+  // Rows this row was merged from or split off (their history belongs to this row's history too)
+  if (!Array.isArray(c.historyFrom)) c.historyFrom = [];
   delete c.translationType; // removed: a row's reciprocal / refutational character is derived from its cells (clusterTranslationType)
   return c;
 }

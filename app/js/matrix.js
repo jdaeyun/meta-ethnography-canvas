@@ -890,13 +890,14 @@ function renderMatrixTable() {
             <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">3rd Order</span>
             <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
             <span class="cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
-            ${(() => { const n = state.logs.filter(l => (l.clusterIds || []).includes(cluster.id)).length; return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
+            ${(() => { const n = state.logs.filter(l => logIsForRow(l, cluster)).length; return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
             ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from the Index Paper's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
             <span class="cl-cerqual-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
           </div>
           <div class="flex items-center space-x-1">
             <button type="button" class="move-cl-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${state.clusters.indexOf(cluster) === 0 ? 'disabled' : ''} title="Move row up">▲</button>
             <button type="button" class="move-cl-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${state.clusters.indexOf(cluster) === state.clusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
+            <button type="button" class="cl-rowops text-slate-400 hover:text-indigo-600 cursor-pointer ml-1" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i></button>
             <button class="del-cluster text-slate-400 hover:text-rose-500 cursor-pointer ml-1" title="Delete Row"><i class="ph ph-trash"></i></button>
           </div>
         </div>
@@ -1311,6 +1312,7 @@ function renderMatrixTable() {
       bindPendingCommit(tdMeta.querySelector(sel), saveCerqualChanges);
     });
 
+    tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
     tdMeta.querySelector('.del-cluster').onclick = async () => {
       if (!confirm('Remove this 3rd Order row? Assigned 2nd Order Constructs will remain in the pool/other rows. (You can Undo with Ctrl+Z)')) return;
       const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
@@ -1828,3 +1830,135 @@ function closeRefutationMap() {
 }
 document.getElementById('refutMapBtn').addEventListener('click', openRefutationMap);
 document.getElementById('refutMapCloseBtn').addEventListener('click', closeRefutationMap);
+
+// ========================================================
+// MERGE / SPLIT ROWS: interpretive decisions, logged with a reason, undoable; nothing written is lost
+// ========================================================
+let rowOpsCluster = null;
+const rowOpsModal = document.getElementById('rowOpsModal');
+function closeRowOps() { rowOpsModal.classList.add('hidden'); rowOpsModal.classList.remove('flex'); rowOpsCluster = null; }
+document.getElementById('rowOpsCloseBtn').onclick = closeRowOps;
+rowOpsModal.addEventListener('click', e => { if (e.target === rowOpsModal) closeRowOps(); });
+
+function rowSecs(c) { return state.annotations.filter(a => a.type === 'second_order' && (a.clusterIds || []).includes(c.id)); }
+function openRowOps(cluster) {
+  flushAllPendingSaves();
+  rowOpsCluster = cluster;
+  document.getElementById('rowOpsTitle').textContent = `Merge or split: ${clusterLabel(cluster)}`;
+  const others = state.clusters.filter(c => c.id !== cluster.id);
+  const sel = document.getElementById('rowOpsMergeTarget');
+  sel.innerHTML = others.length ? others.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(clusterLabel(c))}</option>`).join('') : '<option value="">(no other row)</option>';
+  document.getElementById('rowOpsMergeBtn').disabled = !others.length;
+  const secs = rowSecs(cluster);
+  document.getElementById('rowOpsSplitList').innerHTML = secs.length
+    ? secs.map(s => { const d = state.docs.find(x => x.id === s.docId); return `<label class="flex items-start gap-1.5 cursor-pointer"><input type="checkbox" class="row-split-pick mt-0.5" value="${escapeHtml(s.id)}"><span><b>${escapeHtml(d ? getDisplayName(d) : 'Study')}</b> — ${escapeHtml(s.note || String(s.text || '').slice(0, 90))}</span></label>`; }).join('')
+    : '<div class="text-slate-400 italic">No cards in this row.</div>';
+  document.getElementById('rowOpsSplitTitle').value = '';
+  document.getElementById('rowOpsWhy').value = '';
+  rowOpsModal.classList.remove('hidden'); rowOpsModal.classList.add('flex');
+}
+const deepCopy = o => JSON.parse(JSON.stringify(o));
+// Text carried from another row is kept, marked with where it came from
+const carryText = (into, from, title) => from && from.trim() ? (into && into.trim() ? into.trim() + '\n\n' : '') + `[From row "${title}"] ` + from.trim() : (into || '');
+
+async function mergeRows(src, tgt, why) {
+  const srcTitle = clusterLabel(src), tgtTitle = clusterLabel(tgt);
+  const secs = rowSecs(src);
+  pushUndoAction({ type: 'row_merge', label: `Merge "${srcTitle.slice(0, 24)}" into "${tgtTitle.slice(0, 24)}"`,
+    src: deepCopy(src), tgt: deepCopy(tgt), annotations: deepCopy(secs), loa: deepCopy(state.loa) });
+  let moved = 0;
+  for (const s of secs) {
+    normalizeAnnotation(s);
+    s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
+    if (!s.clusterIds.includes(tgt.id)) {
+      s.clusterIds.push(tgt.id); moved++;
+      if (s.clusterRelations[src.id]) s.clusterRelations[tgt.id] = s.clusterRelations[src.id];
+      if (s.clusterComments[src.id]) s.clusterComments[tgt.id] = s.clusterComments[src.id];
+    } else if (s.clusterComments[src.id] && s.clusterComments[src.id] !== s.clusterComments[tgt.id]) {
+      s.clusterComments[tgt.id] = carryText(s.clusterComments[tgt.id], s.clusterComments[src.id], srcTitle);
+    }
+    s.clusterIds = s.clusterIds.filter(id => id !== src.id);
+    delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
+    await dbPut('annotations', s);
+  }
+  normalizeCluster(tgt);
+  ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation'].forEach(k => { tgt[k] = carryText(tgt[k], src[k], srcTitle); });
+  // Empty-cell statuses: kept where the merged row still has nothing of that study
+  Object.entries(src.cellStatus || {}).forEach(([docId, v]) => {
+    const hasCard = rowSecs(tgt).some(a => a.docId === docId);
+    if (!hasCard && !(tgt.cellStatus && tgt.cellStatus[docId])) tgt.cellStatus[docId] = v;
+  });
+  Object.keys(tgt.cellStatus || {}).forEach(docId => { if (rowSecs(tgt).some(a => a.docId === docId)) delete tgt.cellStatus[docId]; });
+  if (!rowBaseDocId(tgt) && rowBaseDocId(src)) tgt.baseDocId = src.baseDocId;
+  tgt.historyFrom = [...new Set([...(tgt.historyFrom || []), src.id, ...(src.historyFrom || [])])];
+  await dbPut('clusters', tgt);
+  // Concept-map relations follow the row; a relation of the two rows to each other, or a duplicate, is dropped
+  if (Array.isArray(state.loa.links)) {
+    const seen = new Set(); const out = [];
+    state.loa.links.forEach(l => {
+      const n = { ...l, from: l.from === src.id ? tgt.id : l.from, to: l.to === src.id ? tgt.id : l.to };
+      const key = n.from + '|' + n.to + '|' + n.type;
+      if (n.from !== n.to && !seen.has(key)) { seen.add(key); out.push(n); }
+    });
+    state.loa = { ...state.loa, links: out }; await dbPut('meta', state.loa);
+  }
+  await dbDelete('clusters', src.id);
+  state.clusters = state.clusters.filter(c => c.id !== src.id);
+  await recordAuditLog({
+    clusterIds: [tgt.id, src.id], category: 'third_order',
+    action: `Merged row "${srcTitle}" into "${tgtTitle}"`,
+    detail: `${moved} construct(s) moved with their judgements and notes; ${secs.length - moved} were already in "${tgtTitle}". Step A / Step B and other texts of "${srcTitle}" were added to "${tgtTitle}", marked with their origin. The CERQual ratings of "${tgtTitle}" were kept: re-read them for the merged finding.`,
+    fromVal: `${srcTitle} + ${tgtTitle}`, toVal: tgtTitle, rationale: why
+  });
+}
+
+async function splitRow(src, secIds, title, why) {
+  const srcTitle = clusterLabel(src);
+  const secs = rowSecs(src).filter(s => secIds.includes(s.id));
+  const nw = await createNewClusterRow(title, { silent: true });
+  const srcBase = rowBaseDocId(src);
+  nw.baseDocId = secs.some(s => s.docId === srcBase) ? srcBase : secs[0].docId;
+  nw.historyFrom = [src.id, ...(src.historyFrom || [])];
+  pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${srcTitle.slice(0, 24)}"`, newId: nw.id, annotations: deepCopy(secs), order: state.clusters.map(c => c.id).filter(id => id !== nw.id) });
+  for (const s of secs) {
+    normalizeAnnotation(s);
+    s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
+    s.clusterIds = s.clusterIds.filter(id => id !== src.id).concat(nw.id);
+    if (s.clusterRelations[src.id]) s.clusterRelations[nw.id] = s.clusterRelations[src.id];
+    if (s.clusterComments[src.id]) s.clusterComments[nw.id] = s.clusterComments[src.id];
+    delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
+    await dbPut('annotations', s);
+  }
+  await dbPut('clusters', nw);
+  // The new row sits right below the one it was split from
+  state.clusters = state.clusters.filter(c => c.id !== nw.id);
+  state.clusters.splice(state.clusters.findIndex(c => c.id === src.id) + 1, 0, nw);
+  await persistClusterOrder();
+  await recordAuditLog({
+    clusterIds: [src.id, nw.id], category: 'third_order',
+    action: `Split ${secs.length} construct(s) off "${srcTitle}" into a new row "${clusterLabel(nw)}"`,
+    detail: secs.map(s => { const d = state.docs.find(x => x.id === s.docId); return `${d ? getDisplayName(d) : 'Study'} (p.${s.page}): ${s.note || String(s.text || '').slice(0, 60)}`; }).join('\n'),
+    fromVal: srcTitle, toVal: `${srcTitle} | ${clusterLabel(nw)}`, rationale: why
+  });
+}
+
+document.getElementById('rowOpsMergeBtn').onclick = async () => {
+  const src = rowOpsCluster, tgt = state.clusters.find(c => c.id === document.getElementById('rowOpsMergeTarget').value);
+  if (!src || !tgt) return;
+  const why = document.getElementById('rowOpsWhy').value.trim();
+  closeRowOps();
+  await mergeRows(src, tgt, why);
+  renderLoaClusterChips(); renderMatrixView();
+  showSnackbar(`Merged into "${clusterLabel(tgt)}" — Ctrl+Z to undo`);
+};
+document.getElementById('rowOpsSplitBtn').onclick = async () => {
+  const src = rowOpsCluster; if (!src) return;
+  const ids = [...document.querySelectorAll('.row-split-pick:checked')].map(x => x.value);
+  if (!ids.length) { showSnackbar('Tick the cards to split off.'); return; }
+  const title = document.getElementById('rowOpsSplitTitle').value.trim();
+  const why = document.getElementById('rowOpsWhy').value.trim();
+  closeRowOps();
+  await splitRow(src, ids, title, why);
+  renderLoaClusterChips(); renderMatrixView();
+  showSnackbar(`Split ${ids.length} card(s) into a new row — Ctrl+Z to undo`);
+};

@@ -131,6 +131,30 @@ async function performUndoStep() {
     });
     updateAuditBadge();
     if (!divAudit.classList.contains('hidden')) renderAuditTimeline();
+  } else if (last.type === 'row_merge' || last.type === 'row_split') {
+    // Put the rows, their constructs and the concept map back exactly as they were before the merge / split
+    const putAnno = async a => {
+      await dbPut('annotations', a);
+      const i = state.annotations.findIndex(x => x.id === a.id);
+      if (i >= 0) state.annotations[i] = normalizeAnnotation(a); else state.annotations.push(normalizeAnnotation(a));
+    };
+    for (const a of last.annotations) await putAnno(a);
+    if (last.type === 'row_merge') {
+      for (const c of [last.src, last.tgt]) {
+        await dbPut('clusters', c);
+        const i = state.clusters.findIndex(x => x.id === c.id);
+        if (i >= 0) state.clusters[i] = normalizeCluster(c); else state.clusters.push(normalizeCluster(c));
+      }
+      state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
+      state.loa = last.loa; await dbPut('meta', state.loa);
+    } else {
+      await dbDelete('clusters', last.newId);
+      state.clusters = last.order.map(id => state.clusters.find(c => c.id === id)).filter(Boolean);
+      await persistClusterOrder();
+    }
+    await recordAuditLog({ category: 'third_order', action: `Undid: ${last.label}`, detail: '', clusterIds: last.type === 'row_merge' ? [last.src.id, last.tgt.id] : [last.newId] });
+    renderLoaClusterChips();
+    if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   } else if (last.type === 'unassign_cluster') {
     const sec = state.annotations.find(a => a.id === last.secId);
     if (sec) {

@@ -100,6 +100,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   2nd order → rows are `clusterIds[]` with per-row `clusterRelations` / `clusterComments`. Each row records the study whose construct
   established it (`cluster.baseDocId`; null = no single base, '' = set by the first construct placed): only that study's cards are
   unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row.
+  Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
+  was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
 - Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit

@@ -869,6 +869,66 @@ await group('Layout at laptop widths: no overlap in the header or view toolbars,
   check('the prebuilt CSS has the classes the pages use', ['shadow-xs', 'min-w-0', 'bg-indigo-700'].every(c => css.includes('.' + c)));
 });
 
+await group('Rows can be merged and split: judgements, texts, map relations and history travel; Ctrl+Z restores', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const snap = () => p.evaluate(() => JSON.stringify({ c: state.clusters.map(c => ({ ...c })), a: state.annotations.filter(x => x.type === 'second_order'), l: state.loa.links || [] }));
+  await p.evaluate(async () => { state.loa = { ...state.loa, links: [{ id: 'lk1', from: state.clusters[1].id, to: state.clusters[2].id, type: 'leads' }, { id: 'lk2', from: state.clusters[0].id, to: state.clusters[1].id, type: 'mutual' }] }; await dbPut('meta', state.loa); });
+  const before = await snap();
+  // Open the dialog from the row header (UI path), then merge row 2 into row 1
+  await p.locator('.cl-rowops').first().click(); await p.waitForTimeout(200);
+  check('the merge / split dialog opens from the row header', await p.evaluate(() => !document.getElementById('rowOpsModal').classList.contains('hidden')));
+  await p.click('#rowOpsCloseBtn');
+  const m = await p.evaluate(async () => {
+    const [tgt, src] = [state.clusters[0], state.clusters[1]];
+    const srcSecs = rowSecs(src).map(s => ({ id: s.id, rel: (s.clusterRelations || {})[src.id] || null }));
+    const srcTitle = clusterLabel(src), srcId = src.id, srcStepA = src.translationSummary;
+    await mergeRows(src, tgt, 'Both rows describe the same burden');
+    const log = state.logs[0];
+    return {
+      gone: !state.clusters.some(c => c.id === srcId),
+      cardsMoved: srcSecs.every(x => { const a = state.annotations.find(y => y.id === x.id); return a.clusterIds.includes(tgt.id) && !a.clusterIds.includes(srcId); }),
+      relKept: srcSecs.filter(x => x.rel).every(x => { const a = state.annotations.find(y => y.id === x.id); return a.clusterRelations[tgt.id] === x.rel || rowSecs(tgt).some(s => s.id === x.id); }),
+      stepA: !srcStepA || tgt.translationSummary.includes(`[From row "${srcTitle}"]`),
+      links: state.loa.links.map(l => [l.from === tgt.id, l.to]).length === 1 && state.loa.links[0].from === tgt.id,
+      history: tgt.historyFrom.includes(srcId) && state.logs.some(l => (l.clusterIds || []).includes(srcId) && l !== log && logIsForRow(l, tgt)),
+      logged: log.action.startsWith('Merged row') && log.rationale === 'Both rows describe the same burden' && log.clusterIds.includes(tgt.id)
+    };
+  });
+  check('merging moves the cards with their judgements and removes the row', m.gone && m.cardsMoved && m.relKept);
+  check('the merged row keeps the other row\'s Step A, marked with its origin', m.stepA);
+  check('concept-map relations follow the row (a relation between the two is dropped)', m.links);
+  check('the merged row\'s history includes the history of the row it absorbed', m.history);
+  check('the merge is logged with its reason', m.logged);
+  await p.evaluate(() => performUndo()); await p.waitForTimeout(500);
+  const afterUndo = JSON.parse(await snap()), orig = JSON.parse(before);
+  check('Ctrl+Z undoes the merge exactly (rows, cards, relations, map)', JSON.stringify(afterUndo) === JSON.stringify(orig));
+  // Split one card of row 1 into a new row
+  const sp = await p.evaluate(async () => {
+    const src = state.clusters[0];
+    const sec = rowSecs(src).find(s => (s.clusterRelations || {})[src.id] === 'refutational') || rowSecs(src)[1];
+    const rel = (sec.clusterRelations || {})[src.id] || null, n = state.clusters.length;
+    await splitRow(src, [sec.id], 'A split-off reading', 'Reads as a separate idea');
+    const nw = state.clusters[1];
+    return { n2: state.clusters.length === n + 1, placed: nw.thirdOrderTitle === 'A split-off reading', moved: sec.clusterIds.includes(nw.id) && !sec.clusterIds.includes(src.id),
+      rel: (sec.clusterRelations || {})[nw.id] === rel || rel === null, hist: nw.historyFrom.includes(src.id), logged: state.logs[0].action.startsWith('Split 1 construct') && state.logs[0].rationale === 'Reads as a separate idea' };
+  });
+  check('splitting moves the ticked cards into a new row right below, with their judgements', sp.n2 && sp.placed && sp.moved && sp.rel);
+  check('the new row\'s history starts from the row it was split from; the split is logged with its reason', sp.hist && sp.logged);
+  await p.evaluate(() => performUndo()); await p.waitForTimeout(500);
+  check('Ctrl+Z undoes the split', await p.evaluate(n => state.clusters.length === n, JSON.parse(before).c.length));
+  // Quiet gaps: grey in the preview while working, full text in exports
+  await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  const q = await p.evaluate(() => ({ on: document.getElementById('pubPreviewContainer').classList.contains('gaps-quiet'), color: getComputedStyle(document.querySelector('#pubPreviewContainer .mec-gap')).color }));
+  check('write-up gaps are quiet (grey) by default while working', q.on && q.color === 'rgb(148, 163, 184)');
+  await p.locator('#quietGapsToggle').uncheck(); await p.waitForTimeout(200);
+  check('unticking Quiet gaps shows them in blue', await p.evaluate(() => getComputedStyle(document.querySelector('#pubPreviewContainer .mec-gap')).color === 'rgb(37, 99, 235)'));
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
+  check('exports keep the full [Author to insert] text', readZipEntry(fs.readFileSync(await dl.path()), 'word/document.xml').includes('Author to insert'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Compatibility: a format-1 (v1.4.7) backup opens with the same meaning; newer formats are refused', async () => {
   // The fixture is a backup written by v1.4.7 from the demo. Its "meaning" (who established each row, how each study is read
   // in it, CERQual, team status, …) must stay the same in every later version. WRITE_FIXTURE=1 npm test rewrites the

@@ -579,7 +579,7 @@ function appCitationHtml() {
 // ---- Methods Summary: built ONCE as sections, rendered identically to HTML / Markdown / Word ----
 // A sentence ending: no second full stop after a text that already ends with . ? or !
 const endStop = t => /[.?!]\s*$/.test(String(t || '')) ? '' : '.';
-const PH = (t) => `<span style="color:#2563eb; font-weight:bold;">[Author to insert: ${t}]</span>`;
+const PH = (t) => `<span class="mec-gap" style="color:#2563eb; font-weight:bold;">[Author to insert: ${t}]</span>`;
 function getMethodSections() {
   const docCount = state.docs.length;
   const tools = new Set();
@@ -745,7 +745,7 @@ function buildMethodHtml() {
   return `
     <div class="mb-5">
       <h3 style="font-family: Georgia, serif; font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 8px;">Methods Summary (structured around eMERGe)</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic; margin-bottom: 16px;">Compiled from your project data and audit trail. Expand with your analytical rationale before submission.</p>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic; margin-bottom: 16px;">Compiled from your project data and audit trail. The [Author to insert] gaps are for when you write up: nothing here has to be filled while you are still reading and translating. Expand with your analytical rationale before submission.</p>
       <div style="font-family: Georgia, serif; font-size: 13.5px; color: #1e293b; line-height: 1.6;">${body}</div>
     </div>
     ${buildeMERGeTableHtml()}
@@ -756,7 +756,7 @@ function buildeMERGeTableHtml() {
   const rows = getEmergeChecklist().map(r => {
     const status = r.level === 'app' ? `<b>${escapeHtml(r.text)}</b>`
       : r.level === 'partial' ? `<span style="color:#b45309; font-weight:bold;">Partly: ${escapeHtml(r.text)}</span>`
-      : `<span style="color:#2563eb; font-weight:bold;">[${escapeHtml(r.text)}]</span>`;
+      : `<span class="mec-gap" style="color:#2563eb; font-weight:bold;">[${escapeHtml(r.text)}]</span>`;
     const ph = r.phase ? `<b>${escapeHtml(r.phase).replace('\n', '<br>')}</b>` : '';
     return `<tr><td>${ph}</td><td>${escapeHtml(String(r.no))}. ${escapeHtml(r.title)}</td><td>${escapeHtml(r.desc)}</td><td>${status}</td></tr>`;
   }).join('');
@@ -798,8 +798,12 @@ function buildeMERGeTableHtml() {
   });
 })();
 
+// Gaps for the write-up are shown quietly (grey) while working; exports always keep the full [Author to insert] text
+function quietGaps() { try { return lsGet('me_quiet_gaps') !== '0'; } catch (e) { return true; } }
 function renderPublicationView() {
   const container = document.getElementById('pubPreviewContainer');
+  container.classList.toggle('gaps-quiet', quietGaps());
+  const qt = document.getElementById('quietGapsToggle'); if (qt) qt.checked = quietGaps();
   if (state.activePubTable === 'method') container.innerHTML = buildMethodHtml();
   else if (state.activePubTable === 'table1') container.innerHTML = buildTable1Html();
   else if (state.activePubTable === 'table2') container.innerHTML = buildTable2Html();
@@ -1447,4 +1451,9 @@ document.getElementById('exportCsvBtn').addEventListener('click', () => {
   a.download = `meta_ethnography_synthesis_${projTag}${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+document.getElementById('quietGapsToggle')?.addEventListener('change', e => {
+  try { lsSet('me_quiet_gaps', e.target.checked ? '1' : '0'); } catch (err) {}
+  renderPublicationView();
 });
