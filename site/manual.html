@@ -128,7 +128,7 @@
         <ul class="list-disc pl-6 space-y-2">
           <li><strong>Reviewer ID:</strong> Every quote you extract and theme you create will automatically carry your tag (such as <span class="text-xs font-mono bg-slate-200 text-slate-800 px-2 py-0.5 rounded font-bold">@DYJ</span>). You can change it anytime in the top bar (<strong>Rev ID</strong>).</li>
           <li><strong>Project Code:</strong> This unique code prevents you from accidentally merging or overwriting backup files from a different systematic review project.</li>
-          <li><strong>Phase 1 Aim:</strong> You can optionally enter your research question here; it will be displayed in your Line of Argument drawer to keep you focused during synthesis.</li>
+          <li><strong>Phase 1 Aim:</strong> You can optionally enter your research question here; it will be displayed in your <strong>Research Aim &amp; Overall Model</strong> drawer (Tab 2) to keep you focused during synthesis.</li>
         </ul>
       </div>
 
@@ -180,7 +180,7 @@
         <ul class="list-disc pl-6 space-y-2">
           <li>Click <strong>+ Add PDF</strong> in the left sidebar (or drag and drop PDF files anywhere on the window).</li>
           <li><strong>DOI and file fingerprint:</strong> When a PDF is added, the app reads its DOI (from the PDF's metadata or page 1; you can correct it in <em>Edit Study Info</em>) and stores a fingerprint of the file. Both are used only to recognise the same paper in a co-reviewer's backup, even if the file was renamed.</li>
-          <li><strong>Index Paper (#1):</strong> The study at the top of the left sidebar is automatically marked with an orange <span class="text-[11px] bg-amber-500 text-white px-1 py-0.2 rounded font-bold uppercase">Index</span> badge. It appears as the first column in your Synthesis Matrix.</li>
+          <li><strong>Index Paper (#1):</strong> The study at the top of the left sidebar is automatically marked with an orange <span class="text-[11px] bg-amber-500 text-white px-1 py-0.2 rounded font-bold uppercase">Index</span> badge (<em>#1 · Earliest</em> or <em>#1</em> if you set the translation order to Chronological or Other). It appears as the first column in your Synthesis Matrix.</li>
           <li><strong>Quick sorting:</strong> Use the <span class="text-xs font-semibold bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded">Year▲</span> button to sort studies chronologically by publication year, or <span class="text-xs font-semibold bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded">Rich★</span> to sort by Conceptual Richness (richest first; how ties are handled is in 2.3). The study at #1 is your Index Paper: it is your choice, and you can change it. You can also drag and drop studies manually at any time. Every order change is automatically logged in your Audit Trail.</li>
           <li><strong>Changing #1 after you have started translating:</strong> Study #1 is where translation starts, and the rows you started from it are established by it (see 3.2). Changing #1 does not change which study established a row, and no judgement is changed. Every row established by the former #1 gets an amber <em>⚠ Study #1 changed after this row was built</em> box in Tab 2, because the translation order it was built on has changed: re-read the row and check whether it and its title still hold. If the new #1 should establish the row instead (and has a construct in it), click <strong>Make … the base</strong>: the former #1 is then translated into the row, so judge its cards. Otherwise click <strong>Re-read · mark as reviewed</strong> (you can note what you checked). Until then, Table 2 marks the row as not yet re-read. This also happens when #1 is deleted or a sort puts another study first.</li>
         </ul>
@@ -370,7 +370,7 @@
         The <em>eMERGe</em> reporting guidance asks researchers to explain how interpretive decisions were made and how the researchers' own backgrounds influenced the synthesis (reflexivity).
       </p>
       <ul class="list-disc pl-6 space-y-2 text-slate-700">
-        <li><strong>Automatic Logging of Key Decisions:</strong> Whenever you create or rename a 3rd Order theme, change a study's order/Index Paper, mark a construct as Refutational, update CERQual ratings, or save your Line of Argument model, the app automatically logs a dated entry showing the <em>Before ➔ After</em> change.</li>
+        <li><strong>Automatic Logging of Key Decisions:</strong> Whenever you create or rename a 3rd Order theme, change a study's order/Index Paper, judge a construct (Reciprocal, Refutational or Different aspect), merge or split rows, update CERQual ratings, or save your Line of Argument model, the app automatically logs a dated entry showing the <em>Before ➔ After</em> change.</li>
         <li><strong>Reflexive note on each theme row:</strong> Under Step B in Tab 2 there is an optional <em>Reflexive note</em> (how your own position may shape this reading). It is saved in the Audit Trail as a reflexive memo, with its history, so it can be reported alongside the theme.</li>
         <li><strong>Adding Reflexive & Analytic Memos:</strong> Use the form on the left side of Tab 3 to record your personal clinical or academic lens (<em>Reflexivity</em>), notes from supervisor/team meetings, or reasons for how you related and brought themes together.</li>
         <li><strong>Adding Reasons to Any Log Entry:</strong> Every item in the chronological timeline has a <code>+ Add reason for this decision...</code> box where you can type a quick rationale. A reason added later shows when it was written, and if you change it, the earlier wording is kept; both appear in Appendix A, so a reason written afterwards is never mistaken for one written at the time.</li>
@@ -406,7 +406,7 @@
           <figcaption class="text-xs text-slate-500 mt-1.5">Tab 4: choose a table (here Table 2b with its legend), then copy it or download it.</figcaption>
         </figure>
       <p class="text-slate-700 pt-2">
-        <strong>Export Options:</strong> Click <strong>Copy Rich Table</strong> to paste the currently viewed table directly into Microsoft Word or Google Docs with borders and formatting intact. You can also <strong>Copy Markdown</strong>, download the Methods Summary, all the tables and the appendices together in a single landscape <strong>Word (.docx)</strong> document, or download a <strong>Raw CSV</strong> of your entire synthesis matrix. In the Word file, a blue note under <em>Concept relationships</em> reminds you to add the concept map picture: download it as .svg from the Line of Argument drawer and insert it as a figure.
+        <strong>Export Options:</strong> Click <strong>Copy Rich Table</strong> to paste the currently viewed table directly into Microsoft Word or Google Docs with borders and formatting intact. You can also <strong>Markdown</strong> (copy as Markdown), download the Methods Summary, all the tables and the appendices together in a single landscape <strong>Word (.docx)</strong> document, or download a <strong>Raw CSV</strong> of your entire synthesis matrix. In the Word file, a blue note under <em>Concept relationships</em> reminds you to add the concept map picture: download it as .svg from the Research Aim &amp; Overall Model drawer and insert it as a figure.
       </p>
     </section>
 
@@ -444,6 +444,7 @@
             <li>
               <strong>Extract Independently, Then Compare & Merge:</strong> After each reviewer extracts quotes and concepts on their own computer, have your co-reviewer click <strong>Backup</strong> and send you their <code>.json</code> file. Click the teal <strong>Compare</strong> button in the top bar and drop their file in to review the <strong>◇ Read Differently</strong> and <strong>🔍 Unique Extractions</strong> tabs, then <strong>Import & Agree</strong>, <strong>Import as Discuss</strong> or <strong>Set Aside</strong> (not imported now; it stays in their file) in one click. <strong>+ Import All as Discuss</strong> brings in every remaining construct at once as <em>Discuss</em>: agreement, always provisional, is recorded one construct at a time after reading it.
               <ul class="mec-sublist pl-6 mt-1 space-y-1">
+                <li><strong>Team UI (top bar):</strong> tick it to show each construct's team status (<em>Pending</em>, <em>Discuss</em>, <em>Agreed (for now)</em>) and a team discussion note on every card in Tab 1 and Tab 2; when it is off, they show only on cards where a status or note has been set.</li>
                 <li><strong>Which study is which:</strong> the <strong>📚 Studies &amp; Order</strong> tab matches their studies to yours by identical PDF file, DOI, file name or title; a study with only the same first author and year is offered as a ★ suggestion for you to confirm.</li>
                 <li><strong>Translation order:</strong> both reviewers' orders are shown side by side. A different #1 or order is a difference to discuss, and you can record it in the Audit Trail. The pairing of constructs does not depend on the order of either file.</li>
                 <li><strong>Rows:</strong> an imported construct keeps its place in a 3rd Order row when you have that row too: the same row, or a row with the same title.</li>
@@ -473,7 +474,7 @@
             <kbd class="px-2 py-1 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 shadow-2xs">Ctrl+F / Cmd+F</kbd>
           </div>
           <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-            <span class="text-sm font-medium text-slate-700">Undo Delete</span>
+            <span class="text-sm font-medium text-slate-700" title="Undoes a deletion, a removal from a row, or a merge / split of rows">Undo</span>
             <kbd class="px-2 py-1 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 shadow-2xs">Ctrl+Z / Cmd+Z</kbd>
           </div>
         </div>
