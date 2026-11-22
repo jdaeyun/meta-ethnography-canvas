@@ -947,6 +947,32 @@ await group('Rows can be merged and split: judgements, texts, map relations and 
   check('the new row\'s history starts from the row it was split from; the split is logged with its reason', sp.hist && sp.logged);
   await p.evaluate(() => performUndo()); await p.waitForTimeout(500);
   check('Ctrl+Z undoes the split', await p.evaluate(n => state.clusters.length === n, JSON.parse(before).c.length));
+  // Undo keeps what was changed after the operation
+  const k = await p.evaluate(async () => {
+    const [tgt, src] = [state.clusters[0], state.clusters[1]];
+    // a construct in both rows, read differently in each
+    const shared = rowSecs(src).find(x => !x.clusterIds.includes(tgt.id) && secRelation(x, src.id) !== 'baseline');
+    shared.clusterIds.push(tgt.id); shared.clusterRelations[tgt.id] = 'reciprocal'; shared.clusterRelations[src.id] = 'refutational'; await dbPut('annotations', shared);
+    state.loa = { ...state.loa, links: [{ id: 'm1', from: tgt.id, to: state.clusters[2].id, type: 'mutual' }, { id: 'm2', from: state.clusters[2].id, to: src.id, type: 'mutual' }] };
+    await mergeRows(src, tgt, '');
+    const noted = (shared.clusterComments[tgt.id] || '').includes('judged Refutational there') && state.logs[0].detail.includes('Read differently in the two rows');
+    const oneLink = state.loa.links.length === 1;
+    tgt.synthesisNote = 'Rewritten after the merge'; await dbPut('clusters', tgt);
+    await performUndo();
+    const t2 = state.clusters.find(c => c.id === tgt.id);
+    const r = { noted, oneLink, keptEdit: t2.synthesisNote === 'Rewritten after the merge', srcBack: state.clusters.some(c => c.id === src.id), loggedKept: state.logs[0].detail.includes('Kept what was changed after it') };
+    // split, then add a row, then undo the split: the added row stays
+    const n0 = state.clusters.length;
+    await splitRow(state.clusters[0], [rowSecs(state.clusters[0])[0].id], 'tmp', '');
+    const added = await createNewClusterRow('Added after the split', { silent: true });
+    await performUndo();
+    r.addedStays = state.clusters.some(c => c.id === added.id) && state.clusters.length === n0 + 1 && state.logs[0].clusterIds.length === 2;
+    return r;
+  });
+  check('merging a construct read differently in the two rows keeps the other reading as a note, and logs it', k.noted);
+  check('a symmetric relation is not duplicated by a merge (A–C and C–A)', k.oneLink);
+  check('undoing a merge keeps an edit made after it, and says so in the log', k.keptEdit && k.srcBack && k.loggedKept);
+  check('undoing a split keeps a row added after it; the undo is in both rows\' history', k.addedStays);
   // Quiet gaps: grey in the preview while working, full text in exports
   await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
   const q = await p.evaluate(() => ({ on: document.getElementById('pubPreviewContainer').classList.contains('gaps-quiet'), color: getComputedStyle(document.querySelector('#pubPreviewContainer .mec-gap')).color }));

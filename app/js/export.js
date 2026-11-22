@@ -639,7 +639,9 @@ function getMethodSections() {
   });
   const unjudgedHtml = unjudgedCells ? ` ${PH(`${unjudgedCells} placement(s) of a construct in a row have no reciprocal / refutational judgement yet (○ in Table 2b)`)}` : '';
   const aspectCells = getOtherAspectCells();
-  const otherAspect = aspectCells.length, aspectUsed = aspectCells.filter(x => x.used).length;
+  // Counted per study and row (a study with two ◇ cards in one row is one instance)
+  const byPair = new Map(); aspectCells.forEach(x => { const k = x.cluster.id + '|' + x.doc.id; byPair.set(k, (byPair.get(k) || false) || x.used); });
+  const otherAspect = byPair.size, aspectUsed = [...byPair.values()].filter(Boolean).length;
   const otherAspectHtml = !otherAspect ? ''
     : ` In ${otherAspect} ${otherAspect === 1 ? 'instance' : 'instances'} a study addressed a different aspect of a theme rather than translating into it (◇ in Table 2b)`
       + (aspectUsed ? `; the line-of-argument synthesis drew on ${aspectUsed === otherAspect ? (otherAspect === 1 ? 'it' : 'all of them') : aspectUsed + ' of them'} (marked in Table 2). ${PH('how these different aspects were brought into the line of argument')}`
