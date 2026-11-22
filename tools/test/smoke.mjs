@@ -869,6 +869,36 @@ await group('Layout at laptop widths: no overlap in the header or view toolbars,
   check('the prebuilt CSS has the classes the pages use', ['shadow-xs', 'min-w-0', 'bg-indigo-700'].every(c => css.includes('.' + c)));
 });
 
+await group('A placed card can be judged ◇ Different aspect: symbol, row label, line-of-argument list, Table 2', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const t = await p.evaluate(() => {
+    const c = state.clusters.find(x => clusterSecsTranslated(x).some(a => secRelation(a, x.id) === 'reciprocal'));
+    const sec = clusterSecsTranslated(c).find(a => secRelation(a, c.id) === 'reciprocal');
+    return { cid: c.id, sid: sec.id };
+  });
+  await p.evaluate(cid => document.querySelector(`tr[data-cluster-id="${cid}"]`).scrollIntoView({ block: 'center' }), t.cid); await p.waitForTimeout(600);
+  const sel = p.locator(`tr[data-cluster-id="${t.cid}"] .rel-select`);
+  const idx = await p.evaluate(x => { const c = clusterById(x.cid); const secs = state.docs.flatMap(d => state.annotations.filter(a => a.type === 'second_order' && a.docId === d.id && (a.clusterIds || []).includes(c.id) && secRelation(a, c.id) !== 'baseline')); return secs.findIndex(a => a.id === x.sid); }, t);
+  check('the judgement menu offers ◇ Different aspect', (await sel.nth(Math.max(idx, 0)).locator('option[value=other_aspect]').count()) === 1);
+  await p.evaluate(async x => { const s = state.annotations.find(a => a.id === x.sid); s.clusterRelations[x.cid] = 'other_aspect'; await dbPut('annotations', s); renderMatrixView(); }, t);
+  const r = await p.evaluate(x => { const s = state.annotations.find(a => a.id === x.sid), c = clusterById(x.cid); return { rel: secRelation(s, x.cid), sym: contribSymbol([s], x.cid), label: clusterTranslationLabel(c), refut: isSecRefutational(s, x.cid), listed: getOtherAspectCells().some(y => y.sec && y.sec.id === x.sid) }; }, t);
+  check('it shows ◇ in the grid and is neither reciprocal nor refutational', r.rel === 'other_aspect' && r.sym === '◇' && !r.refut);
+  check('the row label counts it', /different aspect/.test(r.label));
+  check('it is listed beside the line of argument', r.listed);
+  await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(400);
+  const i = await p.evaluate(x => getOtherAspectCells().findIndex(y => y.sec && y.sec.id === x.sid), t);
+  await p.locator('#loaAspectList .loa-aspect-use').nth(i).check(); await p.waitForTimeout(400);
+  check('ticking it records that the line of argument draws on it', await p.evaluate(x => !!state.annotations.find(a => a.id === x.sid).aspectUsedInLoa[x.cid] && state.logs[0].category === 'line_of_argument', t));
+  await tab(p, 'pub'); await p.locator('[data-pub=table2]').click(); await p.waitForTimeout(300);
+  check('Table 2 tags it, and says it is used', (await p.locator('#pubPreviewContainer').innerText()).includes('[◇ Different aspect, used in the line of argument]'));
+  // A row whose judged cards are all ◇ is "Different aspects only"
+  const only = await p.evaluate(x => { const c = clusterById(x.cid); clusterSecsTranslated(c).forEach(a => { a.clusterRelations[c.id] = 'other_aspect'; }); return clusterTranslationLabel(c); }, t);
+  check('a row with only ◇ judgements reads "Different aspects only"', only.startsWith('Different aspects only'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Rows can be merged and split: judgements, texts, map relations and history travel; Ctrl+Z restores', async () => {
   const p = await openDemo();
   await tab(p, 'matrix'); await p.waitForTimeout(600);

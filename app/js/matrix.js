@@ -1361,6 +1361,7 @@ function renderMatrixTable() {
           const showConcUI = state.teamMode || sec.concordanceStatus !== 'pending' || Boolean(sec.concordanceNote);
 
           const placeholderFor = rel => rel === 'refutational' ? 'Explain how this study contrasts or disagrees in this row...'
+            : rel === 'other_aspect' ? 'Which other aspect of the topic does this speak to, and how might it feed the line of argument?'
             : rel === 'unjudged' ? 'Read it against the row: does it translate into it (reciprocal) or contrast with it (refutational)?' : 'Note on how this concept fits into this theme...';
           const cellPlaceholder = placeholderFor(cellRelation);
 
@@ -1395,7 +1396,7 @@ function renderMatrixTable() {
               <div class="flex items-center flex-wrap gap-1">
                 ${isBaselineCell
                   ? `<span class="text-[11px] font-bold px-1.5 py-0.5 rounded border ${relMeta.badgeCls}" title="This study's construct established the row; the constructs of the other studies are judged against it (Reciprocal / Refutational). Change it under Established by in the row header.">${relMeta.label}</span>`
-                  : `<select class="rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${relMeta.badgeCls}" title="How this study's construct relates to the row: not yet judged, Reciprocal (translates into it) or Refutational (contrasts with it)">
+                  : `<select class="rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${relMeta.badgeCls}" title="How this study's construct relates to the row: not yet judged, Reciprocal (translates into it), Refutational (contrasts with it) or Different aspect (speaks to another aspect of the topic, for the line of argument)">
                   ${CELL_RELATIONS.map(r => `<option value="${r}" ${r === cellRelation ? 'selected' : ''}>${escapeHtml(getCellRelationMeta(r).label)}</option>`).join('')}
                 </select>`}
                 <button type="button" class="jump-pdf-btn text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 px-2.5 py-0.5 rounded-md shadow-sm cursor-pointer transition flex items-center space-x-1 transform hover:-translate-y-0.5" title="Open PDF & jump to page ${sec.page} in ${escapeHtml(getDisplayName(doc))}"><i class="ph ph-file-pdf"></i><span>PDF p.${sec.page}</span><i class="ph ph-arrow-square-out"></i></button>
@@ -1874,11 +1875,13 @@ async function mergeRows(src, tgt, why) {
       s.clusterIds.push(tgt.id); moved++;
       if (s.clusterRelations[src.id]) s.clusterRelations[tgt.id] = s.clusterRelations[src.id];
       if (s.clusterComments[src.id]) s.clusterComments[tgt.id] = s.clusterComments[src.id];
+      if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [tgt.id]: true };
     } else if (s.clusterComments[src.id] && s.clusterComments[src.id] !== s.clusterComments[tgt.id]) {
       s.clusterComments[tgt.id] = carryText(s.clusterComments[tgt.id], s.clusterComments[src.id], srcTitle);
     }
     s.clusterIds = s.clusterIds.filter(id => id !== src.id);
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
+    if (s.aspectUsedInLoa) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[src.id]; }
     await dbPut('annotations', s);
   }
   normalizeCluster(tgt);
@@ -1926,6 +1929,7 @@ async function splitRow(src, secIds, title, why) {
     s.clusterIds = s.clusterIds.filter(id => id !== src.id).concat(nw.id);
     if (s.clusterRelations[src.id]) s.clusterRelations[nw.id] = s.clusterRelations[src.id];
     if (s.clusterComments[src.id]) s.clusterComments[nw.id] = s.clusterComments[src.id];
+    if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [nw.id]: true }; delete s.aspectUsedInLoa[src.id]; }
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
     await dbPut('annotations', s);
   }

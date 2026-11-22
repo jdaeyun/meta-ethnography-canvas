@@ -123,6 +123,7 @@ function teamModelsHtml() {
 // Relation tag for a construct in a Table 2 row (the study that established the row has none)
 function relTag(s, cid) {
   const r = secRelation(s, cid);
+  if (r === 'other_aspect') return '[◇ Different aspect' + (s.aspectUsedInLoa && s.aspectUsedInLoa[cid] ? ', used in the line of argument' : '') + '] ';
   return r === 'refutational' ? '[⚡Refutational] ' : r === 'unjudged' ? '[○ Not yet judged] ' : '';
 }
 // Studies with nothing in the row but a recorded reason: "different aspect" (line of argument) and "checked, not addressed"
