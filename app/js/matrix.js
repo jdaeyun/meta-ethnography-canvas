@@ -1377,16 +1377,28 @@ function renderMatrixTable() {
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
     tdMeta.querySelector('.del-cluster').onclick = async () => {
       const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
+      // Nothing of the row is left behind (judgements, cell notes and line-of-argument marks in it, its concept-map relations);
+      // Ctrl+Z puts all of it back
+      const PER_ROW = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+      const perRow = {};
+      assigned.forEach(a => { perRow[a.id] = {}; PER_ROW.forEach(k => { if (a[k] && cluster.id in a[k]) perRow[a.id][k] = a[k][cluster.id]; }); });
+      const removedLinks = (state.loa.links || []).filter(l => l.from === cluster.id || l.to === cluster.id);
       pushUndoAction({
         type: 'delete_cluster',
         label: `3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`,
         cluster: { ...cluster },
-        assignedSecIds: assigned.map(a => a.id)
+        assignedSecIds: assigned.map(a => a.id),
+        perRow, removedLinks
       });
       const ops = []; // unplacing the cards and deleting the row in one transaction (see dbBatch)
       for (let a of assigned) {
         a.clusterIds = a.clusterIds.filter(id => id !== cluster.id);
+        PER_ROW.forEach(k => { if (a[k] && cluster.id in a[k]) { a[k] = { ...a[k] }; delete a[k][cluster.id]; } });
         ops.push({ store: 'annotations', put: a });
+      }
+      if (removedLinks.length) {
+        state.loa = { ...state.loa, links: state.loa.links.filter(l => !removedLinks.includes(l)) };
+        ops.push({ store: 'meta', put: state.loa });
       }
       ops.push({ store: 'clusters', del: cluster.id });
       state.clusters = state.clusters.filter(c => c.id !== cluster.id);
@@ -1397,6 +1409,7 @@ function renderMatrixTable() {
         action: 'Deleted 3rd Order Row',
         fromVal: cluster.thirdOrderTitle || '(Untitled Row)'
       });
+      renderLoaClusterChips(); // the drawer's chips and map (if open) lose the row
       renderMatrixView();
       showUndoSnackbar(`Removed the row "${cluster.thirdOrderTitle || 'Untitled'}" (its constructs stay in the pool / other rows)`);
     };

@@ -127,7 +127,9 @@ function buildFlowMapSvg(prefix) {
   const nodes = state.clusters.filter(c => usedIds.has(c.id));
   if (nodes.length === 0) return '';
   const ids = nodes.map(c => c.id);
-  const leads = links.filter(l => l.type === 'leads');
+  // Every directed relation (leads to, encompasses, is understood through) sets the columns, left to right; a model built only
+  // of ⊃ or ≈ would otherwise stack every construct in one column
+  const leads = links.filter(l => isDirectedLink(l.type));
   // Drop back-edges (cycles) for ranking only
   const out = {}; ids.forEach(id => out[id] = []);
   const state3 = {}; const forward = new Set();
@@ -151,7 +153,7 @@ function buildFlowMapSvg(prefix) {
   }
   // Constructs joined only by ⇄ / ⚡ sit in the same column as their partner
   const leadNodes = new Set(leads.flatMap(l => [l.from, l.to]));
-  links.filter(l => l.type !== 'leads').forEach(l => {
+  links.filter(l => !isDirectedLink(l.type)).forEach(l => {
     if (!leadNodes.has(l.from) && leadNodes.has(l.to)) rank[l.from] = rank[l.to];
     else if (!leadNodes.has(l.to) && leadNodes.has(l.from)) rank[l.to] = rank[l.from];
   });

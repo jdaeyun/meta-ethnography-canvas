@@ -94,11 +94,15 @@ async function performUndoStep() {
       const sec = state.annotations.find(a => a.id === secId);
       if (sec) {
         normalizeAnnotation(sec);
-        if (!sec.clusterIds.includes(last.cluster.id)) {
-          sec.clusterIds.push(last.cluster.id);
-          await dbPut('annotations', sec);
-        }
+        if (!sec.clusterIds.includes(last.cluster.id)) sec.clusterIds.push(last.cluster.id);
+        Object.entries((last.perRow || {})[secId] || {}).forEach(([k, v]) => { sec[k] = { ...(sec[k] || {}), [last.cluster.id]: v }; });
+        await dbPut('annotations', sec);
       }
+    }
+    if ((last.removedLinks || []).length) {
+      const have = new Set((state.loa.links || []).map(l => l.id));
+      state.loa = { ...state.loa, links: [...(state.loa.links || []), ...last.removedLinks.filter(l => !have.has(l.id))] };
+      await dbPut('meta', state.loa);
     }
     // The deletion is in the trail, so its undoing is too (else Appendix A says "deleted" while Table 2 shows the row)
     await recordAuditLog({
@@ -112,17 +116,32 @@ async function performUndoStep() {
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   } else if (last.type === 'delete_study') {
     const d = last.doc;
-    if (!state.docs.find(x => x.id === d.id)) {
+    // The study, its PDF and its constructs come back in one transaction (as they went); a construct's placement in a row
+    // that was deleted in the meantime is not brought back
+    const liveRows = new Set(state.clusters.map(c => c.id));
+    const ops = [];
+    const restored = (last.annotations || []).map(raw => {
+      const a = normalizeAnnotation(JSON.parse(JSON.stringify(raw)));
+      if (a.type === 'second_order') {
+        a.clusterIds = a.clusterIds.filter(id => liveRows.has(id));
+        ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'].forEach(k => { if (a[k]) Object.keys(a[k]).forEach(id => { if (!liveRows.has(id)) delete a[k][id]; }); });
+      }
+      return a;
+    });
+    const isNew = !state.docs.find(x => x.id === d.id);
+    if (isNew) {
       d.hasBinary = Boolean(last.binary && last.binary.byteLength > 0);
-      if (d.hasBinary) await dbPut('pdf_binaries', { id: d.id, data: last.binary });
+      if (d.hasBinary) ops.push({ store: 'pdf_binaries', put: { id: d.id, data: last.binary } });
+      ops.push({ store: 'docs', put: d });
+    }
+    restored.forEach(a => ops.push({ store: 'annotations', put: a }));
+    await dbBatch(ops);
+    if (isNew) {
       const pos = Math.max(0, Math.min(state.docs.length, last.position ?? state.docs.length));
       state.docs.splice(pos, 0, d);
-      await persistDocOrder();
     }
-    for (const a of (last.annotations || [])) {
-      await dbPut('annotations', a);
-      if (!state.annotations.find(x => x.id === a.id)) state.annotations.push(normalizeAnnotation(a));
-    }
+    restored.forEach(a => { if (!state.annotations.find(x => x.id === a.id)) state.annotations.push(a); });
+    if (isNew) await persistDocOrder();
     await recordAuditLog({
       category: 'study_order',
       action: `Restored Study (Undo): ${getDisplayName(d)}`,
@@ -182,12 +201,17 @@ async function performUndoStep() {
       await dbPut('clusters', src);
       if (!state.clusters.some(c => c.id === src.id)) state.clusters.push(src);
       state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
-      // Concept-map relations: back to before, plus any relation added since
+      // Concept-map relations: back to before, plus any relation added since, minus any removed since; never one to a row
+      // that is gone
       const nowLinks = state.loa.links || [];
+      const nowIds = new Set(nowLinks.map(l => l.id));
       const afterIds = new Set((last.after.links || []).map(l => l.id));
       const added = nowLinks.filter(l => !afterIds.has(l.id));
+      const removedSince = new Set([...afterIds].filter(id => !nowIds.has(id)));
       if (added.length) kept.push(`${added.length} concept-map relation(s) added since`);
-      state.loa = { ...state.loa, links: [...last.before.links, ...added] };
+      if (removedSince.size) kept.push(`${removedSince.size} concept-map relation(s) removed since`);
+      const rowsNow = new Set(state.clusters.map(c => c.id));
+      state.loa = { ...state.loa, links: [...last.before.links.filter(l => !removedSince.has(l.id)), ...added].filter(l => rowsNow.has(l.from) && rowsNow.has(l.to)) };
       await dbPut('meta', state.loa);
     } else {
       // Only the row the split created goes; every other row (including rows added since) stays in its place. What was put
@@ -214,7 +238,8 @@ async function performUndoStep() {
           const seen = new Set(), out = [];
           state.loa.links.forEach(l => {
             const n = { ...l, from: l.from === nw.id ? srcRow.id : l.from, to: l.to === nw.id ? srcRow.id : l.to };
-            const key = [n.from, n.to, n.type].join('|');
+            // For a relation without direction (⇄, ⚡), A–B and B–A are the same relation (as in mergeRows)
+            const key = isDirectedLink(n.type) ? [n.from, n.to, n.type].join('|') : [[n.from, n.to].sort().join('~'), n.type].join('|');
             if (n.from === n.to || seen.has(key)) return;
             seen.add(key); out.push(n);
           });

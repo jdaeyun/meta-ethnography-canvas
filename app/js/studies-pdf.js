@@ -470,7 +470,8 @@ async function layoutPdfPages(loadedPdf, isStale) {
 
 let switchStudyToken = 0;
 async function switchStudy(id) {
-  flushAllPendingSaves();
+  // What was typed for the study being left is saved (and logged) before the next one opens
+  await flushAllPendingSaves();
   const doc = state.docs.find(d => d.id === id);
   if (!doc) return;
   // Each call gets a token; an older call that resumes after a newer one started simply stops (prevents duplicated pages on rapid clicks/zoom)
@@ -778,8 +779,11 @@ async function saveCurrentMeta() {
   }
 
   renderStudyList();
-  updateDocHeaderUI();
-  if (prevOverview !== doc.studyOverview) updateSidebar();
+  // Only the open study's header and sidebar are drawn: if another study was opened meanwhile, they already show it
+  if (doc.id === state.activeDocId) {
+    updateDocHeaderUI();
+    if (prevOverview !== doc.studyOverview) updateSidebar();
+  }
 }
 
 // ---- Domain judgements for checklists with built-in questions (CASP; eMERGe Part 3). Saved and logged as they change, independently of "Save Info". ----
@@ -871,10 +875,13 @@ function companionText(d) {
 }
 function funderLinkedText(d) {
   const parts = [];
-  parts.push(d.funder ? 'Funder: ' + d.funder : 'Funder: not recorded');
+  // "not recorded" only says something when funders are recorded for other studies; with none recorded the gap is in the
+  // eMERGe mapping (Item 10), not repeated on every row of Table 1
+  if (d.funder) parts.push('Funder: ' + d.funder);
+  else if (state.docs.some(x => x.funder)) parts.push('Funder: not recorded');
   const c = companionText(d);
   if (c) parts.push('Same study as: ' + c);
-  return parts.join(' | ');
+  return parts.join(' | ') || '-';
 }
 
 document.getElementById('saveMetaBtn').addEventListener('click', async () => {
@@ -1539,8 +1546,8 @@ function extractSurnameFromAuthorString(rawAuthor) {
   return { surname, hasEtAl: multiAuthors };
 }
 
-// Publication years 1980–2039, one pattern for every stage of the citation auto-fill
-const YEAR_CORE = '19[89]\\d|20[0-3]\\d';
+// Publication years 1940–2039 (classic qualitative studies of the 1960s and 1970s included), one pattern for every stage
+const YEAR_CORE = '19[4-9]\\d|20[0-3]\\d';
 const YEAR_RE = new RegExp('(?:^|\\D)(' + YEAR_CORE + ')(?!\\d)');
 async function autoExtractCitationFromPdf() {
   const doc = state.docs.find(d => d.id === state.activeDocId);

@@ -135,12 +135,13 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       replaceCleanly = choice === 'clean';
     }
 
+    // Validate the backup BEFORE touching the current workspace (clean restore and merge alike)
+    if (!Array.isArray(data.docs) || !Array.isArray(data.annotations) ||
+        (data.clusters && !Array.isArray(data.clusters)) || (data.logs && !Array.isArray(data.logs)) ||
+        (data.loa && typeof data.loa !== 'object')) {
+      throw new Error('Backup file structure is invalid (docs / annotations / clusters / logs must be arrays). Nothing was changed.');
+    }
     if (replaceCleanly) {
-      // Validate the backup BEFORE touching the current workspace
-      if (!Array.isArray(data.docs) || !Array.isArray(data.annotations) ||
-          (data.clusters && !Array.isArray(data.clusters)) || (data.logs && !Array.isArray(data.logs))) {
-        throw new Error('Backup file structure is invalid (docs / annotations / clusters / logs must be arrays). Nothing was changed.');
-      }
       // Snapshot the project data (NOT the PDFs) so a failed restore can be rolled back.
       // PDFs stay untouched in IndexedDB during the restore and are matched by id / file name below,
       // so memory use does not depend on how many PDFs are stored.
@@ -203,6 +204,11 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         await dbPut('logs', l);
         state.logs.push(l);
       }
+      // The research aim, model and the other project fields are part of what a failed restore rolls back
+      if (data.loa) {
+        state.loa = { projectCode: incomingProjCode || state.projectCode || '', aim: '', ...state.loa, ...data.loa, id: 'loa_main' };
+        await dbPut('meta', state.loa);
+      }
       } catch (restoreErr) {
         // Roll back to the workspace as it was before the restore started
         console.error('Restore failed, rolling back:', restoreErr);
@@ -220,6 +226,11 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         }
         throw new Error(`${restoreErr.message}\n\nYour previous workspace has been restored unchanged.`);
       }
+      // Another project's view settings do not carry over: open sub-tabs, a comparison in progress, hidden studies
+      state.clusterActiveTabs = {};
+      state.peerComparison = null;
+      state.hiddenStudyIds = new Set();
+      lsRemove('me_hidden_studies');
       // Success: drop PDFs that no restored study refers to (id-based; one key at a time)
       try {
         const keep = new Set(state.docs.map(d => d.id));
@@ -300,7 +311,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         if (a.type === 'second_order') {
           const keep = a.clusterIds.filter(id => liveRows.has(id));
           if (keep.length !== a.clusterIds.length) { a.clusterIds = keep; changed = true; }
-          ['clusterRelations', 'clusterComments'].forEach(k => Object.keys(a[k] || {}).forEach(id => { if (!liveRows.has(id)) { delete a[k][id]; changed = true; } }));
+          ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'].forEach(k => Object.keys(a[k] || {}).forEach(id => { if (!liveRows.has(id)) { delete a[k][id]; changed = true; } }));
         } else if (a.type === 'first_order') {
           const keep = quoteParentIds(a).filter(id => liveSecs.has(id));
           if (keep.length !== a.parentIds.length) { a.parentIds = keep; changed = true; }
@@ -319,10 +330,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       state.projectCode = incomingProjCode;
       lsSet('me_project_code', incomingProjCode);
     }
-    if (data.loa && replaceCleanly) {
-      state.loa = { projectCode: state.projectCode || '', aim: '', ...state.loa, ...data.loa, id: 'loa_main' };
-      await dbPut('meta', state.loa);
-    } else if (data.loa) {
+    if (data.loa && !replaceCleanly) {
       // MERGE: the aim, model and narrative are only filled where they are empty here
       if (data.loa.baselineDocId) data.loa.baselineDocId = mergeDocIdMap[data.loa.baselineDocId] || data.loa.baselineDocId;
       const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt']);
@@ -410,6 +418,8 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
   state.activeDocId = null;
   state.clusterActiveTabs = {};
   state.peerComparison = null;
+  state.hiddenStudyIds = new Set();
+  lsRemove('me_hidden_studies');
   clearUndoStack();
 
   populateLoaInputs();

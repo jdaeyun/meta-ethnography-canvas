@@ -476,7 +476,9 @@ function renderComparisonTabContent() {
         renderComparisonDashboard();
       };
       card.querySelector('.imp-dismiss').onclick = async () => {
-        cmp.peerOnlyAnnos.splice(idx, 1);
+        const at = cmp.peerOnlyAnnos.indexOf(item); // by item, not by the position it had when the list was drawn
+        if (at < 0) return; // already handled (a second click)
+        cmp.peerOnlyAnnos.splice(at, 1);
         (cmp.setAsideAnnos = cmp.setAsideAnnos || []).push(item);
         const list = Array.isArray(state.loa.peerSetAside) ? state.loa.peerSetAside : [];
         await savePeerSetAside([...list, { peerId: p.id, reviewer: cmp.peerReviewer, textKey: peerSetAsideKey(p), at: Date.now(), by: state.reviewerId || '' }]);

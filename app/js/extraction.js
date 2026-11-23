@@ -266,6 +266,13 @@ function updateSidebar() {
       state.annotations = state.annotations.filter(x => x.id !== sec.id);
       updateSidebar();
       renderHighlights();
+      // Deleting a construct is part of the reading (and of the matrix, if it was placed): the trail records it, like its undoing
+      await recordAuditLog({
+        category: 'reading_extraction',
+        action: `Deleted a 2nd Order construct (${getDisplayName(state.docs.find(d => d.id === sec.docId))}, p.${sec.page})`,
+        detail: `${sec.note ? sec.note + ': ' : ''}"${String(sec.text || '').slice(0, 80)}..."${(sec.clusterIds || []).length ? `\nIt was placed in ${sec.clusterIds.length} 3rd Order row(s).` : ''}${unlinkedIds.length ? `\n${unlinkedIds.length} linked quote(s) unlinked.` : ''}`,
+        clusterIds: (sec.clusterIds || []).length ? sec.clusterIds : null
+      });
       showUndoSnackbar(`Deleted the 2nd Order construct${unlinkedIds.length ? ` (${unlinkedIds.length} quote(s) unlinked)` : ''}`);
     };
 
@@ -685,6 +692,11 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
     state.annotations = state.annotations.filter(x => x.id !== f.id);
     updateSidebar();
     renderHighlights();
+    await recordAuditLog({
+      category: 'reading_extraction',
+      action: `Deleted a 1st Order quote (${getDisplayName(state.docs.find(d => d.id === f.docId))}, p.${f.page})`,
+      detail: `"${String(f.text || '').slice(0, 80)}..."`
+    });
     showUndoSnackbar('Deleted the 1st Order quote');
   };
   if (isLinked) {

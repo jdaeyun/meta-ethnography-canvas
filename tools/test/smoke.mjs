@@ -1658,6 +1658,106 @@ await group('Review fixes 5: drawer autosave, merge across bases, split undo kee
   await p.context().close();
 });
 
+await group('Review fixes 6: flow by every directed relation, row deletion leaves nothing, export parity, restore resets, undo edges, trail entries', async () => {
+  const p = await openDemo();
+  // Flow map: a model of ⊃ / ≈ relations only still runs left to right
+  const cols = await p.evaluate(() => {
+    const saved = state.loa.links; const [x, y, z] = state.clusters;
+    state.loa.links = [{ id: 'e1', from: x.id, to: y.id, type: 'encompasses' }, { id: 'e2', from: y.id, to: z.id, type: 'metaphor' }];
+    const svg = buildConceptMapSvg('t', 640, 360, 'flow'); state.loa.links = saved;
+    return new Set([...svg.matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="158"/g)].map(m => m[1])).size;
+  });
+  check('a flow map of ⊃ / ≈ relations spreads over columns', cols === 3, String(cols));
+  // Deleting a row leaves no judgement, note, mark or map relation of it behind; Ctrl+Z brings them back
+  const del = await p.evaluate(async () => {
+    const c = state.clusters[0], other = state.clusters[1];
+    const sec = rowSecs(c).find(s => !isRowBase(s, c.id));
+    sec.clusterRelations[c.id] = 'refutational'; sec.clusterComments[c.id] = 'why'; sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [c.id]: true };
+    state.loa.links = [...(state.loa.links || []), { id: 'lk_del', from: c.id, to: other.id, type: 'leads' }];
+    await dbPut('annotations', sec); await dbPut('meta', state.loa);
+    await tab_matrix();
+    async function tab_matrix() { setActiveTab('matrix'); await new Promise(r => setTimeout(r, 400)); }
+    document.querySelector(`#matrixTable tr[data-cluster-id="${c.id}"] .del-cluster`).click();
+    await new Promise(r => setTimeout(r, 500));
+    const gone = !(c.id in sec.clusterRelations) && !(c.id in sec.clusterComments) && !(sec.aspectUsedInLoa || {})[c.id] && !(state.loa.links || []).some(l => l.id === 'lk_del');
+    await performUndo();
+    const back = sec.clusterIds.includes(c.id) && sec.clusterRelations[c.id] === 'refutational' && sec.clusterComments[c.id] === 'why' && sec.aspectUsedInLoa[c.id] === true && state.loa.links.some(l => l.id === 'lk_del');
+    return { gone, back };
+  });
+  check('deleting a row removes its judgements, notes, marks and map relations', del.gone, JSON.stringify(del));
+  check('Ctrl+Z brings them all back', del.back);
+  // Exports say what the preview says: row notes in Markdown, pages in Table 2b, no "Funder: not recorded" when none is recorded
+  const ex = await p.evaluate(() => {
+    const c = state.clusters[0]; c.baselineChange = { fromName: 'A', toName: 'B' };
+    const notes = rowStatusNotes(c); delete c.baselineChange;
+    const saved = state.docs.map(d => d.funder); state.docs.forEach(d => { d.funder = ''; });
+    const t1 = funderLinkedText(state.docs[0]); state.docs.forEach((d, i) => { d.funder = saved[i]; });
+    return { notes, t1, pages: cellPagesLabel(rowSecs(state.clusters[0]).slice(0, 1)) };
+  }).catch(e => ({ err: e.message }));
+  check('row notes are shared by every renderer; funder is not repeated as "not recorded" when none is recorded', ex.notes && ex.notes.some(n => /study #1 changed/.test(n)) && ex.t1 === '-' && /^p\./.test(ex.pages), JSON.stringify(ex));
+  // Restore: a clean restore of another project resets the view of the previous one; a malformed merge changes nothing
+  const before = await p.evaluate(() => { state.hiddenStudyIds.add(state.docs[1].id); state.peerComparison = { peerReviewer: 'X' }; return state.annotations.length; });
+  const bad = JSON.stringify({ docs: [], annotations: {}, clusters: [] });
+  p.choiceAnswer = 'merge';
+  await p.setInputFiles('#jsonFileInput', { name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from(bad) }); await p.waitForTimeout(800);
+  check('a malformed backup is refused before anything is merged', await p.evaluate(n => state.annotations.length === n, before) && p.notices.some(t => /structure is invalid/.test(t)));
+  const json = await p.evaluate(() => JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: state.logs, loa: state.loa, projectCode: state.projectCode, formatVersion: PROJECT_FORMAT }));
+  p.choiceAnswer = 'clean';
+  await p.setInputFiles('#jsonFileInput', { name: 'clean.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
+  p.choiceAnswer = null;
+  check('a clean restore resets hidden studies and a comparison in progress', await p.evaluate(() => state.hiddenStudyIds.size === 0 && state.peerComparison === null));
+  // Undo of a study deletion does not bring back a placement in a row deleted meanwhile
+  const st = await p.evaluate(async () => {
+    const d = state.docs[2];
+    const sec = state.annotations.find(a => a.docId === d.id && a.type === 'second_order' && a.clusterIds.length);
+    if (!sec) return { skip: true };
+    const rowId = sec.clusterIds[0];
+    pushUndoAction({ type: 'delete_study', label: 'study', doc: JSON.parse(JSON.stringify(d)), binary: null, annotations: state.annotations.filter(a => a.docId === d.id).map(a => JSON.parse(JSON.stringify(a))), position: 2 });
+    await dbBatch([{ store: 'docs', del: d.id }, ...state.annotations.filter(a => a.docId === d.id).map(a => ({ store: 'annotations', del: a.id }))]);
+    state.docs = state.docs.filter(x => x.id !== d.id); state.annotations = state.annotations.filter(a => a.docId !== d.id);
+    state.clusters = state.clusters.filter(c => c.id !== rowId); await dbDelete('clusters', rowId);
+    await performUndo(); await new Promise(r => setTimeout(r, 400));
+    const back = state.annotations.find(a => a.id === sec.id);
+    return { back: !!back, dangling: back ? back.clusterIds.includes(rowId) : null };
+  });
+  if (!st.skip) check('undoing a study deletion does not bring back a placement in a row deleted meanwhile', st.back && st.dangling === false, JSON.stringify(st));
+  // Trail: deleting a construct is logged; entries about the trail cannot be deleted; a deletion undone does not reach Appendix A
+  const tr = await p.evaluate(async () => {
+    setActiveTab('extract'); await switchStudy(state.docs[0].id); await new Promise(r => setTimeout(r, 600));
+    const btn = document.querySelector('#annotationsList .del');
+    if (btn) btn.click(); await new Promise(r => setTimeout(r, 500));
+    const logged = /^Deleted a (1st Order quote|2nd Order construct)/.test(state.logs[0].action);
+    await performUndo(); await new Promise(r => setTimeout(r, 300));
+    const victim = state.logs.find(l => l.category === 'third_order');
+    setActiveTab('audit'); await new Promise(r => setTimeout(r, 400));
+    const card = [...document.querySelectorAll('#auditTimelineList .del-log')].find(b => b.closest('div').textContent.includes(victim.action)) || document.querySelector('#auditTimelineList .del-log');
+    card.click(); await new Promise(r => setTimeout(r, 400));
+    const delLog = state.logs[0];
+    await performUndo(); await new Promise(r => setTimeout(r, 400));
+    const editCards = [...document.querySelectorAll('#auditTimelineList > div')].filter(c => /Deleted an audit trail entry|Restored a deleted audit trail entry/.test(c.textContent));
+    const noDelBtn = editCards.length > 0 && editCards.every(c => !c.querySelector('.del-log'));
+    const key = getAppendixASpec('key').rows;
+    const inAppendix = key.some(r => /audit trail entry/.test(r.action));
+    return { logged, noDelBtn, inAppendix, delLog: delLog.action };
+  });
+  check('deleting a construct in Tab 1 is logged', tr.logged, JSON.stringify(tr));
+  check('entries about the trail itself have no delete button', tr.noDelBtn);
+  check('an audit entry deleted and restored with Ctrl+Z does not reach Appendix A (key decisions)', !tr.inAppendix);
+  // A reason being typed in the timeline is not interrupted by a redraw
+  const rs = await p.evaluate(async () => {
+    const box = document.querySelector('#auditTimelineList .rationale-input');
+    box.focus(); box.value = 'typing a reason'; box.dispatchEvent(new Event('input', { bubbles: true }));
+    renderAuditTimeline();
+    const same = document.activeElement === box && box.isConnected && box.value === 'typing a reason';
+    box.blur(); await new Promise(r => setTimeout(r, 300));
+    return { same };
+  });
+  check('a reason being typed stays in place while the timeline would redraw', rs.same);
+  check('publication years from 1940 are recognised (classic studies of the 1960s)', await p.evaluate(() => '(1967) The discovery of grounded theory'.match(YEAR_RE)[1] === '1967'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Appendix A rules still match the audit entries the app writes', async () => {
   // Appendix A sorts entries by their action text (APPENDIX_EDIT_SERIES / APPENDIX_ROUTINE / APPENDIX_WRITEUP). If the wording of
   // an entry changes, its rule would stop matching without any error: every rule must match some action the app can write.
