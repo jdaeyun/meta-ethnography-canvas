@@ -108,7 +108,7 @@ await group('Restore keeps PDFs out of memory-heavy paths and matches by id / fi
   await p.evaluate(() => { window.__pdfReads = 0; const o = dbGetAll; window.dbGetAll = async s => { if (s === 'pdf_binaries') window.__pdfReads++; return o(s); }; });
   const payload = renamed => p.evaluate(rn => {
     const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: state.logs, loa: state.loa, projectCode: state.projectCode, version: DB_VERSION }));
-    if (rn) { const m = {}; d.docs.forEach((x, i) => { m[x.id] = 'nw_' + i; x.id = 'nw_' + i; }); d.annotations.forEach(a => { a.docId = m[a.docId] || a.docId; }); d.logs.push({ noKey: true }); }
+    if (rn) { const m = {}; d.docs.forEach((x, i) => { m[x.id] = 'nw_' + i; x.id = 'nw_' + i; }); d.annotations.forEach(a => { a.docId = m[a.docId] || a.docId; }); }
     return JSON.stringify(d);
   }, renamed);
   const restore = async json => { await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500); };
@@ -117,7 +117,10 @@ await group('Restore keeps PDFs out of memory-heavy paths and matches by id / fi
   await restore(await payload(false));
   check('same-id restore keeps all PDFs', JSON.stringify(await keys()) === JSON.stringify(orig) && await p.evaluate(() => state.docs.every(d => d.hasBinary)));
   const before = await p.evaluate(() => ({ d: state.docs.length, a: state.annotations.length, l: state.logs.length }));
-  await restore(await payload(true)); // contains a log without id: the restore must fail and roll back
+  // A write that fails part way (simulated: the first audit entry cannot be stored) must roll the restore back.
+  // (A record without an id no longer fails a restore: malformed records are left out before anything is written.)
+  await p.evaluate(() => { const o = window.dbPut; window.__failOnce = true; window.dbPut = async (st, it, op) => { if (st === 'logs' && window.__failOnce) { window.__failOnce = false; throw new Error('simulated write failure'); } return o(st, it, op); }; });
+  await restore(await payload(true));
   const after = await p.evaluate(() => ({ d: state.docs.length, a: state.annotations.length, l: state.logs.length }));
   check('failed restore rolls back', JSON.stringify(before) === JSON.stringify(after));
   check('rollback leaves the original PDFs only', JSON.stringify(await keys()) === JSON.stringify(orig));
