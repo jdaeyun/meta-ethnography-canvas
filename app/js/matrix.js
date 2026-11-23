@@ -1148,6 +1148,7 @@ function renderMatrixTable() {
         cluster.thirdOrderTitle = newTitle;
         await dbPut('clusters', cluster);
         renderLoaClusterChips();
+        if (await reattachWaitingForRow(cluster)) renderMatrixTable();
         await recordAuditLog({
           clusterIds: [cluster.id],
           category: 'third_order',
@@ -1382,12 +1383,14 @@ function renderMatrixTable() {
         cluster: { ...cluster },
         assignedSecIds: assigned.map(a => a.id)
       });
+      const ops = []; // unplacing the cards and deleting the row in one transaction (see dbBatch)
       for (let a of assigned) {
         a.clusterIds = a.clusterIds.filter(id => id !== cluster.id);
-        await dbPut('annotations', a);
+        ops.push({ store: 'annotations', put: a });
       }
-      await dbDelete('clusters', cluster.id);
+      ops.push({ store: 'clusters', del: cluster.id });
       state.clusters = state.clusters.filter(c => c.id !== cluster.id);
+      await dbBatch(ops);
       await recordAuditLog({
         clusterIds: [cluster.id],
         category: 'third_order',
@@ -1717,10 +1720,8 @@ function renderMatrixTable() {
 
 // --- C. 3rd Order Row Reordering (▲ / ▼) ---
 async function persistClusterOrder() {
-  for (let i = 0; i < state.clusters.length; i++) {
-    state.clusters[i].order = i;
-    await dbPut('clusters', state.clusters[i]);
-  }
+  // The whole order in one transaction (see dbBatch)
+  await dbBatch(state.clusters.map((c, i) => { c.order = i; return { store: 'clusters', put: c }; }));
 }
 
 // Rows shown in the matrix (all, or only those with a ⚡ card while "Contradictions Only" is on)
@@ -1945,19 +1946,33 @@ const PER_ROW_KEYS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
 const annRowState = (a, ids) => ({ id: a.id, member: ids.map(id => (a.clusterIds || []).includes(id)), keys: PER_ROW_KEYS.map(k => ids.map(id => (a[k] || {})[id])) });
 
 async function mergeRows(src, tgt, why) {
+  const ops = []; // every write of the merge goes in one transaction (see dbBatch)
   const srcTitle = clusterLabel(src), tgtTitle = clusterLabel(tgt);
   const secs = rowSecs(src);
   const ids = [src.id, tgt.id];
   const before = { src: deepCopy(src), tgt: pickFields(tgt, MERGE_ROW_FIELDS), anns: secs.map(a => annRowState(a, ids)), links: deepCopy(state.loa.links || []) };
   let moved = 0;
-  const differing = [];
+  const differing = [], rejudge = [];
+  // A judgement is a reading against the study that established the row (◆). When the two rows were established by different
+  // studies, a card's judgement in the source row does not carry over: it starts unjudged in the merged row, and the earlier
+  // judgement is kept in its cell note, to be read again.
+  const srcBase = rowBaseDocId(src), tgtBase = rowBaseDocId(tgt) || srcBase;
+  const baseDiffers = srcBase !== tgtBase;
+  const baseName = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'no single study'; };
   for (const s of secs) {
     normalizeAnnotation(s);
     s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
     if (!s.clusterIds.includes(tgt.id)) {
       s.clusterIds.push(tgt.id); moved++;
-      if (s.clusterRelations[src.id]) s.clusterRelations[tgt.id] = s.clusterRelations[src.id];
-      if (s.clusterComments[src.id]) s.clusterComments[tgt.id] = s.clusterComments[src.id];
+      const rs = secRelation(s, src.id);
+      if (baseDiffers && rs !== 'unjudged' && rs !== 'baseline') {
+        const d = state.docs.find(x => x.id === s.docId);
+        rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
+        s.clusterComments[tgt.id] = carryText(s.clusterComments[src.id] || '', `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(tgtBase)}`, srcTitle);
+      } else {
+        if (s.clusterRelations[src.id]) s.clusterRelations[tgt.id] = s.clusterRelations[src.id];
+        if (s.clusterComments[src.id]) s.clusterComments[tgt.id] = s.clusterComments[src.id];
+      }
       if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [tgt.id]: true };
     } else {
       // Already in both rows: the target row's judgement stays; a different reading in the source row is kept as a note
@@ -1973,7 +1988,7 @@ async function mergeRows(src, tgt, why) {
     s.clusterIds = s.clusterIds.filter(id => id !== src.id);
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
     if (s.aspectUsedInLoa) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[src.id]; }
-    await dbPut('annotations', s);
+    ops.push({ store: 'annotations', put: s });
   }
   normalizeCluster(tgt);
   ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation'].forEach(k => { tgt[k] = carryText(tgt[k], src[k], srcTitle); });
@@ -1988,7 +2003,7 @@ async function mergeRows(src, tgt, why) {
   // A row still waiting to be re-read after study #1 changed passes that on
   if (src.baselineChange && !tgt.baselineChange) tgt.baselineChange = src.baselineChange;
   tgt.historyFrom = [...new Set([...(tgt.historyFrom || []), src.id, ...(src.historyFrom || [])])];
-  await dbPut('clusters', tgt);
+  ops.push({ store: 'clusters', put: tgt });
   // Concept-map relations follow the row; a relation of the two rows to each other, or a duplicate, is dropped
   // (for a symmetric relation, A–C and C–A are the same relation)
   if (Array.isArray(state.loa.links)) {
@@ -1999,10 +2014,11 @@ async function mergeRows(src, tgt, why) {
       const key = pair + '|' + n.type;
       if (n.from !== n.to && !seen.has(key)) { seen.add(key); out.push(n); }
     });
-    state.loa = { ...state.loa, links: out }; await dbPut('meta', state.loa);
+    state.loa = { ...state.loa, links: out }; ops.push({ store: 'meta', put: state.loa });
   }
-  await dbDelete('clusters', src.id);
+  ops.push({ store: 'clusters', del: src.id });
   state.clusters = state.clusters.filter(c => c.id !== src.id);
+  await dbBatch(ops);
   pushUndoAction({ type: 'row_merge', label: `Merge "${srcTitle.slice(0, 24)}" into "${tgtTitle.slice(0, 24)}"`, srcId: src.id, tgtId: tgt.id, before,
     after: { tgt: pickFields(tgt, MERGE_ROW_FIELDS), anns: secs.map(a => annRowState(a, ids)), links: deepCopy(state.loa.links || []) } });
   await recordAuditLog({
@@ -2010,9 +2026,11 @@ async function mergeRows(src, tgt, why) {
     action: `Merged row "${srcTitle}" into "${tgtTitle}"`,
     detail: `${moved} construct(s) moved with their judgements and notes; ${secs.length - moved} were already in "${tgtTitle}".`
       + (differing.length ? ` Read differently in the two rows (the judgement in "${tgtTitle}" was kept; the other is noted on the card):\n${differing.join('\n')}\n` : ' ')
+      + (rejudge.length ? ` "${srcTitle}" was established by ${baseName(srcBase)} and "${tgtTitle}" by ${baseName(tgtBase)}, so ${rejudge.length} moved construct(s) start unjudged (their earlier judgement is noted on the card):\n${rejudge.join('\n')}\n` : '')
       + `Step A / Step B and other texts of "${srcTitle}" were added to "${tgtTitle}", marked with their origin. The CERQual ratings of "${tgtTitle}" were kept: re-read them for the merged finding.`,
     fromVal: `${srcTitle} + ${tgtTitle}`, toVal: tgtTitle, rationale: why
   });
+  return { rejudge: rejudge.length, baseName: baseName(tgtBase) };
 }
 
 async function splitRow(src, secIds, title, why) {
@@ -2028,6 +2046,7 @@ async function splitRow(src, secIds, title, why) {
   const baseGone = !!srcBase && !rowSecs(src).some(s => s.docId === srcBase && !secs.includes(s));
   const baseDoc = baseGone ? state.docs.find(d => d.id === srcBase) : null;
   nw.historyFrom = [src.id, ...(src.historyFrom || [])];
+  const ops = []; // the moves and the new row's record in one transaction (see dbBatch)
   for (const s of secs) {
     normalizeAnnotation(s);
     s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
@@ -2036,12 +2055,13 @@ async function splitRow(src, secIds, title, why) {
     if (s.clusterComments[src.id]) s.clusterComments[nw.id] = s.clusterComments[src.id];
     if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [nw.id]: true }; delete s.aspectUsedInLoa[src.id]; }
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
-    await dbPut('annotations', s);
+    ops.push({ store: 'annotations', put: s });
   }
-  await dbPut('clusters', nw);
+  ops.push({ store: 'clusters', put: nw });
   // The new row sits right below the one it was split from
   state.clusters = state.clusters.filter(c => c.id !== nw.id);
   state.clusters.splice(state.clusters.findIndex(c => c.id === src.id) + 1, 0, nw);
+  await dbBatch(ops);
   await persistClusterOrder();
   pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${srcTitle.slice(0, 24)}"`, srcId: src.id, newId: nw.id,
     before: { anns: beforeAnns }, after: { anns: secs.map(a => annRowState(a, ids)) } });
@@ -2059,9 +2079,10 @@ document.getElementById('rowOpsMergeBtn').onclick = async () => {
   if (!src || !tgt) return;
   const why = document.getElementById('rowOpsWhy').value.trim();
   closeRowOps();
-  await mergeRows(src, tgt, why);
+  const res = await mergeRows(src, tgt, why);
   renderLoaClusterChips(); renderMatrixView();
-  showSnackbar(`Merged into "${clusterLabel(tgt)}" — Ctrl+Z to undo`);
+  showSnackbar(`Merged into "${clusterLabel(tgt)}" — Ctrl+Z to undo`
+    + (res && res.rejudge ? `\nThe rows were established by different studies: ${res.rejudge} moved card(s) start unjudged against ${res.baseName} (the earlier judgement is in the card's note).` : ''));
 };
 document.getElementById('rowOpsSplitBtn').onclick = async () => {
   const src = rowOpsCluster; if (!src) return;

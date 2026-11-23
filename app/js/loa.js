@@ -10,6 +10,7 @@ const loaDrawer = document.getElementById('loaDrawer');
 const loaCaret = document.getElementById('loaCaretIcon');
 
 document.getElementById('toggleLoaDrawerBtn').addEventListener('click', () => {
+  if (state.isLoaOpen && typeof commitLoaDrawer === 'function') commitLoaDrawer(); // closing the drawer saves what was typed
   state.isLoaOpen = !state.isLoaOpen;
   loaDrawer.classList.toggle('hidden', !state.isLoaOpen);
   loaCaret.className = state.isLoaOpen ? 'ph ph-caret-up text-xs' : 'ph ph-caret-down text-xs';
@@ -52,7 +53,7 @@ document.getElementById('loaFlowFromMapBtn').addEventListener('click', async () 
   el.value = next;
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.focus();
-  showSnackbar('Written from the map. Save & Log to Trail to keep it.');
+  showSnackbar('Written from the map. Saved when you leave the drawer.');
 });
 
 document.querySelectorAll('.loa-op-btn').forEach(btn => {
@@ -463,13 +464,14 @@ function renderTeamModels() {
       const cur = ['loaTitleInput', 'loaFlowInput', 'loaNarrativeInput'].some(id => document.getElementById(id).value.trim());
       if (cur && !(await askChoice({
         title: `Load @${m.reviewer}'s model as a draft?`,
-        body: 'The title, text sketch and narrative now in the fields are replaced. Nothing is saved until you click "Save & Log to Trail".',
+        body: 'The title, text sketch and narrative now in the fields are replaced. They are saved (and logged) when you leave the drawer.',
         choices: [{ value: 'load', tone: 'primary', label: 'Replace the fields with this model' }]
       }))) return;
       document.getElementById('loaTitleInput').value = m.title || '';
       document.getElementById('loaFlowInput').value = m.flow || '';
       document.getElementById('loaNarrativeInput').value = m.narrative || '';
-      showSnackbar(`Loaded @${m.reviewer}'s model as a draft — edit, then Save & Log to Trail.`);
+      markLoaDrawerDirty();
+      showSnackbar(`Loaded @${m.reviewer}'s model as a draft. It is saved when you leave the drawer.`);
     };
     card.querySelector('.tm-del').onclick = async () => {
       if (!(await askChoice({ title: `Remove @${m.reviewer}'s model record?`, body: 'The removal is recorded in the Audit Trail; it cannot be undone with Ctrl+Z.', choices: [{ value: 'remove', tone: 'danger', label: 'Remove the model record' }] }))) return;
@@ -513,7 +515,7 @@ function renderLoaClusterChips() {
   });
 }
 
-// The drawer holds what is thought out during the analysis (saved together with "Save & Log to Trail").
+// The drawer holds what is thought out during the analysis (saved together: see commitLoaDrawer).
 // [loa key, input id, audit category]
 const LOA_EXTRA_FIELDS = [
   ['alternativeInterpretations', 'loaAltInterpInput', 'translation_process'],
@@ -579,7 +581,26 @@ function populateLoaInputs() {
   renderLoaClusterChips();
 }
 
+// The drawer's fields are saved together (one audit entry per section that changed): when the reviewer leaves the drawer,
+// closes it, switches tab or leaves the page (a pending commit, like every other text box), or clicks Save & Log now.
+const LOA_DRAWER_FIELD_IDS = () => ['loaAimInput', 'loaTitleInput', 'loaFlowInput', 'loaNarrativeInput', 'loaRelateOutcomeInput', ...LOA_EXTRA_FIELDS.map(f => f[1])];
+let loaDrawerDirty = false;
+const commitLoaDrawer = async () => {
+  if (!loaDrawerDirty) return;
+  loaDrawerDirty = false;
+  pendingSaveCleanups.delete(commitLoaDrawer);
+  await saveLoaDrawer({ quiet: true });
+};
+commitLoaDrawer.isCommit = true;
+function markLoaDrawerDirty() { loaDrawerDirty = true; pendingSaveCleanups.add(commitLoaDrawer); }
+LOA_DRAWER_FIELD_IDS().forEach(id => document.getElementById(id)?.addEventListener('input', markLoaDrawerDirty));
+loaDrawer.addEventListener('focusout', e => { if (!e.relatedTarget || !loaDrawer.contains(e.relatedTarget)) commitLoaDrawer(); });
 document.getElementById('saveLoaBtn').addEventListener('click', async () => {
+  loaDrawerDirty = false; pendingSaveCleanups.delete(commitLoaDrawer);
+  await saveLoaDrawer();
+});
+
+async function saveLoaDrawer({ quiet = false } = {}) {
   const ids = { aim: 'loaAimInput', title: 'loaTitleInput', flow: 'loaFlowInput', narrative: 'loaNarrativeInput', relateOutcome: 'loaRelateOutcomeInput' };
   LOA_EXTRA_FIELDS.forEach(([k, id]) => { ids[k] = id; });
   const oldV = {}, newV = {};
@@ -590,7 +611,7 @@ document.getElementById('saveLoaBtn').addEventListener('click', async () => {
   const extraChanged = LOA_EXTRA_FIELDS.filter(([k]) => oldV[k] !== newV[k]);
 
   if (!aimChanged && !loaChanged && !relChanged && extraChanged.length === 0) {
-    showSnackbar('No changes in the Aim, Item 12 or the line of argument to save.');
+    if (!quiet) showSnackbar('No changes in the Aim, Item 12 or the line of argument to save.');
     return;
   }
 
@@ -639,4 +660,4 @@ document.getElementById('saveLoaBtn').addEventListener('click', async () => {
       toVal: newV.relateOutcome ? `${newV.relateOutcome.slice(0, 70)}...` : '(cleared)'
     });
   }
-});
+}

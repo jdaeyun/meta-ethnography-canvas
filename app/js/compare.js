@@ -819,6 +819,21 @@ async function reattachWaitingByTitle(cmp) {
   return total;
 }
 
+// A row here now has the title of a peer row that constructs are waiting for (it was named or renamed): place them, also
+// when Compare is closed. Called when a row title is committed.
+async function reattachWaitingForRow(cluster) {
+  if (!cluster || !cluster.thirdOrderTitle) return 0;
+  const peerIds = new Set();
+  state.annotations.forEach(a => Object.entries(a._peerRows || {}).forEach(([pid, w]) => { if (w && sameRowTitle(w._title, cluster.thirdOrderTitle)) peerIds.add(pid); }));
+  let total = 0;
+  for (const pid of peerIds) total += await reattachPeerRowPlacements(pid, cluster.id);
+  if (total) {
+    await recordAuditLog({ clusterIds: [cluster.id], category: 'concordance', action: `Placed ${total} construct(s) imported from another reviewer in "${cluster.thirdOrderTitle}"`, detail: 'They were imported in Compare before a row of this title was here; their judgements and cell notes came with them.' });
+    showSnackbar(`Placed ${total} imported construct(s) waiting for a row called "${cluster.thirdOrderTitle}".`);
+  }
+  return total;
+}
+
 async function importPeerConstruct(item, status) {
   await mergePeerAuditLogs();
   const cmp = state.peerComparison;
@@ -867,7 +882,8 @@ async function importPeerConstruct(item, status) {
     const waitingRows = {};
     raw.clusterIds.forEach(id => {
       if (rowMap[id] || !id) return;
-      waitingRows[id] = {};
+      const pRow = (cmp.peerData.clusters || []).find(c => c.id === id);
+      waitingRows[id] = pRow && pRow.thirdOrderTitle ? { _title: pRow.thirdOrderTitle } : {}; // the title lets a row made here later take them in
       PEER_ROW_KEYS.forEach(k => { if (raw[k] && typeof raw[k] === 'object' && id in raw[k]) waitingRows[id][k] = raw[k][id]; });
     });
     raw.clusterIds = [...new Set(raw.clusterIds.map(id => rowMap[id]).filter(Boolean))];

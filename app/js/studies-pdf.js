@@ -215,10 +215,8 @@ function getBadgesHtml(doc) {
 }
 
 async function persistDocOrder() {
-  for (let i = 0; i < state.docs.length; i++) {
-    state.docs[i].order = i;
-    await dbPut('docs', state.docs[i]);
-  }
+  // The whole order in one transaction: never half of the studies in the new order and half in the old
+  await dbBatch(state.docs.map((d, i) => { d.order = i; return { store: 'docs', put: d }; }));
   await checkBaselineChange();
 }
 
@@ -387,12 +385,11 @@ function renderStudyList() {
           annotations: toDel.map(a => JSON.parse(JSON.stringify(a))),
           position: idx
         });
-        await dbDelete('docs', doc.id);
-        await dbDelete('pdf_binaries', doc.id);
+        // The study, its PDF and its constructs go in one transaction (see dbBatch)
+        await dbBatch([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id }))]);
         state.docs = state.docs.filter(d => d.id !== doc.id);
-        await persistDocOrder();
-        for (let a of toDel) await dbDelete('annotations', a.id);
         state.annotations = state.annotations.filter(a => a.docId !== doc.id);
+        await persistDocOrder();
         await recordAuditLog({
           category: 'study_order',
           rationale: why,
@@ -881,6 +878,7 @@ function funderLinkedText(d) {
 }
 
 document.getElementById('saveMetaBtn').addEventListener('click', async () => {
+  metaDirty = false; pendingSaveCleanups.delete(commitMeta);
   await saveCurrentMeta();
   state.isEditMetaMode = false;
   toggleMetaDockUI();
@@ -892,8 +890,22 @@ document.getElementById('saveMetaBtn').addEventListener('click', async () => {
 // Text fields are saved (and logged where they are) when left, or on a study / tab switch or page leave, like every other
 // text box: nothing typed here is lost if the reviewer moves on without clicking Save Info. saveCurrentMeta() reads the
 // fields into the active study before its first await, so a flush at the start of switchStudy() saves them to the right study.
+// One commit for the whole dock (not one per field), so several edited fields are saved in one go.
+let metaDirty = false;
+const commitMeta = async () => {
+  if (!metaDirty) return;
+  metaDirty = false;
+  pendingSaveCleanups.delete(commitMeta);
+  await saveCurrentMeta();
+};
+commitMeta.isCommit = true;
 ['metaAuthor', 'metaYear', 'metaTitle', 'metaDoi', 'metaSetting', 'metaParticipants', 'metaGroup', 'metaMethodology', 'metaFunder', 'metaContextNote', 'metaStudyOverview']
-  .forEach(id => { const el = document.getElementById(id); if (el) bindPendingCommit(el, () => saveCurrentMeta()); });
+  .forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => { metaDirty = true; pendingSaveCleanups.add(commitMeta); });
+    el.addEventListener('change', commitMeta);
+  });
 
 document.querySelectorAll('.meta-drop-target').forEach(input => {
   input.addEventListener('dragover', e => {
@@ -1035,6 +1047,16 @@ async function renderPageContentNow(container, num) {
   }
 }
 
+// Chinese / Japanese text has no spaces between words: where two text items meet between such characters, nothing is added
+const CJK_CHAR = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+function joinSeparator(prev, next) {
+  return CJK_CHAR.test(String(prev).slice(-1)) && CJK_CHAR.test(String(next).charAt(0)) ? '' : ' ';
+}
+function joinTextItems(strs) {
+  let out = '';
+  strs.forEach(t => { if (!t) return; out += (out ? joinSeparator(out, t) : '') + t; });
+  return out;
+}
 // Text of a selection in the PDF text layer. Range.toString() joins the last word of one line to the first word
 // of the next ("againstthe") because PDF.js text items usually have no trailing space at a line end.
 // Here a space is added whenever the next text item starts on a new line or column (hyphen at line end: no space).
@@ -1058,7 +1080,7 @@ function selectionTextWithSpaces(range) {
     const r = sp.getBoundingClientRect();
     if (prev && out && !/\s$/.test(out) && !/^\s/.test(piece)) {
       const newLine = r.top > prev.top + prev.height * 0.6 || r.left + 1 < prev.left;
-      if (newLine && !/[-\u2010\u2011]$/.test(out)) out += ' ';
+      if (newLine && !/[-\u2010\u2011]$/.test(out)) out += joinSeparator(out, piece);
     }
     out += piece;
     prev = r;
@@ -1364,7 +1386,7 @@ async function ensurePdfTextIndex() {
       if (state.activePdfDoc !== pdfDoc) return null;
       const page = await pdfDoc.getPage(i);
       const tc = await page.getTextContent();
-      const joined = tc.items.map(item => item.str).join(' ').normalize('NFC').toLowerCase();
+      const joined = joinTextItems(tc.items.map(item => item.str)).normalize('NFC').toLowerCase();
       pageTexts.push({ pageNum: i, text: joined });
     }
   } catch (e) {
@@ -1447,7 +1469,11 @@ async function jumpToSearchedPage(matchIdx, queryStr) {
   const norm = t => t.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
   const needle = norm(q).trim();
   let joined = '';
-  const starts = spans.map(sp => { const at = joined.length; joined += norm(sp.textContent) + ' '; return at; });
+  const starts = spans.map(sp => {
+    const t = norm(sp.textContent);
+    if (joined && t) joined += joinSeparator(joined, t); // the same joining as the search index
+    const at = joined.length; joined += t; return at;
+  });
   const hits = new Set();
   for (let at = needle ? joined.indexOf(needle) : -1; at >= 0; at = joined.indexOf(needle, at + 1)) {
     const end = at + needle.length;
@@ -1459,7 +1485,7 @@ async function jumpToSearchedPage(matchIdx, queryStr) {
     hits.forEach(sp => {
       sp.style.backgroundColor = 'rgba(250, 204, 21, 0.55)';
       sp.style.borderRadius = '2px';
-      setTimeout(() => { sp.style.backgroundColor = ''; }, 2200);
+      setTimeout(() => { sp.style.backgroundColor = ''; }, 6000); // long enough to read the passage around it
     });
   } else {
     pageContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1635,8 +1661,11 @@ async function autoExtractCitationFromPdf() {
           const rawAuthorLine = candidateAuthorLines[0].text;
           const firstAuthorChunk = rawAuthorLine.split(/,|;|\band\b|&/i)[0];
           const parsed = extractSurnameFromAuthorString(firstAuthorChunk);
-          if (parsed.surname && /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ-]+/.test(parsed.surname)) {
-            detectedAuthor = parsed.surname;
+          // A capitalised surname, or one in capitals (SMITH, O'NEILL-JONES) written as Smith, O'Neill-Jones. Names in other
+          // scripts are left to the reviewer: the order of family and given name cannot be told from the line.
+          const allCaps = parsed.surname && /^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]+$/.test(parsed.surname);
+          if (parsed.surname && (allCaps || /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ-]+/.test(parsed.surname))) {
+            detectedAuthor = allCaps ? parsed.surname.toLowerCase().replace(/(^|[-'’\s])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : parsed.surname;
             detectedEtAl = /,|;|\band\b|&/i.test(rawAuthorLine);
           }
         }
@@ -1790,14 +1819,21 @@ document.getElementById('richTieKeepBtn').addEventListener('click', closeRichnes
 document.getElementById('richTieCloseBtn').addEventListener('click', closeRichnessTieModal);
 document.getElementById('richTieApplyBtn').addEventListener('click', async () => {
   if (!richTieWork) return;
-  const oldOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
+  const oldIds = state.docs.map(d => d.id).join('|'); // by id: two studies can share a display name
   const oldIndexPaper = getDisplayName(state.docs[0]);
   richTieWork.forEach(g => state.docs.splice(g.start, g.docs.length, ...g.docs));
   const newOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
   const reason = document.getElementById('richTieReason').value.trim();
   closeRichnessTieModal();
   if (reason) { state.loa = { ...state.loa, id: 'loa_main', orderRationale: reason, updatedAt: Date.now() }; await dbPut('meta', state.loa); }
-  if (oldOrderStr === newOrderStr) return;
+  if (oldIds === state.docs.map(d => d.id).join('|')) {
+    // The order stays, but the reasoning about it is a decision too
+    if (reason) {
+      await recordAuditLog({ category: 'study_order', action: 'Kept the order of studies tied on Conceptual Richness, with a reason', detail: `Translation sequence: ${newOrderStr}`, rationale: reason });
+      showSnackbar('Order kept; the reason is recorded.');
+    }
+    return;
+  }
   await persistDocOrder();
   const newIndexPaper = getDisplayName(state.docs[0]);
   await recordAuditLog({
@@ -1824,6 +1860,9 @@ const rightSidebar = document.getElementById('extractRightSidebar');
 let isResizing = false;
 
 if (resizer && rightSidebar) {
+  // The width is remembered in this browser, as the pool width in Tab 2 is (kept within the same 320–800 px)
+  const savedSidebarWidth = parseInt(lsGet('me_extract_sidebar_width'), 10);
+  if (savedSidebarWidth >= 320 && savedSidebarWidth <= 800) rightSidebar.style.width = savedSidebarWidth + 'px';
   resizer.addEventListener('mousedown', (e) => {
     isResizing = true;
     document.body.style.cursor = 'col-resize';
@@ -1844,6 +1883,7 @@ if (resizer && rightSidebar) {
     if (isResizing) {
       isResizing = false;
       document.body.style.cursor = 'default';
+      lsSet('me_extract_sidebar_width', String(parseInt(rightSidebar.style.width, 10) || ''));
     }
   });
 }

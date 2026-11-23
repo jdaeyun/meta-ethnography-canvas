@@ -1554,6 +1554,110 @@ await group('Review fixes 4: similarity, study info autosave, #1 by id, zoom wit
   await p.context().close();
 });
 
+await group('Review fixes 5: drawer autosave, merge across bases, split undo keeps later work, atomic writes, merge fills texts, undo logs, CJK, paging', async () => {
+  const p = await openDemo();
+  // The drawer saves (and logs) when the reviewer switches tab, without the button
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  if (!(await p.evaluate(() => state.isLoaOpen))) { await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(300); }
+  await p.fill('#loaNarrativeInput', 'A narrative written and never saved by hand.');
+  await tab(p, 'audit'); await p.waitForTimeout(600);
+  check('the drawer is saved and logged on a tab switch (no button)', await p.evaluate(() => state.loa.narrative === 'A narrative written and never saved by hand.' && /Updated Line of Argument Synthesis/.test(state.logs[0].action)));
+  // Merge rows established by different studies: moved judgements start unjudged, the earlier one is in the note
+  const mr = await p.evaluate(async () => {
+    const [x, y] = state.clusters;
+    const xb = rowBaseDocId(x);
+    const card = rowSecs(x).find(s => !rowSecs(y).includes(s) && s.docId !== xb);
+    // Give the target row another base study than the source row
+    const other = state.docs.find(d => d.id !== xb && d.id !== (card && card.docId));
+    if (!card || !xb || !other) return { skip: true };
+    y.baseDocId = other.id; const yb = other.id;
+    card.clusterRelations[x.id] = 'refutational';
+    await mergeRows(x, y, '');
+    return { rel: secRelation(card, y.id), note: (card.clusterComments[y.id] || ''), log: state.logs[0].detail };
+  });
+  if (!mr.skip) check('merging rows established by different studies: moved cards start unjudged, the earlier judgement noted', mr.rel === 'unjudged' && /judged Refutational against/.test(mr.note) && /start unjudged/.test(mr.log), JSON.stringify(mr));
+  else check('merge across bases: demo rows suitable', false, 'no suitable rows');
+  await p.evaluate(() => performUndo()); await p.waitForTimeout(400);
+  // Split, then add a card and write in the new row, then undo the split: nothing written there is lost
+  const sp = await p.evaluate(async () => {
+    const src = state.clusters[0];
+    const cards = rowSecs(src); if (cards.length < 2) return { skip: true };
+    await splitRow(src, [cards[0].id], 'Split-off row', '');
+    const nw = state.clusters.find(c => c.thirdOrderTitle === 'Split-off row');
+    nw.synthesisNote = 'Step B written in the new row'; await dbPut('clusters', nw);
+    const extra = state.annotations.find(a => a.type === 'second_order' && !a.clusterIds.includes(nw.id) && !a.clusterIds.includes(src.id));
+    if (extra) { extra.clusterIds.push(nw.id); await dbPut('annotations', extra); }
+    await performUndo();
+    return { gone: !state.clusters.some(c => c.id === nw.id), text: /Step B written in the new row/.test(src.synthesisNote || ''), extra: extra ? extra.clusterIds.includes(src.id) && !extra.clusterIds.includes(nw.id) : true, log: /Kept what was changed after it/.test(state.logs[0].detail) };
+  });
+  if (!sp.skip) check('undoing a split keeps what was added to the new row (cards and texts go to the original row)', sp.gone && sp.text && sp.extra && sp.log, JSON.stringify(sp));
+  // One transaction: a write that fails leaves nothing half-written
+  const atomic = await p.evaluate(async () => {
+    const a = state.annotations[0];
+    const before = await dbGet('annotations', a.id);
+    let failed = false;
+    try { await dbBatch([{ store: 'annotations', put: { ...a, note: 'written in a failing batch' } }, { store: 'annotations', put: { note: 'no id' } }]); } catch (e) { failed = true; }
+    const after = await dbGet('annotations', a.id);
+    return { failed, unchanged: (after && after.note) === (before && before.note) };
+  });
+  check('a batch with a failing write stores none of its writes', atomic.failed && atomic.unchanged, JSON.stringify(atomic));
+  // Merge restore: an empty text here is filled from the backup's version of the same item
+  const json = await p.evaluate(() => {
+    const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode, formatVersion: PROJECT_FORMAT }));
+    d.clusters[1].reflexiveNote = 'A reflexive note written on the other computer'; d.clusters[1].cerqualConfidence = 'High';
+    return JSON.stringify(d);
+  });
+  await p.evaluate(async () => { state.clusters[1].reflexiveNote = ''; await dbPut('clusters', state.clusters[1]); });
+  p.choiceAnswer = 'merge';
+  await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
+  p.choiceAnswer = null;
+  check('merge fills an empty text of the same row from the backup (ratings are not filled)', await p.evaluate(() => state.clusters[1].reflexiveNote === 'A reflexive note written on the other computer'), '');
+  // Undo of a removal from a row is logged (with the minor operations)
+  const un = await p.evaluate(async () => {
+    state.logMinorOps = true;
+    const sec = state.annotations.find(a => a.type === 'second_order' && a.clusterIds.length);
+    const c = state.clusters.find(x => x.id === sec.clusterIds[0]);
+    await removeSecondOrderFromCluster(sec, c); await performUndo();
+    state.logMinorOps = false;
+    return /^Undid: Unassign/.test(state.logs[0].action);
+  });
+  check('undoing a removal from a row is logged like the removal', un);
+  // Only the two latest study deletions keep their PDF bytes for Undo
+  const mem = await p.evaluate(() => {
+    const saved = state.undoStack.slice();
+    for (let i = 0; i < 4; i++) pushUndoAction({ type: 'delete_study', label: 'x' + i, binary: new ArrayBuffer(8), doc: {}, annotations: [] });
+    const n = state.undoStack.filter(a => a.type === 'delete_study' && a.binary).length;
+    state.undoStack = saved; updateUndoButtonUI();
+    return n;
+  });
+  check('the undo history keeps the PDF bytes of only the two latest study deletions', mem === 2, String(mem));
+  // Chinese / Japanese: no space where two text items meet between such characters
+  check('text items are joined without a space between Japanese characters, with one between words', await p.evaluate(() => joinTextItems(['夜勤の看護', '師は一人で', 'night', 'shift']) === '夜勤の看護師は一人で night shift'));
+  // Audit trail: a page of entries, then "Show more"
+  const pg = await p.evaluate(async () => {
+    const t0 = Date.now();
+    for (let i = 0; i < 200; i++) state.logs.push({ id: 'pg_' + i, timestamp: t0 - 1e9 - i, category: 'linking', action: 'Linked 1st Order Quote to 2nd Order Construct (X)', reviewer: 'A' });
+    setActiveTab('audit'); await new Promise(r => setTimeout(r, 300));
+    const shown = document.querySelectorAll('#auditTimelineList > div').length;
+    const more = document.querySelector('.audit-show-more'); const label = more && more.textContent;
+    more && more.click(); await new Promise(r => setTimeout(r, 300));
+    return { shown, label, after: document.querySelectorAll('#auditTimelineList > div').length, total: state.logs.length };
+  });
+  check('the audit timeline shows a page of entries and more on request', pg.shown === 150 && new RegExp(`Show ${Math.min(150, pg.total - 150)} more`).test(pg.label || '') && pg.after === Math.min(300, pg.total), JSON.stringify(pg));
+  // A row made here with the title of a peer row takes in the constructs waiting for it (Compare closed)
+  const wt = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order');
+    sec._peerRows = { peer_waiting: { _title: 'A row the peer had', clusterRelations: 'reciprocal' } };
+    await dbPut('annotations', sec);
+    const c = await createNewClusterRow('A ROW THE PEER HAD', { silent: true });
+    const n = await reattachWaitingForRow(c);
+    return { n, placed: sec.clusterIds.includes(c.id), rel: sec.clusterRelations[c.id], waiting: !!sec._peerRows };
+  });
+  check('a row named here like a peer row takes in the constructs waiting for it', wt.n === 1 && wt.placed && wt.rel === 'reciprocal' && !wt.waiting, JSON.stringify(wt));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Appendix A rules still match the audit entries the app writes', async () => {
   // Appendix A sorts entries by their action text (APPENDIX_EDIT_SERIES / APPENDIX_ROUTINE / APPENDIX_WRITEUP). If the wording of
   // an entry changes, its rule would stop matching without any error: every rule must match some action the app can write.

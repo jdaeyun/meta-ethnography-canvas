@@ -18,9 +18,14 @@ function updateUndoButtonUI() {
   }
 }
 
+// PDF bytes kept for undoing a study deletion stay in memory: only the two latest deletions keep them. An older one is still
+// undone (study, constructs, links), and its PDF is then reconnected like after a restore.
+const UNDO_KEEP_PDF = 2;
 function pushUndoAction(actionObj) {
   state.undoStack.push(actionObj);
   if (state.undoStack.length > 15) state.undoStack.shift();
+  const withPdf = state.undoStack.filter(a => a.type === 'delete_study' && a.binary);
+  withPdf.slice(0, Math.max(0, withPdf.length - UNDO_KEEP_PDF)).forEach(a => { a.binary = null; });
   updateUndoButtonUI();
 }
 
@@ -185,7 +190,38 @@ async function performUndoStep() {
       state.loa = { ...state.loa, links: [...last.before.links, ...added] };
       await dbPut('meta', state.loa);
     } else {
-      // Only the row the split created goes; every other row (including rows added since) stays in its place
+      // Only the row the split created goes; every other row (including rows added since) stays in its place. What was put
+      // into that row after the split is not lost: cards go to the original row, its texts are added there marked with
+      // their origin, and concept-map relations follow it.
+      const nw = state.clusters.find(c => c.id === last.newId);
+      const srcRow = state.clusters.find(c => c.id === last.srcId);
+      if (nw && srcRow) {
+        const nwTitle = clusterLabel(nw);
+        for (const a of state.annotations.filter(x => x.type === 'second_order' && (x.clusterIds || []).includes(nw.id))) {
+          a.clusterIds = a.clusterIds.filter(x => x !== nw.id);
+          if (!a.clusterIds.includes(srcRow.id)) a.clusterIds.push(srcRow.id);
+          PER_ROW.forEach(k => { if (a[k] && nw.id in a[k]) { a[k] = { ...a[k] }; if (!(srcRow.id in a[k])) a[k][srcRow.id] = a[k][nw.id]; delete a[k][nw.id]; } });
+          await dbPut('annotations', a);
+          kept.push(`a card placed in "${nwTitle}" after the split (p.${a.page}), now in the original row`);
+        }
+        const carry = (into, from) => from && from.trim() ? (into && into.trim() ? into.trim() + '\n\n' : '') + `[From row "${nwTitle}"] ` + from.trim() : (into || '');
+        let carried = false;
+        ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation'].forEach(f => {
+          if ((nw[f] || '').trim()) { srcRow[f] = carry(srcRow[f], nw[f]); carried = true; }
+        });
+        if (carried) { await dbPut('clusters', srcRow); kept.push(`the texts written in "${nwTitle}", added to the original row`); }
+        if ((state.loa.links || []).some(l => l.from === nw.id || l.to === nw.id)) {
+          const seen = new Set(), out = [];
+          state.loa.links.forEach(l => {
+            const n = { ...l, from: l.from === nw.id ? srcRow.id : l.from, to: l.to === nw.id ? srcRow.id : l.to };
+            const key = [n.from, n.to, n.type].join('|');
+            if (n.from === n.to || seen.has(key)) return;
+            seen.add(key); out.push(n);
+          });
+          state.loa = { ...state.loa, links: out }; await dbPut('meta', state.loa);
+          kept.push(`concept-map relations of "${nwTitle}", moved to the original row`);
+        }
+      }
       await dbDelete('clusters', last.newId);
       state.clusters = state.clusters.filter(c => c.id !== last.newId);
       await persistClusterOrder();
@@ -214,6 +250,8 @@ async function performUndoStep() {
       }
       if (last.prevAspectUsed) sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [last.clusterId]: true };
       await dbPut('annotations', sec);
+      // The removal was logged (with the minor operations), so is its undoing
+      await recordAuditLog({ clusterIds: [last.clusterId], category: 'matrix_mapping', action: `Undid: ${last.label}`, detail: 'The construct is back in the row with its judgement, note and line-of-argument mark.', isMinorOp: true });
     }
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
@@ -233,6 +271,7 @@ async function performUndoStep() {
         }
       }
     }
+    await recordAuditLog({ category: 'linking', action: `Undid: ${last.label}`, detail: 'Back to its type before the switch, with its links and row placements.', clusterIds: (last.snapshot.clusterIds || []).length ? last.snapshot.clusterIds : null, isMinorOp: true });
     renderHighlights();
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();

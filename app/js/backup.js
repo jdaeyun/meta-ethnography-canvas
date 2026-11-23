@@ -67,6 +67,20 @@ function mergeFillEmpty(local, incoming, skip = []) {
   });
   return { filled, conflicts };
 }
+// Same item on both sides with different content: texts that are empty here are filled from the backup (a note or a Step B
+// written on another computer); placements, judgements and ratings are not, since an empty value may be a decision made here.
+const MERGE_FILL_TEXT = {
+  annotations: ['note', 'nuanceNote', 'concordanceNote', 'notTranslatedNote'],
+  clusters: ['thirdOrderTitle', 'translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation', 'cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote']
+};
+function mergeFillTexts(local, incoming, fields) {
+  const filled = [];
+  fields.forEach(k => {
+    const v = incoming[k];
+    if (typeof v === 'string' && v.trim() && !(typeof local[k] === 'string' && local[k].trim())) { local[k] = v; filled.push(k); }
+  });
+  return filled;
+}
 function stableJson(v) {
   if (Array.isArray(v)) return '[' + v.map(stableJson).join(',') + ']';
   if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableJson(v[k])).join(',') + '}';
@@ -74,7 +88,8 @@ function stableJson(v) {
 }
 function sameRecord(a, b) { return stableJson(a) === stableJson(b); }
 function mergeSummaryText(r) {
-  let t = `Backup merged.\n\nAdded: ${r.docs} studies, ${r.annotations} constructs/quotes, ${r.clusters} 3rd Order rows, ${r.logs} audit entries.`;
+  let t = `Backup merged.\n\nAdded: ${r.docs} studies, ${r.annotations} constructs/quotes, ${r.clusters} 3rd Order rows, ${r.logs} audit entries.`
+    + (r.filled ? `\nFilled empty fields (notes, texts) of ${r.filled} item(s) from the backup.` : '');
   if (r.conflicts.length) {
     t += `\n\nKept YOUR version of ${r.conflicts.length} item(s) that differ in the backup (also listed in the Audit Trail):\n`
       + r.conflicts.slice(0, 12).map(x => '• ' + x).join('\n') + (r.conflicts.length > 12 ? `\n… and ${r.conflicts.length - 12} more` : '')
@@ -246,7 +261,10 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         const a = normalizeAnnotation(rawA);
         const local = state.annotations.find(x => x.id === a.id);
         if (local) {
-          if (!sameRecord(local, a)) mergeReport.conflicts.push(`${a.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} (p.${local.page}): ${local.note || String(local.text || '').slice(0, 50)}`);
+          if (!sameRecord(local, a)) {
+            if (mergeFillTexts(local, a, MERGE_FILL_TEXT.annotations).length) { mergeReport.filled++; await dbPut('annotations', local); }
+            if (!sameRecord(local, a)) mergeReport.conflicts.push(`${a.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} (p.${local.page}): ${local.note || String(local.text || '').slice(0, 50)}`);
+          }
           continue;
         }
         await dbPut('annotations', a);
@@ -264,7 +282,10 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         const c = normalizeCluster(rawC);
         const local = state.clusters.find(x => x.id === c.id);
         if (local) {
-          if (!sameRecord(local, c)) mergeReport.conflicts.push(`3rd Order row: ${local.thirdOrderTitle || '(Untitled Row)'}`);
+          if (!sameRecord(local, c)) {
+            if (mergeFillTexts(local, c, MERGE_FILL_TEXT.clusters).length) { mergeReport.filled++; await dbPut('clusters', local); }
+            if (!sameRecord(local, c)) mergeReport.conflicts.push(`3rd Order row: ${local.thirdOrderTitle || '(Untitled Row)'}`);
+          }
           continue;
         }
         await dbPut('clusters', c);
@@ -336,6 +357,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         category: 'project_data',
         action: 'Merged a JSON backup into the project',
         detail: `Backup file: ${src}. Added ${mergeReport.docs} studies, ${mergeReport.annotations} constructs/quotes, ${mergeReport.clusters} 3rd Order rows, ${mergeReport.logs} audit entries.`
+          + (mergeReport.filled ? ` Filled empty fields of ${mergeReport.filled} item(s) from the backup.` : '')
           + (mergeReport.tidied ? ` ${mergeReport.tidied} added item(s) pointed to rows or constructs not in this project; those links were dropped.` : '')
           + (mergeReport.conflicts.length ? `\nKept the local version of ${mergeReport.conflicts.length} item(s) that differ in the backup:\n` + mergeReport.conflicts.map(x => '• ' + x).join('\n') : '')
       });

@@ -186,7 +186,8 @@ function updateBackupReminder() {
 // Lookups the matrix builds once per render (rows' constructs, quotes per construct, history per row): dropped whenever the
 // data they come from is written, so a row built later (lazily) never reads an outdated index
 let matrixIndexCache = null;
-function invalidateMatrixIndex(store) { if (!store || store === 'annotations' || store === 'clusters' || store === 'logs') matrixIndexCache = null; }
+// (Rows themselves are read live, so typing a row's texts, which writes 'clusters' while typing, does not drop it.)
+function invalidateMatrixIndex(store) { if (!store || store === 'annotations' || store === 'logs') matrixIndexCache = null; }
 async function dbPut(store, item, { quiet = false } = {}) {
   invalidateMatrixIndex(store);
   const db = await initDB();
@@ -199,6 +200,30 @@ async function dbPut(store, item, { quiet = false } = {}) {
       markUnbackedChange();
       resolve();
     };
+    tx.onerror = () => { flashSaveStatus('error'); reject(tx.error); };
+    tx.onabort = () => { flashSaveStatus('error'); reject(tx.error || new Error('IndexedDB transaction aborted')); };
+  });
+}
+// Several writes across stores in ONE transaction: all of them are stored, or none (a crash, a full disk or an error part way
+// leaves the project as it was). For operations that change several records at once: merging / splitting / deleting rows and
+// deleting a study. ops: [{ store, put: item } | { store, del: key }]
+async function dbBatch(ops) {
+  if (!ops.length) return;
+  const stores = [...new Set(ops.map(o => o.store))];
+  stores.forEach(invalidateMatrixIndex);
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(stores, 'readwrite');
+    try {
+      ops.forEach(o => { const st = tx.objectStore(o.store); if ('del' in o) st.delete(o.del); else st.put(o.put); });
+    } catch (err) {
+      // A write that cannot even be queued (e.g. a record without its key) aborts the whole transaction: nothing is stored
+      try { tx.abort(); } catch (e) { /* already finished */ }
+      flashSaveStatus('error');
+      reject(err);
+      return;
+    }
+    tx.oncomplete = () => { flashSaveStatus('saved'); markUnbackedChange(); resolve(); };
     tx.onerror = () => { flashSaveStatus('error'); reject(tx.error); };
     tx.onabort = () => { flashSaveStatus('error'); reject(tx.error || new Error('IndexedDB transaction aborted')); };
   });

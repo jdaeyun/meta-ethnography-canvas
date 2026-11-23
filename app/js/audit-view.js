@@ -6,8 +6,12 @@
 // ========================================================
 // VIEW 3: AUDIT TRAIL & REFLEXIVE LOG RENDERER
 // ========================================================
-document.getElementById('auditFilterCategory').addEventListener('change', () => renderAuditTimeline());
-document.getElementById('auditFilterRow').addEventListener('change', () => renderAuditTimeline());
+// A long project has a long trail: the timeline shows a page of entries and more on request, so opening Tab 3 or adding a
+// memo does not rebuild every card. The trail itself, the filters and the exports always cover every entry.
+const AUDIT_PAGE = 150;
+let auditShownCount = AUDIT_PAGE;
+document.getElementById('auditFilterCategory').addEventListener('change', () => { auditShownCount = AUDIT_PAGE; renderAuditTimeline(); });
+document.getElementById('auditFilterRow').addEventListener('change', () => { auditShownCount = AUDIT_PAGE; renderAuditTimeline(); });
 
 // ---- 3rd Order row history: audit entries carry the id(s) of the row(s) they concern ----
 function clusterTitleHistory(cluster) {
@@ -127,7 +131,8 @@ function renderAuditTimeline() {
     return;
   }
 
-  list.forEach(log => {
+  const total = list.length;
+  list.slice(0, auditShownCount).forEach(log => {
     const meta = getCategoryMeta(log.category);
     const dateStr = new Date(log.timestamp).toLocaleString();
     const revTag = log.reviewer || 'Unknown';
@@ -209,4 +214,12 @@ function renderAuditTimeline() {
 
     container.appendChild(card);
   });
+  if (total > auditShownCount) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'audit-show-more w-full py-2 text-xs font-semibold text-indigo-700 bg-white border border-slate-200 rounded-lg hover:bg-indigo-50 cursor-pointer';
+    more.textContent = `Show ${Math.min(AUDIT_PAGE, total - auditShownCount)} more (${total - auditShownCount} not shown)`;
+    more.onclick = () => { auditShownCount += AUDIT_PAGE; renderAuditTimeline(); };
+    container.appendChild(more);
+  }
 }

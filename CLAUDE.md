@@ -104,12 +104,14 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   'refutational' or 'other_aspect' (◇, Noblit & Hare's third relation; `aspectUsedInLoa[rowId]` marks those the line of
   argument draws on), or stays 'unjudged'.
   Items imported in Compare before what they belong to is here keep the peer's links in `_peerParentIds` (a quote waiting for its
-  2nd order construct) / `_peerRows` (a construct waiting for its row: per peer row id, the judgement, cell note and line-of-argument
-  mark): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.
+  2nd order construct) / `_peerRows` (a construct waiting for its row: per peer row id, the judgement, cell note, line-of-argument
+  mark and the peer row's title, so a row of that title made here later takes it in): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.
   `loa.peerSetAside` (optional, same kind) remembers the peer constructs set aside in Compare (peer id, reviewer, text key), so the next
   file from that reviewer does not show them as new.
   Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
   was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
+- Operations that change several records at once (merge / split / delete a row, delete a study, the order of studies or rows)
+  write them in one transaction with `dbBatch(ops)` (core.js), so a failure part way leaves the project as it was.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
 - Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit
@@ -123,11 +125,12 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   notices and input hints: `showSnackbar()`. A deletion that Ctrl+Z undoes does not ask first: push the undo action, then
   `showUndoSnackbar(message)`.
 - Where fields live: the Research Aim & Overall Model drawer (Tab 2) holds what is thought out during the analysis (aim, Item 12, alternative
-  interpretations, map, Item 16, team models, line of argument; saved with its button). Fields that describe the method for the write-up
+  interpretations, map, Item 16, team models, line of argument; saved together when the reviewer leaves the drawer, closes it,
+  switches tab or leaves the page: `commitLoaDrawer`). Fields that describe the method for the write-up
   (`WRITEUP_FIELDS` in loa.js) sit beside the Methods Summary in Tab 4 and commit one by one; a gap `PH(text, fieldKey)` links to its field.
 - Tab 2 rows are built lazily (`renderMatrixTable`): only rows near the viewport have content. Do not query row DOM across the whole table.
   Per-row lookups (a row's constructs, a construct's quotes, a row's history) come from `getMatrixIndex()` (one pass per render);
-  `dbPut` / `dbDelete` / `dbClear` of annotations, clusters or logs drop it (`invalidateMatrixIndex()`): call that after changing
+  `dbPut` / `dbDelete` / `dbClear` of annotations or logs drop it (`invalidateMatrixIndex()`): call that after changing
   those in memory without writing them.
   Scroll position is kept by an anchor row (`data-cluster-id`) and corrected when a placeholder above the viewport is built; overflow-anchor is off on purpose.
 - Stance: this is a qualitative (Big Q) tool. Differences between reviewers are readings to discuss, not errors; agreement is provisional
