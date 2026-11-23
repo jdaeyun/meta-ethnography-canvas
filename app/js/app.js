@@ -467,8 +467,8 @@ window.ondrop = async e => {
 
 // ---- Modals: Esc closes (except the required Reviewer ID dialog), focus moves in and returns, Tab stays inside ----
 (function modalAccessibility() {
-  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn', refutMapModal: 'refutMapCloseBtn', seedChoiceModal: 'seedChoiceCloseBtn', rowOpsModal: 'rowOpsCloseBtn' };
-  const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'refutMapModal', 'seedChoiceModal', 'rowOpsModal', 'reviewerLoginModal'];
+  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn', refutMapModal: 'refutMapCloseBtn', seedChoiceModal: 'seedChoiceCloseBtn', rowOpsModal: 'rowOpsCloseBtn', reasonModal: 'reasonModalCloseBtn' };
+  const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'refutMapModal', 'seedChoiceModal', 'rowOpsModal', 'reviewerLoginModal', 'reasonModal'];
   const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   const returnTo = {};
   const visible = id => { const m = document.getElementById(id); return m && !m.classList.contains('hidden') ? m : null; };

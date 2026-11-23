@@ -478,36 +478,64 @@ function renderLoaClusterChips() {
   });
 }
 
-// eMERGe fields added for items 3, 9, 13 and 16: [loa key, input id, audit category]
+// The drawer holds what is thought out during the analysis (saved together with "Save & Log to Trail").
+// [loa key, input id, audit category]
 const LOA_EXTRA_FIELDS = [
+  ['alternativeInterpretations', 'loaAltInterpInput', 'translation_process'],
+  ['modelContext', 'loaModelContextInput', 'line_of_argument'],
+  ['teamMergeNote', 'loaTeamMergeInput', 'team_model']
+];
+// The fields that describe the method for the write-up live in Tab 4, beside the Methods Summary. Each is saved,
+// with one audit entry, when the reviewer leaves it (bindPendingCommit). Same project fields as before (state.loa).
+const WRITEUP_FIELDS = [
   ['reviewQuestion', 'loaQuestionInput', 'aim_question'],
   ['readingApproach', 'loaReadingInput', 'reading_extraction'],
   ['extractionScope', 'loaExtractionScopeInput', 'reading_extraction'],
   ['unitsTerminology', 'loaUnitsInput', 'reading_extraction'],
+  ['appraisalPolicy', 'loaAppraisalPolicyInput', 'appraisal_policy'],
+  ['appraisalUse', 'loaAppraisalUseInput', 'appraisal_policy'],
+  ['relateProcess', 'loaRelateProcessInput', 'relating_studies'],
   ['translationDefinitions', 'loaTransDefInput', 'translation_process'],
   ['translationProcess', 'loaTransProcInput', 'translation_process'],
-  ['alternativeInterpretations', 'loaAltInterpInput', 'translation_process'],
-  ['modelContext', 'loaModelContextInput', 'line_of_argument'],
-  ['teamMergeNote', 'loaTeamMergeInput', 'team_model']
+  ['synthStudies', 'loaSynthStudiesInput', 'line_of_argument']
 ];
 const LOA_FIELD_LABELS = {
   reviewQuestion: 'Review question (Item 3)', readingApproach: 'Reading & extraction process (Item 9)', extractionScope: 'Extracted from (Item 9)',
   unitsTerminology: 'Units of synthesis (Item 9)', translationDefinitions: 'Working definitions (Item 13)', translationProcess: 'Translation process (Item 13)',
   alternativeInterpretations: 'Alternative interpretations (Items 13/15)', modelContext: 'Context where the model applies (Item 16)',
-  teamMergeNote: 'How independent models were merged'
+  teamMergeNote: 'How independent models were merged',
+  appraisalPolicy: 'Quality appraisal policy', appraisalUse: 'How appraisal was used', relateProcess: 'Process of relating studies (Item 11)',
+  synthStudies: 'Studies synthesized into the line of argument (Item 15)'
 };
+const EXTRACTION_SCOPE_LABELS = { full: 'Full study accounts', findings: 'Findings sections only', mixed: 'Mainly findings, other sections for context' };
+function writeupFieldText(key, v) { return key === 'extractionScope' ? (EXTRACTION_SCOPE_LABELS[v] || '(not stated)') : v; }
+WRITEUP_FIELDS.forEach(([key, id, category]) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  bindPendingCommit(el, async () => {
+    const oldVal = state.loa[key] || '';
+    const newVal = (el.value || '').trim();
+    if (oldVal === newVal) return;
+    state.loa = { ...state.loa, id: 'loa_main', [key]: newVal, updatedAt: Date.now() };
+    await dbPut('meta', state.loa);
+    await recordAuditLog({
+      category,
+      action: `Updated ${LOA_FIELD_LABELS[key]}`,
+      fromVal: oldVal ? writeupFieldText(key, oldVal) : '(empty)',
+      toVal: newVal ? writeupFieldText(key, newVal) : '(cleared)'
+    });
+    if (!divPub.classList.contains('hidden')) renderPublicationView();
+  });
+});
 
 function populateLoaInputs() {
   document.getElementById('loaAimInput').value = state.loa.aim || '';
   document.getElementById('loaTitleInput').value = state.loa.title || '';
   document.getElementById('loaFlowInput').value = state.loa.flow || '';
   document.getElementById('loaNarrativeInput').value = state.loa.narrative || '';
-  document.getElementById('loaRelateProcessInput').value = state.loa.relateProcess || '';
   document.getElementById('loaRelateOutcomeInput').value = state.loa.relateOutcome || '';
-  document.getElementById('loaSynthStudiesInput').value = state.loa.synthStudies || '';
-  document.getElementById('loaAppraisalPolicyInput').value = state.loa.appraisalPolicy || '';
-  document.getElementById('loaAppraisalUseInput').value = state.loa.appraisalUse || '';
-  LOA_EXTRA_FIELDS.forEach(([k, id]) => { const el = document.getElementById(id); if (el) el.value = state.loa[k] || ''; });
+  // A field being typed in keeps its text (its commit is still to come)
+  [...LOA_EXTRA_FIELDS, ...WRITEUP_FIELDS].forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement) el.value = state.loa[k] || ''; });
   const ordSel = document.getElementById('orderStrategySelect');
   if (ordSel) ordSel.value = getOrderStrategy();
   if (state.loa.updatedAt) {
@@ -517,18 +545,17 @@ function populateLoaInputs() {
 }
 
 document.getElementById('saveLoaBtn').addEventListener('click', async () => {
-  const ids = { aim: 'loaAimInput', title: 'loaTitleInput', flow: 'loaFlowInput', narrative: 'loaNarrativeInput', relateProcess: 'loaRelateProcessInput', relateOutcome: 'loaRelateOutcomeInput', synthStudies: 'loaSynthStudiesInput', appraisalPolicy: 'loaAppraisalPolicyInput', appraisalUse: 'loaAppraisalUseInput' };
+  const ids = { aim: 'loaAimInput', title: 'loaTitleInput', flow: 'loaFlowInput', narrative: 'loaNarrativeInput', relateOutcome: 'loaRelateOutcomeInput' };
   LOA_EXTRA_FIELDS.forEach(([k, id]) => { ids[k] = id; });
   const oldV = {}, newV = {};
   Object.keys(ids).forEach(k => { oldV[k] = state.loa[k] || ''; newV[k] = (document.getElementById(ids[k])?.value || '').trim(); });
   const aimChanged = oldV.aim !== newV.aim;
-  const loaChanged = ['title', 'flow', 'narrative', 'synthStudies'].some(k => oldV[k] !== newV[k]);
-  const relChanged = ['relateProcess', 'relateOutcome'].some(k => oldV[k] !== newV[k]);
-  const apprChanged = ['appraisalPolicy', 'appraisalUse'].some(k => oldV[k] !== newV[k]);
+  const loaChanged = ['title', 'flow', 'narrative'].some(k => oldV[k] !== newV[k]);
+  const relChanged = oldV.relateOutcome !== newV.relateOutcome;
   const extraChanged = LOA_EXTRA_FIELDS.filter(([k]) => oldV[k] !== newV[k]);
 
-  if (!aimChanged && !loaChanged && !relChanged && !apprChanged && extraChanged.length === 0) {
-    alert('No changes in Aim / Phase 4 / Line of Argument to save.');
+  if (!aimChanged && !loaChanged && !relChanged && extraChanged.length === 0) {
+    showSnackbar('No changes in the Aim, Item 12 or the line of argument to save.');
     return;
   }
 
@@ -550,21 +577,12 @@ document.getElementById('saveLoaBtn').addEventListener('click', async () => {
     await recordAuditLog({
       category: 'line_of_argument',
       action: `Updated Line of Argument Synthesis${newV.title ? ': "' + newV.title + '"' : ''}`,
-      detail: `${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.synthStudies ? 'Studies synthesized: ' + newV.synthStudies + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
+      detail: `${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
       fromVal: oldV.title || oldV.flow || oldV.narrative ? `${oldV.title || '(Untitled)'} — ${(oldV.narrative || oldV.flow).slice(0, 70)}...` : '(Initial Draft)',
       toVal: `${newV.title || '(Untitled)'} — ${(newV.narrative || newV.flow).slice(0, 70)}...`
     });
   }
-  if (apprChanged) {
-    await recordAuditLog({
-      category: 'appraisal_policy',
-      action: 'Updated Quality Appraisal Policy / Use',
-      detail: `${newV.appraisalPolicy ? 'Policy: ' + newV.appraisalPolicy + '\n' : ''}${newV.appraisalUse ? 'Use: ' + newV.appraisalUse : ''}`,
-      fromVal: (oldV.appraisalPolicy || oldV.appraisalUse) ? `${(oldV.appraisalPolicy || oldV.appraisalUse).slice(0, 70)}...` : '(Initial Draft)',
-      toVal: `${(newV.appraisalPolicy || newV.appraisalUse || '(cleared)').slice(0, 70)}...`
-    });
-  }
-  // One audit entry per eMERGe section that changed (items 3/16, 9, 13)
+  // One audit entry per section that changed (alternative interpretations, Item 16, team merge)
   const byCat = {};
   extraChanged.forEach(([k, , cat]) => { (byCat[cat] = byCat[cat] || []).push(k); });
   for (const cat of Object.keys(byCat)) {
@@ -580,10 +598,10 @@ document.getElementById('saveLoaBtn').addEventListener('click', async () => {
   if (relChanged) {
     await recordAuditLog({
       category: 'relating_studies',
-      action: 'Updated Phase 4: Process / Outcome of Relating Studies (eMERGe items 11–12)',
-      detail: `${newV.relateProcess ? 'Process: ' + newV.relateProcess + '\n' : ''}${newV.relateOutcome ? 'Outcome: ' + newV.relateOutcome : ''}`,
-      fromVal: (oldV.relateProcess || oldV.relateOutcome) ? `${(oldV.relateProcess || oldV.relateOutcome).slice(0, 70)}...` : '(Initial Draft)',
-      toVal: `${(newV.relateProcess || newV.relateOutcome).slice(0, 70)}...`
+      action: 'Updated Phase 4: Outcome of Relating Studies (eMERGe item 12)',
+      detail: newV.relateOutcome ? 'Outcome: ' + newV.relateOutcome : '(cleared)',
+      fromVal: oldV.relateOutcome ? `${oldV.relateOutcome.slice(0, 70)}...` : '(Initial Draft)',
+      toVal: newV.relateOutcome ? `${newV.relateOutcome.slice(0, 70)}...` : '(cleared)'
     });
   }
 });

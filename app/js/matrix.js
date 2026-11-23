@@ -312,7 +312,13 @@ const autoSeedToggleEl = document.getElementById('autoSeedIndexToggle');
 autoSeedToggleEl.checked = false; // set from the project once it is loaded (syncSeedToggle)
 function syncSeedToggle() { autoSeedToggleEl.checked = seedChoice() === 'seed'; }
 autoSeedToggleEl.addEventListener('change', async () => {
-  const why = (prompt(`${autoSeedToggleEl.checked ? 'Start rows from study #1' : 'Stop placing study #1 automatically'}: why? (optional — recorded in the audit trail)`) || '').trim();
+  const on = autoSeedToggleEl.checked;
+  const why = await askReason({
+    title: on ? 'Start rows from study #1' : 'Stop placing study #1 automatically',
+    context: on ? 'Each 2nd Order construct of study #1 becomes a provisional row established by study #1 (◆), and the other studies are translated into these rows. Study #1\'s structure can shape the whole synthesis.' : 'You create the rows yourself; study #1 is not placed automatically. Rows already made stay as they are.',
+    confirmLabel: on ? 'Start from study #1' : 'Stop', draftKey: 'seed-choice'
+  });
+  if (why === null) { syncSeedToggle(); return; } // cancelled: the setting stays as it was
   await setSeedChoice(autoSeedToggleEl.checked ? 'seed' : 'manual', why);
   if (autoSeedToggleEl.checked) renderMatrixView();
 });
@@ -1248,7 +1254,13 @@ function renderMatrixTable() {
     const baselineOkBtn = tdMeta.querySelector('.cl-baseline-ok');
     if (baselineOkBtn) baselineOkBtn.onclick = async () => {
       const bc = cluster.baselineChange;
-      const why = (prompt('What did you check or change in this row after study #1 changed? (optional — recorded in the audit trail)') || '').trim();
+      const why = await askReason({
+        title: `Re-read: ${cluster.thirdOrderTitle || 'Untitled Row'}`,
+        context: `Study #1 changed from ${bc.fromName || 'another study'} to ${bc.toName}.`,
+        label: 'What did you check or change in this row? (optional, saved in the Audit Trail)',
+        confirmLabel: 'Mark as re-read', draftKey: 'reread-' + cluster.id
+      });
+      if (why === null) return;
       delete cluster.baselineChange;
       await dbPut('clusters', cluster);
       await recordAuditLog({
@@ -1316,7 +1328,6 @@ function renderMatrixTable() {
 
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
     tdMeta.querySelector('.del-cluster').onclick = async () => {
-      if (!confirm('Remove this 3rd Order row? Assigned 2nd Order Constructs will remain in the pool/other rows. (You can Undo with Ctrl+Z)')) return;
       const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
       pushUndoAction({
         type: 'delete_cluster',
@@ -1337,6 +1348,7 @@ function renderMatrixTable() {
         fromVal: cluster.thirdOrderTitle || '(Untitled Row)'
       });
       renderMatrixView();
+      showUndoSnackbar(`Removed the row "${cluster.thirdOrderTitle || 'Untitled'}" (its constructs stay in the pool / other rows)`);
     };
 
     tr.appendChild(tdMeta);

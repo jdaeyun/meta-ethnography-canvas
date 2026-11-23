@@ -80,8 +80,7 @@ for (const row of ROWS) {
 // ---- Line of Argument drawer ----
 await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(500);
 await p.fill('#loaTitleInput', LOA.title); await p.fill('#loaFlowInput', LOA.flow); await p.fill('#loaNarrativeInput', LOA.narrative);
-await p.fill('#loaRelateProcessInput', LOA.relateProcess); await p.fill('#loaRelateOutcomeInput', LOA.relateOutcome);
-await p.fill('#loaTransDefInput', LOA.transDef); await p.fill('#loaTransProcInput', LOA.transProc); await p.fill('#loaAltInterpInput', LOA.altInterp);
+await p.fill('#loaRelateOutcomeInput', LOA.relateOutcome); await p.fill('#loaAltInterpInput', LOA.altInterp);
 await p.fill('#loaModelContextInput', LOA.modelContext); await p.fill('#loaTeamMergeInput', LOA.teamMerge);
 const linkSel = async (id, title) => p.evaluate(({ id, title }) => { const s = document.getElementById(id); const o = [...s.options].find(o => o.textContent.includes(title)); s.value = o.value; s.dispatchEvent(new Event('change', { bubbles: true })); }, { id, title });
 for (const [from, to, type] of [[2, 0, 'leads'], [2, 1, 'leads'], [0, 1, 'mutual']]) {
@@ -90,6 +89,11 @@ for (const [from, to, type] of [[2, 0, 'leads'], [2, 1, 'leads'], [0, 1, 'mutual
 }
 await p.click('#saveLoaBtn'); await p.waitForTimeout(600);
 await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(300);
+// ---- Write-up fields beside the Methods Summary (Tab 4): each is saved and logged when it is left ----
+await p.click('#viewPubBtn'); await p.waitForTimeout(500);
+await p.fill('#loaRelateProcessInput', LOA.relateProcess); await p.fill('#loaTransDefInput', LOA.transDef); await p.fill('#loaTransProcInput', LOA.transProc);
+await p.locator('#loaTransProcInput').blur(); await p.waitForTimeout(500);
+await p.click('#viewMatrixBtn'); await p.waitForTimeout(500);
 
 // ---- Memos (Tab 3) ----
 await p.click('#viewAuditBtn'); await p.waitForTimeout(500);

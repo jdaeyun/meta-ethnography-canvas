@@ -83,7 +83,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 
 ## Rules
 
-- Classic `<script>` files sharing one global scope (not ES modules, so `file://` works).
+- Classic `<script>` files sharing one global scope (not ES modules, so `file://` works). The smoke test "Shared global scope"
+  fails when a top-level name is declared in two files.
   Keep the load order in `me_canvas.html`; `version.js`, then `core.js` first. Top-level code may only call
   functions from files loaded earlier — anything else must run inside handlers or DOMContentLoaded.
 - Backward compatibility from v1.4.7 on (data format 1): a project saved by 1.4.7 or later must open in every later
@@ -108,6 +109,13 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
 - Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit
   (save + `recordAuditLog`) then also runs on tab switch, matrix re-render and page leave, so a saved text never lacks its log entry.
+  `flushAllPendingSaves()` returns a promise (null when nothing is pending): await it before reading the trail (backup, exports).
+- Dialogs: ask for a reason with `askReason({ title, context, label, confirmLabel, cancelLabel, draftKey })` (core.js; resolves to the
+  text, '' = none, null = cancelled; `cancelLabel: null` when the decision is already made), never `prompt()`. A deletion that Ctrl+Z
+  undoes does not ask first: push the undo action, then `showUndoSnackbar(message)`. Completion notices use `showSnackbar()`, not `alert()`.
+- Where fields live: the Research Aim & Overall Model drawer (Tab 2) holds what is thought out during the analysis (aim, Item 12, alternative
+  interpretations, map, Item 16, team models, line of argument; saved with its button). Fields that describe the method for the write-up
+  (`WRITEUP_FIELDS` in loa.js) sit beside the Methods Summary in Tab 4 and commit one by one; a gap `PH(text, fieldKey)` links to its field.
 - Tab 2 rows are built lazily (`renderMatrixTable`): only rows near the viewport have content. Do not query row DOM across the whole table.
   Scroll position is kept by an anchor row (`data-cluster-id`) and corrected when a placeholder above the viewport is built; overflow-anchor is off on purpose.
 - Stance: this is a qualitative (Big Q) tool. Differences between reviewers are readings to discuss, not errors; agreement is provisional
@@ -134,8 +142,10 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   `eval` / `new Function`, no CDN or external fetch. A new resource type means updating the policy and the smoke test
   "Content-Security-Policy". PDF.js stays 3.11.174 (4.x+ ships only ES modules, which file:// cannot load) with
   `isEvalSupported: false` (CVE-2024-4367) on every `getDocument` call.
-- Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`);
+- Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`, `getAppendixASpec()`);
   change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
+  Appendix A shows the key decisions by default (`isKeyDecisionLog()`, repeated edits of one text folded by `APPENDIX_EDIT_SERIES`);
+  a new kind of audit entry that is routine bookkeeping belongs in `APPENDIX_ROUTINE`. The trail itself is never filtered.
 - UI text is English.
 - The app must fit laptop widths: no overlap in the header or the view toolbars from 1024 px up (smoke test "Layout at laptop widths").
   Toolbars wrap (`flex-wrap`, `gap-*`, not `space-x-*`); long labels shorten below `xl` / `2xl` and keep the full text in `title`.

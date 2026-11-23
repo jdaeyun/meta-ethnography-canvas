@@ -634,13 +634,74 @@ function escapeHtml(s) {
   return s ? String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])) : '';
 }
 
-function showSnackbar(message) {
+// Short notice at the bottom of the window. With { actionLabel, onAction } it carries one button (e.g. Undo) and stays a
+// little longer; a newer notice replaces it (and its button).
+let snackbarTimer = null;
+function showSnackbar(message, { actionLabel = '', onAction = null, duration = 0 } = {}) {
   const snackbar = document.getElementById('snackbar');
-  if(snackbar) {
-    snackbar.textContent = message;
-    snackbar.classList.remove('opacity-0');
-    setTimeout(() => {
-      snackbar.classList.add('opacity-0');
-    }, 3000);
+  if (!snackbar) return;
+  const textEl = document.getElementById('snackbarText');
+  const btn = document.getElementById('snackbarAction');
+  if (textEl) textEl.textContent = message; else snackbar.textContent = message;
+  const hide = () => {
+    snackbar.classList.add('opacity-0', 'pointer-events-none');
+    if (btn) { btn.classList.add('hidden'); btn.onclick = null; }
+  };
+  if (btn) {
+    if (actionLabel && onAction) {
+      btn.textContent = actionLabel;
+      btn.classList.remove('hidden');
+      btn.onclick = () => { hide(); onAction(); };
+      snackbar.classList.remove('pointer-events-none');
+    } else {
+      btn.classList.add('hidden'); btn.onclick = null;
+      snackbar.classList.add('pointer-events-none');
+    }
   }
+  snackbar.classList.remove('opacity-0');
+  if (snackbarTimer) clearTimeout(snackbarTimer);
+  snackbarTimer = setTimeout(hide, duration || (actionLabel ? 7000 : Math.min(9000, 3000 + message.length * 25)));
+}
+// After a deletion that Ctrl+Z can undo: no "Are you sure?" first, a notice with Undo afterwards.
+// The button undoes THIS action only (if something else was pushed meanwhile, the notice was replaced anyway).
+function showUndoSnackbar(message) {
+  const action = state.undoStack[state.undoStack.length - 1];
+  showSnackbar(`${message} — Ctrl+Z to undo`, {
+    actionLabel: 'Undo',
+    onAction: () => { if (state.undoStack[state.undoStack.length - 1] === action) performUndo(); }
+  });
+}
+
+// Asks for the reason of a decision in a multi-line box (instead of prompt()). Resolves to the text ('' = no reason given),
+// or null when cancelled. cancelLabel: null means the decision is already made and cannot be cancelled: the second button
+// then records it without a reason. A text typed and then cancelled is kept as a draft for the same draftKey.
+const reasonDrafts = new Map();
+function askReason({ title = 'Why?', context = '', label = 'Why? (optional, saved in the Audit Trail)', confirmLabel = 'Record', cancelLabel = 'Cancel', draftKey = '' } = {}) {
+  const modal = document.getElementById('reasonModal');
+  const input = document.getElementById('reasonModalInput');
+  const okBtn = document.getElementById('reasonModalConfirmBtn');
+  const secBtn = document.getElementById('reasonModalSecondaryBtn');
+  const closeBtn = document.getElementById('reasonModalCloseBtn');
+  document.getElementById('reasonModalTitle').textContent = title;
+  document.getElementById('reasonModalContext').textContent = context;
+  document.getElementById('reasonModalContext').classList.toggle('hidden', !context);
+  document.getElementById('reasonModalLabel').textContent = label;
+  okBtn.textContent = confirmLabel;
+  secBtn.textContent = cancelLabel === null ? 'Record without a reason' : cancelLabel;
+  input.value = (draftKey && reasonDrafts.get(draftKey)) || '';
+  return new Promise(resolve => {
+    const finish = value => {
+      if (draftKey) { if (value === null && input.value.trim()) reasonDrafts.set(draftKey, input.value); else reasonDrafts.delete(draftKey); }
+      modal.classList.add('hidden'); modal.classList.remove('flex');
+      okBtn.onclick = secBtn.onclick = closeBtn.onclick = input.onkeydown = null;
+      resolve(value);
+    };
+    const dismiss = () => finish(cancelLabel === null ? '' : null);
+    okBtn.onclick = () => finish(input.value.trim());
+    secBtn.onclick = () => finish(cancelLabel === null ? '' : null);
+    closeBtn.onclick = dismiss; // also Escape (modal handling in app.js clicks the close button)
+    input.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); finish(input.value.trim()); } };
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+    setTimeout(() => input.focus(), 20);
+  });
 }

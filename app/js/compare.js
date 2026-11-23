@@ -196,7 +196,13 @@ function renderCompareStudiesTab(container, cmp) {
     ${info.firstDiffers || !info.sameOrder ? `<button type="button" class="cmp-order-memo px-2.5 py-1 text-xs font-semibold rounded border border-amber-400 bg-amber-50 text-amber-900 cursor-pointer hover:bg-amber-100">Record this difference in the Audit Trail…</button>` : ''}`;
   const memoBtn = orderBox.querySelector('.cmp-order-memo');
   if (memoBtn) memoBtn.onclick = async () => {
-    const note = (prompt('What does the different starting point / order mean for your readings? (optional)') || '').trim();
+    const note = await askReason({
+      title: `A different translation order from @${cmp.peerReviewer}`,
+      context: `Mine: ${state.docs.map(d => getDisplayName(d)).join(' ➔ ')}\n@${cmp.peerReviewer}: ${info.peerDocs.map(nameOfPeer).join(' ➔ ')}`,
+      label: 'What does the different starting point / order mean for your readings? (optional)',
+      confirmLabel: 'Record in the Audit Trail', draftKey: 'order-diff'
+    });
+    if (note === null) return;
     await recordAuditLog({
       category: 'concordance',
       action: `Noted a different translation order from @${cmp.peerReviewer}`,
@@ -584,7 +590,7 @@ function renderComparisonTabContent() {
       for (const pm of (Array.isArray(peerLoa.teamModels) ? peerLoa.teamModels : [])) {
         if (!(state.loa.teamModels || []).some(m => m.id === pm.id)) await addTeamModel({ ...pm }, `Carried over from @${cmp.peerReviewer}'s team-model records.`);
       }
-      alert('Independent models recorded. Open "Research Aim & Overall Model" in Tab 2 to compare them side by side and write how they were merged.');
+      showSnackbar('Independent models recorded. Open "Research Aim & Overall Model" in Tab 2 to compare them side by side and write how they were merged.');
     };
     loaSection.querySelector('.cmp-import-rel').onclick = async () => {
       await mergePeerAuditLogs();
@@ -604,7 +610,7 @@ function renderComparisonTabContent() {
         await recordAuditLog({ category: 'team_model', action: `Imported ${added} concept relation(s) from @${cmp.peerReviewer}'s model`, detail: skipped ? `${skipped} relation(s) skipped: the rows were not found here by title (import those rows first).` : '' });
         renderLoaMap();
       }
-      alert(`Imported ${added} relation(s).${skipped ? ` ${skipped} skipped (rows not found here by title — import those rows first).` : ''}`);
+      showSnackbar(`Imported ${added} relation(s).${skipped ? ` ${skipped} skipped (rows not found here by title — import those rows first).` : ''}`);
       renderComparisonTabContent();
     };
     box.appendChild(loaSection);
@@ -629,7 +635,7 @@ function renderComparisonTabContent() {
 
     restBox.querySelector('#mergePeerLogsBtn').onclick = async () => {
       const added = await mergePeerAuditLogs();
-      alert(added ? `Merged ${added} new audit trail entries from @${cmp.peerReviewer}!` : `Nothing new to merge: @${cmp.peerReviewer}'s audit trail entries are already in your trail.`);
+      showSnackbar(added ? `Merged ${added} new audit trail entries from @${cmp.peerReviewer}!` : `Nothing new to merge: @${cmp.peerReviewer}'s audit trail entries are already in your trail.`);
     };
 
     const clList = restBox.querySelector('#peerClustersList');

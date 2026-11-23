@@ -33,6 +33,19 @@ async function openDemo(url = BASE + '?demo') {
   page.cspRefusals = []; // anything the Content-Security-Policy blocked
   page.on('console', m => { if (/Content Security Policy/i.test(m.text())) page.cspRefusals.push(m.text()); });
   page.on('dialog', d => d.accept());
+  // The app asks for reasons in its own dialog (#reasonModal). Like the browser dialogs above, it is answered automatically
+  // (page.reasonAnswer, default no reason) unless a test sets page.autoReason = false to drive it itself.
+  page.autoReason = true; page.reasonAnswer = '';
+  const reasonLoop = setInterval(async () => {
+    if (!page.autoReason || page.isClosed()) return;
+    try {
+      if (await page.isVisible('#reasonModal')) {
+        await page.fill('#reasonModalInput', page.reasonAnswer);
+        await page.click('#reasonModalConfirmBtn', { timeout: 1000 });
+      }
+    } catch (e) { /* page busy or closing */ }
+  }, 120);
+  page.on('close', () => clearInterval(reasonLoop));
   await page.goto(url);
   await page.waitForFunction(() => typeof state !== 'undefined' && state.docs && state.docs.length > 0, null, { timeout: 20000 });
   await page.waitForTimeout(800);
@@ -1146,6 +1159,145 @@ await group('MERGE restore maps every study id of a study matched by file name',
   check('study #1 is not reported as a conflict when it is the same study', !r.conflict);
   check('rows are in their order after the merge', r.sorted);
   await p.context().close();
+});
+
+await group('Reasons are asked in a multi-line dialog; undoable deletions show Undo instead of asking first', async () => {
+  const p = await openDemo();
+  p.autoReason = false;
+  check('no prompt() left for reasons (only the reviewer ID and a construct label)', ['studies-pdf.js', 'matrix.js', 'compare.js'].every(f => !/\bprompt\(/.test(fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8'))));
+  // Translation order: Cancel leaves everything as it was
+  await tab(p, 'extract'); await p.waitForTimeout(300);
+  const before = await p.evaluate(() => getOrderStrategy());
+  const other = before === 'chronological' ? 'other' : 'chronological';
+  await p.selectOption('#orderStrategySelect', other); await p.waitForSelector('#reasonModal:not(.hidden)');
+  await p.fill('#reasonModalInput', 'draft that is kept');
+  await p.click('#reasonModalSecondaryBtn'); await p.waitForTimeout(200);
+  check('Cancel keeps the order strategy and the select', await p.evaluate(b => getOrderStrategy() === b && document.getElementById('orderStrategySelect').value === b, before));
+  // Again: the draft comes back; a multi-line reason is recorded as the rationale
+  await p.selectOption('#orderStrategySelect', other); await p.waitForSelector('#reasonModal:not(.hidden)');
+  check('a cancelled reason comes back as a draft', (await p.inputValue('#reasonModalInput')) === 'draft that is kept');
+  await p.fill('#reasonModalInput', 'First line.\nSecond line of the reason.');
+  await p.click('#reasonModalConfirmBtn'); await p.waitForTimeout(400);
+  const lg = await p.evaluate(() => ({ s: getOrderStrategy(), r: state.logs[0].rationale }));
+  check('the reason is recorded with its line breaks', lg.s === other && lg.r === 'First line.\nSecond line of the reason.', JSON.stringify(lg));
+  // Escape on a decision that is already made (#1 changed) records it without a reason
+  const pending = p.evaluate(() => moveStudyOrder(1, 0));
+  await p.waitForSelector('#reasonModal:not(.hidden)');
+  check('the #1 change offers "Record without a reason", not Cancel', (await p.innerText('#reasonModalSecondaryBtn')).includes('without a reason'));
+  await p.keyboard.press('Escape'); await pending; await p.waitForTimeout(300);
+  check('Escape records the #1 change without a reason', await p.evaluate(() => /#1 Study/.test(state.logs.find(l => l.category === 'study_order').action)));
+  // Undoable deletion: no confirmation first, a notice with Undo after
+  const dialogs = []; p.on('dialog', d => dialogs.push(d.type()));
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  const nRows = await p.evaluate(() => state.clusters.length);
+  await p.locator('.del-cluster').first().click(); await p.waitForTimeout(500);
+  check('a row is removed without a confirmation dialog', dialogs.length === 0 && (await p.evaluate(() => state.clusters.length)) === nRows - 1);
+  check('the notice offers Undo', await p.isVisible('#snackbarAction') && (await p.innerText('#snackbarAction')).toLowerCase() === 'undo');
+  await p.click('#snackbarAction'); await p.waitForTimeout(600);
+  check('Undo in the notice brings the row back (and logs it)', (await p.evaluate(() => state.clusters.length)) === nRows && /Restored 3rd Order Row/.test(await p.evaluate(() => state.logs[0].action)));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Write-up fields sit beside the Methods Summary; the drawer keeps the analysis', async () => {
+  const p = await openDemo();
+  const moved = ['loaQuestionInput', 'loaReadingInput', 'loaExtractionScopeInput', 'loaUnitsInput', 'loaAppraisalPolicyInput', 'loaAppraisalUseInput', 'loaRelateProcessInput', 'loaTransDefInput', 'loaTransProcInput', 'loaSynthStudiesInput'];
+  const kept = ['loaAimInput', 'loaRelateOutcomeInput', 'loaAltInterpInput', 'loaModelContextInput', 'loaTeamMergeInput', 'loaTitleInput', 'loaFlowInput', 'loaNarrativeInput'];
+  const where = await p.evaluate(({ moved, kept }) => ({
+    inPanel: moved.every(id => document.getElementById('writeupPanel').contains(document.getElementById(id))),
+    inDrawer: kept.every(id => document.getElementById('loaDrawer').contains(document.getElementById(id)))
+  }), { moved, kept });
+  check('reporting fields are in Tab 4, analysis fields (incl. Item 12) in the drawer', where.inPanel && where.inDrawer, JSON.stringify(where));
+  await tab(p, 'pub'); await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  check('the panel shows with the Methods Summary', await p.isVisible('#writeupPanel'));
+  // A field is saved and logged when it is left; the summary uses it
+  const n = await logCount(p);
+  await p.fill('#loaReadingInput', 'Each account was read three times by two reviewers.');
+  await p.locator('[data-pub=table1]').click(); await p.waitForTimeout(500);
+  check('the panel is hidden with other tables', !(await p.isVisible('#writeupPanel')));
+  await p.locator('[data-pub=method]').click(); await p.waitForTimeout(300);
+  await p.locator('#loaUnitsInput').focus(); await p.locator('#loaUnitsInput').blur(); await p.waitForTimeout(300);
+  const after = await p.evaluate(() => ({ v: state.loa.readingApproach, log: state.logs.find(l => /Reading & extraction process/.test(l.action)), html: document.getElementById('pubPreviewContainer').innerHTML }));
+  check('leaving a write-up field saves it with one audit entry', after.v === 'Each account was read three times by two reviewers.' && after.log && after.log.category === 'reading_extraction' && (await logCount(p)) === n + 1);
+  check('the Methods Summary shows it', after.html.includes('Each account was read three times by two reviewers.'));
+  // A gap goes to its field
+  await p.evaluate(() => { state.loa.reviewQuestion = ''; state.loa.modelContext = ''; populateLoaInputs(); renderPublicationView(); });
+  await p.locator('.mec-gap[data-field=reviewQuestion]').first().click(); await p.waitForTimeout(400);
+  check('clicking a gap focuses its field beside the summary', await p.evaluate(() => document.activeElement && document.activeElement.id === 'loaQuestionInput'));
+  const gapCtx = p.locator('.mec-gap[data-field=modelContext]');
+  if (await gapCtx.count()) {
+    await gapCtx.first().click(); await p.waitForTimeout(600);
+    check('a gap for an analysis field opens the drawer in Tab 2 at that field', await p.evaluate(() => !document.getElementById('matrixView').classList.contains('hidden') && state.isLoaOpen && document.activeElement.id === 'loaModelContextInput'));
+  }
+  // The drawer's button still saves the analysis fields, and only those
+  await p.fill('#loaRelateOutcomeInput', 'Studies related reciprocally, with one contrasting case.');
+  await p.click('#saveLoaBtn'); await p.waitForTimeout(500);
+  check('the drawer saves Item 12 with its button', await p.evaluate(() => state.loa.relateOutcome === 'Studies related reciprocally, with one contrasting case.' && /item 12/.test(state.logs[0].action)));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Appendix A shows the key decisions; repeated edits of one text are one line; the full trail is a supplementary file', async () => {
+  const p = await openDemo();
+  const r = await p.evaluate(async () => {
+    const cid = state.clusters[0].id, t0 = Date.now() + 1000;
+    const mk = (i, o) => ({ id: 'tlog_' + i, timestamp: t0 + i * 1000, reviewer: 'A', ...o });
+    const extra = [
+      ...[0, 1, 2, 3, 4].map(i => mk(i, { category: 'third_order', action: `Updated Step B 3rd Order Definition & Interpretation for "Row"`, fromVal: 'v' + i, toVal: 'v' + (i + 1), clusterIds: [cid] })),
+      mk(5, { category: 'third_order', action: `Updated Step B 3rd Order Definition & Interpretation for "Row"`, fromVal: 'v5', toVal: 'v6', clusterIds: [cid], rationale: 'A reasoned change' }),
+      mk(6, { category: 'linking', action: 'Linked 1st Order Quote to 2nd Order Construct (X)' }),
+      mk(7, { category: 'reading_extraction', action: 'Updated Reading & extraction process (Item 9)', fromVal: 'a', toVal: 'b' }),
+      mk(8, { category: 'reflexive_memo', action: '[Reflexivity (Positionality)] ', detail: 'my position' })
+    ];
+    state.logs = [...extra.slice().reverse(), ...state.logs];
+    const key = getAppendixASpec('key'), full = getAppendixASpec('full');
+    const folded = key.rows.filter(x => /Step B third-order interpretation revised \(5 edits\)/.test(x.action));
+    return {
+      total: full.rows.length === state.logs.length, fewer: key.rows.length < full.rows.length,
+      folded: folded.length === 1 && folded[0].fromVal === 'v0' && folded[0].toVal === 'v5',
+      reasoned: key.rows.some(x => x.rationale.startsWith('A reasoned change') && x.fromVal === 'v5'),
+      routineOut: !key.rows.some(x => x.action === 'Linked 1st Order Quote to 2nd Order Construct (X)') && full.rows.some(x => x.action === 'Linked 1st Order Quote to 2nd Order Construct (X)'),
+      writeupOut: !key.rows.some(x => x.action === 'Updated Reading & extraction process (Item 9)'),
+      memoIn: key.rows.some(x => x.detail === 'my position'),
+      caption: /full audit trail is available as a supplementary file/.test(key.caption)
+    };
+  });
+  check('the full mode lists every entry; the key mode fewer', r.total && r.fewer, JSON.stringify(r));
+  check('repeated edits of one text become one line with the first and last wording', r.folded);
+  check('an edit with a reason stays a line of its own', r.reasoned);
+  check('routine steps and Methods wording are left out; memos stay', r.routineOut && r.writeupOut && r.memoIn);
+  check('the caption says how the entries were chosen and where the full trail is', r.caption);
+  await tab(p, 'pub'); await p.locator('[data-pub=appendix]').click(); await p.waitForTimeout(300);
+  check('the mode select and the full-trail button show with the Appendices', await p.isVisible('#appendixModeSelect') && await p.isVisible('#fullTrailCsvBtn'));
+  const keyRows = await p.locator('#pubPreviewContainer table').first().locator('tbody tr').count();
+  await p.selectOption('#appendixModeSelect', 'full'); await p.waitForTimeout(300);
+  const fullRows = await p.locator('#pubPreviewContainer table').first().locator('tbody tr').count();
+  check('switching to the full trail shows every entry', fullRows === await logCount(p) && fullRows > keyRows, `${keyRows} / ${fullRows}`);
+  await p.selectOption('#appendixModeSelect', 'key'); await p.waitForTimeout(200);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#fullTrailCsvBtn')]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  check('the full-trail CSV has every entry and marks the key ones', csv.trim().split(/\r\n/).length === (await logCount(p)) + 1 && /Key decision \(Appendix A\)/.test(csv) && /"yes"/.test(csv) && /"no"/.test(csv));
+  await p.locator('[data-pub=method]').click(); await p.waitForTimeout(200);
+  check('the Appendix controls hide on other tables', !(await p.isVisible('#appendixModeSelect')) && !(await p.isVisible('#fullTrailCsvBtn')));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Shared global scope: no top-level name is declared twice across the app scripts', async () => {
+  // The app scripts are classic <script>s sharing one global scope (file:// cannot load ES modules). Two top-level
+  // declarations of one name either stop the page (const / let / class) or silently replace a function: catch both here.
+  const html = fs.readFileSync(path.join(ROOT, 'me_canvas.html'), 'utf8');
+  const scripts = [...html.matchAll(/<script src="(app\/(?!vendor\/)[^"]+\.js)"/g)].map(m => m[1]);
+  const seen = new Map(), dups = [];
+  for (const rel of scripts) {
+    const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    for (const m of src.matchAll(/^(?:async\s+)?(?:function\*?\s*([A-Za-z_$][\w$]*)|(?:const|let|var|class)\s+([A-Za-z_$][\w$]*))/gm)) {
+      const name = m[1] || m[2];
+      if (seen.has(name)) dups.push(`${name} (${seen.get(name)} and ${rel})`); else seen.set(name, rel);
+    }
+  }
+  check(`app scripts found in load order (${scripts.length})`, scripts.length >= 10 && scripts[0] === 'app/version.js' && scripts[1] === 'app/js/core.js', scripts.join(', '));
+  check(`no top-level name declared twice (${seen.size} names)`, dups.length === 0, dups.join('; '));
 });
 
 await group('Content-Security-Policy: the app works under it, and no request can leave the site (http and file://)', async () => {

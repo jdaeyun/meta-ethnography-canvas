@@ -477,9 +477,9 @@
         <div class="max-w-7xl mx-auto">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center space-x-2">
-              <span class="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded uppercase tracking-wider">Phases 1, 4 & 6</span>
+              <span class="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded uppercase tracking-wider whitespace-nowrap shrink-0">Phases 1, 4–6</span>
               <span class="text-xs font-bold text-slate-800">Research Aim & Overarching Model (Line of Argument)</span>
-              <span class="text-[13px] text-slate-500">(Keep your research question visible while connecting your 3rd order themes into an overall model)</span>
+              <span class="text-[13px] text-slate-500">(Keep your aim visible while relating the studies and connecting your 3rd order themes into an overall model)</span>
             </div>
             <div class="flex items-center space-x-2">
               <span id="loaSavedStatus" class="text-xs text-slate-400"></span>
@@ -489,91 +489,23 @@
             </div>
           </div>
           <div class="mb-2.5">
-            <label class="block text-xs font-semibold text-purple-900 mb-0.5">Phase 1: Research Aim / Review Question</label>
+            <label class="block text-xs font-semibold text-purple-900 mb-0.5">Phase 1: Research Aim</label>
             <input type="text" id="loaAimInput" class="w-full text-xs border border-purple-200 rounded px-2.5 py-1.5 bg-white focus:outline-none focus:border-purple-600" placeholder="e.g., To synthesize qualitative evidence on nurses' lived experiences of caring for older patients on hospital wards...">
-            <label class="block text-xs font-semibold text-purple-900 mb-0.5 mt-1.5">Item 3 — Review Question(s) / Objectives (state the question explicitly; note any refinements made later)</label>
-            <textarea id="loaQuestionInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed h-12" placeholder="e.g., How do ward nurses experience and negotiate their role when caring for older patients? (Refined after Phase 2 to focus on hospital settings.)"></textarea>
           </div>
           <div class="mb-2.5 rounded-lg border border-purple-200 bg-white/70 p-2.5">
             <div class="flex items-center space-x-2 mb-1.5">
-              <span class="bg-sky-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase">Phase 3</span>
-              <span class="text-xs font-bold text-slate-800">Reading &amp; Data Extraction</span>
-              <span class="text-[11px] text-slate-500">(eMERGe item 9; saved with the button on the right)</span>
-            </div>
-            <div class="grid grid-cols-3 gap-3">
-              <div class="col-span-2">
-                <label class="block text-xs font-semibold text-purple-900 mb-0.5">Process — how studies were read, who extracted, independence, checking &amp; discussion</label>
-                <textarea id="loaReadingInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., All accounts were read repeatedly by DY; a second reviewer independently extracted 30% of studies and differences were discussed..."></textarea>
-              </div>
-              <div class="space-y-1.5">
-                <div>
-                  <label class="block text-xs font-semibold text-purple-900 mb-0.5">Extracted from</label>
-                  <select id="loaExtractionScopeInput" class="w-full text-xs border border-purple-200 rounded px-1.5 py-1 bg-white">
-                    <option value="">(not stated)</option>
-                    <option value="full">Full study accounts (recommended)</option>
-                    <option value="findings">Findings sections only</option>
-                    <option value="mixed">Mainly findings, other sections for context</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-purple-900 mb-0.5">Units of synthesis — what "concept / theme / metaphor" mean here</label>
-                  <input type="text" id="loaUnitsInput" class="w-full text-xs border border-purple-200 rounded px-2 py-1 bg-white" placeholder="e.g., 'concept' = an author-named idea that explains participants' experience">
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="mb-2.5 rounded-lg border border-purple-200 bg-white/70 p-2.5">
-            <div class="flex items-center space-x-2 mb-1.5">
-              <span class="bg-teal-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase">Appraisal</span>
-              <span class="text-xs font-bold text-slate-800">Quality appraisal policy &amp; how it was used</span>
-              <span class="text-[11px] text-slate-500">(saved with the button on the right)</span>
+              <span class="bg-indigo-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase">Phases 4–5</span>
+              <span class="text-xs font-bold text-slate-800">How the studies relate, and what else could explain it</span>
+              <span class="text-[11px] text-slate-500">(saved with the button on the right; the write-up fields for the Methods are in Tab 4)</span>
             </div>
             <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block text-xs font-semibold text-purple-900 mb-0.5">Policy — whether/how studies were appraised (tool, criteria, who, before or after selection)</label>
-                <textarea id="loaAppraisalPolicyInput" class="w-full text-xs border border-purple-200 rounded p-2 h-20 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., The team's stance on appraisal (some meta-ethnographies appraise, some do not) and why; the tool and who rated."></textarea>
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-purple-900 mb-0.5">Use — how appraisal informed the synthesis (e.g., exclusion, the reading of studies, CERQual methodological limitations, or not used)</label>
-                <textarea id="loaAppraisalUseInput" class="w-full text-xs border border-purple-200 rounded p-2 h-20 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., No study was excluded on quality grounds; ratings informed CERQual 'methodological limitations' only."></textarea>
-              </div>
-            </div>
-          </div>
-          <div class="mb-2.5 rounded-lg border border-purple-200 bg-white/70 p-2.5">
-            <div class="flex items-center space-x-2 mb-1.5">
-              <span class="bg-indigo-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase">Phase 4</span>
-              <span class="text-xs font-bold text-slate-800">Relating the Studies</span>
-              <span class="text-[11px] text-slate-500">(eMERGe items 11–12; saved with the button on the right)</span>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block text-xs font-semibold text-purple-900 mb-0.5">Item 11 — Process: which aspects of the studies were compared, and how?</label>
-                <textarea id="loaRelateProcessInput" class="w-full text-xs border border-purple-200 rounded p-2 h-20 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., Compared study aims, settings, participants and theoretical stance, then the meaning of each study's concepts. Studies were tabulated and read against the Index Paper in the order shown in Tab 2..."></textarea>
-              </div>
               <div>
                 <label class="block text-xs font-semibold text-purple-900 mb-0.5">Item 12 — Outcome: how do the studies relate (reciprocal / refutational / different aspects)? Disconfirming cases?</label>
                 <textarea id="loaRelateOutcomeInput" class="w-full text-xs border border-purple-200 rounded p-2 h-20 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., Studies 1, 3 and 5 related reciprocally; Study 4 (hospital setting) refuted the theme of ... and was explained by differences in ..."></textarea>
               </div>
-            </div>
-          </div>
-          <div class="mb-2.5 rounded-lg border border-purple-200 bg-white/70 p-2.5">
-            <div class="flex items-center space-x-2 mb-1.5">
-              <span class="bg-emerald-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase">Phase 5</span>
-              <span class="text-xs font-bold text-slate-800">Translating Studies into One Another</span>
-              <span class="text-[11px] text-slate-500">(eMERGe item 13; saved with the button on the right)</span>
-            </div>
-            <div class="grid grid-cols-3 gap-3">
-              <div>
-                <label class="block text-xs font-semibold text-purple-900 mb-0.5">Working definitions of reciprocal &amp; refutational translation</label>
-                <textarea id="loaTransDefInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., Reciprocal: concepts that express similar ideas in different words... Refutational: concepts that contradict or explain exceptions..."></textarea>
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-purple-900 mb-0.5">Process — who translated, how meaning, context and concept relationships were preserved</label>
-                <textarea id="loaTransProcInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., DY and AB translated each study into the developing synthesis in the order shown; concept maps and the Study Context row were used to keep..."></textarea>
-              </div>
               <div>
                 <label class="block text-xs font-semibold text-purple-900 mb-0.5">Alternative interpretations / explanations considered (items 13 &amp; 15)</label>
-                <textarea id="loaAltInterpInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., We considered whether 'isolation' reflected the ward setting rather than the nursing role; discussed with a senior nurse advisor..."></textarea>
+                <textarea id="loaAltInterpInput" class="w-full text-xs border border-purple-200 rounded p-2 h-20 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., We considered whether 'isolation' reflected the ward setting rather than the nursing role; discussed with a senior nurse advisor..."></textarea>
               </div>
             </div>
           </div>
@@ -619,9 +551,7 @@
             </div>
           </div>
           <div>
-            <label class="block text-xs font-semibold text-purple-900 mb-0.5">Item 15 — Studies synthesized into the line of argument (and any excluded from it, with reasons)</label>
-            <textarea id="loaSynthStudiesInput" class="w-full text-xs border border-purple-200 rounded p-2 h-14 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed" placeholder="e.g., Which studies contributed to the overarching model; whether any were left out and why."></textarea>
-            <label class="block text-xs font-semibold text-purple-900 mb-0.5 mt-1.5">Item 16 — Where the model applies (or not), given the included studies' characteristics</label>
+            <label class="block text-xs font-semibold text-purple-900 mb-0.5">Item 16 — Where the model applies (or not), given the included studies' characteristics</label>
             <textarea id="loaModelContextInput" class="w-full text-xs border border-purple-200 rounded p-2 h-16 resize-y bg-white focus:outline-none focus:border-purple-600 leading-relaxed h-12" placeholder="e.g., The model is based on studies from high-income countries with publicly funded care; it may not apply to..."></textarea>
           </div>
           <div class="mb-2.5 mt-2.5 rounded-lg border border-orange-200 bg-orange-50/40 p-2.5">
@@ -841,6 +771,13 @@
             <button data-pub="table3" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer">Table 3: CERQual</button>
             <button data-pub="appendix" class="pub-tab-btn px-2.5 py-1 text-xs font-medium rounded text-slate-600 hover:text-slate-900 cursor-pointer" title="Appendix A: Audit Trail · Appendix B: Not Translated · Appendix C: Within-Study Links">Appendices A–C</button>
           </div>
+          <select id="appendixModeSelect" class="hidden text-xs border border-slate-300 rounded-md px-1.5 py-1 bg-white text-slate-700 cursor-pointer" title="Appendix A for the paper: the key decisions (repeated edits of one text as one line), or every entry. Applies to the preview, Markdown and Word export; the trail in Tab 3 always keeps everything.">
+            <option value="key">Appendix A: Key decisions</option>
+            <option value="full">Appendix A: Full audit trail</option>
+          </select>
+          <button id="fullTrailCsvBtn" class="hidden px-2.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-medium rounded-md cursor-pointer items-center space-x-1" title="Every audit trail entry as a CSV file, e.g. as a supplementary file to the paper">
+            <i class="ph ph-file-csv"></i><span>Full trail (.csv)</span>
+          </button>
           <select id="table3ModeSelect" class="text-xs border border-slate-300 rounded-md px-1.5 py-1 bg-white text-slate-700 cursor-pointer" title="Table 3 layout (GRADE-CERQual). Applies to the preview, Markdown and Word export."></select>
           <label class="inline-flex items-center gap-1 text-xs text-slate-600 cursor-pointer whitespace-nowrap" title="Show the [Author to insert] gaps in grey while you are still reading and translating. Exports always keep the full gap text."><input type="checkbox" id="quietGapsToggle" class="cursor-pointer"> Quiet gaps</label>
           <div class="h-4 w-px bg-slate-200"></div>
@@ -859,9 +796,60 @@
         </div>
       </div>
 
-      <!-- Manuscript Preview Canvas -->
+      <!-- Manuscript Preview Canvas, with the write-up fields beside the Methods Summary -->
       <div class="flex-1 overflow-y-auto p-6">
-        <div class="max-w-6xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-slate-200 select-text" id="pubPreviewContainer"></div>
+        <div class="max-w-[96rem] mx-auto flex flex-col lg:flex-row lg:items-start gap-4">
+          <div class="flex-1 min-w-0 bg-white p-8 rounded-xl shadow-sm border border-slate-200 select-text" id="pubPreviewContainer"></div>
+          <aside id="writeupPanel" class="hidden lg:w-[22rem] xl:w-[26rem] shrink-0 lg:sticky lg:top-0 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3" aria-label="Write-up fields for the Methods Summary">
+            <div>
+              <h3 class="text-sm font-bold text-slate-800">Write-up fields</h3>
+              <p class="text-[12px] text-slate-500">For when you write up the Methods: nothing here has to be filled while you are still reading and translating. Click an [Author to insert] gap to go to its field. Each field is saved, and entered in the Audit Trail, when you leave it.</p>
+            </div>
+            <section class="space-y-1.5">
+              <h4 class="text-[11px] font-extrabold uppercase tracking-wide text-purple-700">Phase 1 · Item 3</h4>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaQuestionInput">Review question(s) / objectives (state the question explicitly; note any refinements made later)</label>
+              <textarea id="loaQuestionInput" rows="3" class="w-full text-xs border border-slate-300 rounded p-2 resize-y bg-white focus:outline-none focus:border-indigo-500 leading-relaxed" placeholder="e.g., How do ward nurses experience and negotiate their role when caring for older patients? (Refined after Phase 2 to focus on hospital settings.)"></textarea>
+            </section>
+            <section class="space-y-1.5">
+              <h4 class="text-[11px] font-extrabold uppercase tracking-wide text-sky-700">Phase 3 · Item 9 — Reading &amp; data extraction</h4>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaReadingInput">Process — how studies were read, who extracted, independence, checking &amp; discussion</label>
+              <textarea id="loaReadingInput" rows="4" class="w-full text-xs border border-slate-300 rounded p-2 resize-y bg-white focus:outline-none focus:border-indigo-500 leading-relaxed" placeholder="e.g., All accounts were read repeatedly by DY; a second reviewer independently extracted 30% of studies and differences were discussed..."></textarea>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaExtractionScopeInput">Extracted from</label>
+              <select id="loaExtractionScopeInput" class="w-full text-xs border border-slate-300 rounded px-1.5 py-1 bg-white">
+                <option value="">(not stated)</option>
+                <option value="full">Full study accounts (recommended)</option>
+                <option value="findings">Findings sections only</option>
+                <option value="mixed">Mainly findings, other sections for context</option>
+              </select>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaUnitsInput">Units of synthesis — what "concept / theme / metaphor" mean here</label>
+              <input type="text" id="loaUnitsInput" class="w-full text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-indigo-500" placeholder="e.g., 'concept' = an author-named idea that explains participants' experience">
+            </section>
+            <section class="space-y-1.5">
+              <h4 class="text-[11px] font-extrabold uppercase tracking-wide text-teal-700">Quality appraisal</h4>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaAppraisalPolicyInput">Policy — whether/how studies were appraised (tool, criteria, who, before or after selection)</label>
+              <textarea id="loaAppraisalPolicyInput" rows="3" class="w-full text-xs border border-slate-300 rounded p-2 resize-y bg-white focus:outline-none focus:border-indigo-500 leading-relaxed" placeholder="e.g., The team's stance on appraisal (some meta-ethnographies appraise, some do not) and why; the tool and who rated."></textarea>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaAppraisalUseInput">Use — how appraisal informed the synthesis (e.g., exclusion, the reading of studies, CERQual methodological limitations, or not used)</label>
+              <textarea id="loaAppraisalUseInput" rows="3" class="w-full text-xs border border-slate-300 rounded p-2 resize-y bg-white focus:outline-none focus:border-indigo-500 leading-relaxed" placeholder="e.g., No study was excluded on quality grounds; ratings informed CERQual 'methodological limitations' only."></textarea>
+            </section>
+            <section class="space-y-1.5">
+              <h4 class="text-[11px] font-extrabold uppercase tracking-wide text-indigo-700">Phase 4 · Item 11</h4>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaRelateProcessInput">Process of relating: which aspects of the studies were compared, and how? (The outcome, Item 12, is part of the analysis: Tab 2 → Research Aim &amp; Overall Model.)</label>
+              <textarea id="loaRelateProcessInput" rows="4" class="w-full text-xs border border-slate-300 rounded p-2 resize-y bg-white focus:outline-none focus:border-indigo-500 leading-relaxed" placeholder="e.g., Compared study aims, settings, participants and theoretical stance, then the meaning of each study's concepts. Studies were tabulated and read against the Index Paper in the order shown in Tab 2..."></textarea>
+            </section>
+            <section class="space-y-1.5">
+              <h4 class="text-[11px] font-extrabold uppercase tracking-wide text-emerald-700">Phase 5 · Item 13</h4>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaTransDefInput">Working definitions of reciprocal &amp; refutational translation</label>
+              <textarea id="loaTransDefInput" rows="3" class="w-full text-xs border border-slate-300 rounded p-2 resize-y bg-white focus:outline-none focus:border-indigo-500 leading-relaxed" placeholder="e.g., Reciprocal: concepts that express similar ideas in different words... Refutational: concepts that contradict or explain exceptions..."></textarea>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaTransProcInput">Process — who translated, how meaning, context and concept relationships were preserved</label>
+              <textarea id="loaTransProcInput" rows="3" class="w-full text-xs border border-slate-300 rounded p-2 resize-y bg-white focus:outline-none focus:border-indigo-500 leading-relaxed" placeholder="e.g., DY and AB translated each study into the developing synthesis in the order shown; concept maps and the Study Context row were used to keep..."></textarea>
+            </section>
+            <section class="space-y-1.5">
+              <h4 class="text-[11px] font-extrabold uppercase tracking-wide text-fuchsia-700">Phase 6 · Item 15</h4>
+              <label class="block text-xs font-semibold text-slate-700 mb-0.5" for="loaSynthStudiesInput">Studies synthesized into the line of argument (and any excluded from it, with reasons)</label>
+              <textarea id="loaSynthStudiesInput" rows="3" class="w-full text-xs border border-slate-300 rounded p-2 resize-y bg-white focus:outline-none focus:border-indigo-500 leading-relaxed" placeholder="e.g., Which studies contributed to the overarching model; whether any were left out and why."></textarea>
+            </section>
+          </aside>
+        </div>
       </div>
     </div>
 
@@ -992,6 +980,26 @@
         </section>
         <label class="block text-xs font-semibold text-slate-600">Why? (optional, saved in the Audit Trail)
           <textarea id="rowOpsWhy" class="mt-0.5 w-full text-xs border border-slate-300 rounded p-1.5 h-14 resize-y bg-white focus:outline-none focus:border-indigo-500"></textarea></label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reason for a decision (askReason in core.js): a multi-line box instead of the browser's one-line prompt -->
+  <div id="reasonModal" role="dialog" aria-modal="true" aria-labelledby="reasonModalTitle" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] hidden items-center justify-center p-6">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden">
+      <div class="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <h2 id="reasonModalTitle" class="text-sm font-bold">Why?</h2>
+        <button id="reasonModalCloseBtn" class="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer" title="Close"><i class="ph ph-x text-lg"></i></button>
+      </div>
+      <div class="p-5 space-y-3 text-xs text-slate-700 overflow-y-auto">
+        <div id="reasonModalContext" class="text-slate-600 whitespace-pre-line"></div>
+        <label class="block font-semibold text-slate-600"><span id="reasonModalLabel">Why? (optional, saved in the Audit Trail)</span>
+          <textarea id="reasonModalInput" rows="5" class="mt-1 w-full text-[13px] border border-slate-300 rounded p-2 resize-y bg-white focus:outline-none focus:border-indigo-500" placeholder="What led to this decision, what you considered, what it may change in your reading…"></textarea></label>
+        <p class="text-[11px] text-slate-400">Ctrl+Enter / Cmd+Enter to record. A reason can also be added or revised later in the Audit Trail (the time it was written is kept).</p>
+        <div class="flex flex-wrap justify-end gap-2">
+          <button id="reasonModalSecondaryBtn" class="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold rounded-md cursor-pointer">Cancel</button>
+          <button id="reasonModalConfirmBtn" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-md cursor-pointer">Record</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1144,7 +1152,7 @@
     </div>
   </div>
 
-  <div id="snackbar" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded shadow-lg text-xs transition-opacity duration-300 opacity-0 pointer-events-none z-50"></div>
+  <div id="snackbar" role="status" aria-live="polite" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded shadow-lg text-xs transition-opacity duration-300 opacity-0 pointer-events-none z-[70] flex items-center gap-3 max-w-[90vw]"><span id="snackbarText" class="whitespace-pre-line"></span><button id="snackbarAction" type="button" class="hidden font-bold text-amber-300 hover:text-amber-200 uppercase tracking-wide cursor-pointer">Undo</button></div>
 
   <!-- App scripts: classic scripts sharing one global scope. core.js must come first; keep this order. -->
   <script src="app/version.js"></script>

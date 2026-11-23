@@ -341,7 +341,8 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     renderMatrixView();
     if (replaceCleanly) markBackupDone();
     if (state.docs.some(d => !d.hasBinary)) showMissingPdfModal();
-    else alert(replaceCleanly ? 'Backup cleanly restored!' : mergeSummaryText(mergeReport));
+    else if (replaceCleanly) showSnackbar('Backup restored.');
+    else alert(mergeSummaryText(mergeReport)); // the list of kept local versions is worth reading: stays a dialog
     if (!replaceCleanly && mergeReport.conflicts.length && state.docs.some(d => !d.hasBinary)) alert(mergeSummaryText(mergeReport));
   } catch (err) {
     alert('Failed to restore JSON: ' + err.message);

@@ -382,32 +382,133 @@ function buildNotTranslatedHtml() {
     </table>`;
 }
 
-function buildAppendixHtml() {
-  let rowsHtml = '';
-  const chronological = [...state.logs].reverse();
-  chronological.forEach(l => {
-    const meta = getCategoryMeta(l.category);
-    const dateStr = new Date(l.timestamp).toLocaleString();
-    const revStr = l.reviewer || 'Unknown';
-    const changeStr = (l.fromVal || l.toVal)
-      ? `${l.fromVal ? `From: ${escapeHtml(l.fromVal)} ` : ''}${l.toVal ? `➔ To: ${escapeHtml(l.toVal)}` : ''}`
-      : '-';
-    rowsHtml += `
-      <tr>
-        <td style="white-space:nowrap;">${escapeHtml(dateStr)}</td>
-        <td><b>@${escapeHtml(revStr)}</b></td>
-        <td><b>${escapeHtml(meta.label)}</b></td>
-        <td><b>${escapeHtml(l.action)}</b>${l.detail ? `<br>${escapeHtml(l.detail)}` : ''}</td>
-        <td>${changeStr}</td>
-        <td>${escapeHtml(rationaleExportText(l))}</td>
-      </tr>
-    `;
+// ---- Appendix A: the audit trail for the paper ----
+// The trail itself always keeps everything (Tab 3; full trail as a supplementary .csv). Appendix A shows, by default, the
+// key decisions: entries with a reason, memos, and decisions about the aim, the studies, the rows, the line of argument,
+// the team and the data; routine bookkeeping (labels, links, placements, per-question appraisal, write-up wording) is left
+// out, and repeated edits of one text (e.g. a row's Step B) become one line with the first and the last wording.
+const APPENDIX_MODES = { key: 'Key decisions', full: 'Full audit trail' };
+function getAppendixMode() { const m = lsGet('me_appendix_mode'); return APPENDIX_MODES[m] ? m : 'key'; }
+
+// Edits of one text that are shown as one line in Appendix A (family name; same row for row texts)
+const APPENDIX_EDIT_SERIES = [
+  [/^Refined 3rd Order Construct Title$/, 'Row title refined'],
+  [/^Updated Step A Translation Summary for /, 'Step A translation summary revised'],
+  [/^Updated Step B 3rd Order Definition & Interpretation for /, 'Step B third-order interpretation revised'],
+  [/^Reflexive note on /, 'Reflexive note on the row revised'],
+  [/^3rd Order Team Perspective Updated /, 'Team perspective on the row revised'],
+  [/^Updated GRADE-CERQual Assessment for /, 'GRADE-CERQual assessment revised'],
+  [/^Updated Phase 1 Research Aim$/, 'Research aim revised'],
+  [/^Updated Review question \(Item 3\)$/, 'Review question revised'],
+  [/^Updated Line of Argument Synthesis/, 'Line of argument revised'],
+  [/^Updated Phase 4: Outcome of Relating Studies/, 'Outcome of relating studies (Item 12) revised'],
+  [/^Updated Alternative interpretations/, 'Alternative interpretations revised'],
+  [/^Updated Context where the model applies/, 'Context where the model applies (Item 16) revised']
+];
+function appendixSeries(l) {
+  const hit = APPENDIX_EDIT_SERIES.find(([re]) => re.test(l.action || ''));
+  if (!hit) return null;
+  return { label: hit[1], key: hit[1] + '|' + ((l.clusterIds || [])[0] || '') };
+}
+function isMemoLog(l) { return /^\[[^\]]+\]/.test(l.action || '') && !/^\[Reviewer-wrapped\]/.test(l.action || ''); }
+// Routine bookkeeping: shown in the full trail; in Appendix A only when a reason was recorded with it
+const APPENDIX_ROUTINE = [
+  /^Linked 1st Order Quote/, /^Unlinked 1st Order Quote/, /^Switched (1st|2nd) Order/, /^\[Reviewer-wrapped\]/, /^Set 2nd Order label source/,
+  /^Updated 2nd Order Summary Label/, /^Placed 2nd Order Construct/, /^Removed 2nd Order Construct from/,
+  /^Added a further passage/, /^Recorded p\..* as a further passage/, /^Split p\..* off/, /^Recorded how two concepts relate within/, /^Removed a relationship between concepts within/,
+  /^Edited the extracted text of/, /^Wrote Study Overview/, /^Revised Study Overview/, /^Undid: (?!3rd)/,
+  /^Imported Peer Construct from/, /^Merged \d+ audit trail entries from/, /^Recorded provisional agreement/, /^2nd Order Team Perspective Updated/,
+  /^Reordered 3rd Order Theme Row/, /^Updated note on how a concept fits/, /^Noted why a 2nd Order construct was not translated/,
+  /^Set subgroup for/, /^Appraisal \(/, /^Updated Critical Appraisal/, /^(Linked|Unlinked) .* companion paper/,
+  /^Changed the reviewer attributed to an item/
+];
+// Write-up wording of the Methods (Tab 4 fields) is the Methods text itself, not a decision
+const APPENDIX_WRITEUP = /^Updated (Reading & extraction process|Extracted from|Units of synthesis|Working definitions|Translation process|Quality appraisal policy|How appraisal was used|Process of relating studies|Studies synthesized into the line of argument)/;
+function isKeyDecisionLog(l) {
+  if ((l.rationale || '').trim()) return true;
+  if (isMemoLog(l)) return true;
+  const a = l.action || '';
+  if (APPENDIX_WRITEUP.test(a)) return false;
+  if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
+  if (l.category === 'linking' || l.category === 'matrix_mapping' && !/^Auto-placed/.test(a)) return false;
+  if (l.category === 'context_appraisal') return false; // reported per study in Table 1 / 1b
+  // Empty-cell statuses are shown in Table 2b; a first judgement of a placement is shown in Tables 2 / 2b: only a CHANGED judgement is a decision here
+  if (l.category === 'relating_studies' && !/^Updated Phase 4/.test(a)) return false;
+  if (/^Judged construct as /.test(a)) return !/Not yet judged/.test(l.fromVal || '');
+  return true;
+}
+
+function getAppendixASpec(mode = getAppendixMode()) {
+  const all = [...state.logs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  const fmt = t => new Date(t).toLocaleString();
+  const rowOf = (l, extra = {}) => ({
+    when: fmt(l.timestamp), reviewer: l.reviewer || 'Unknown', cat: l.category, category: getCategoryMeta(l.category).label,
+    action: l.action || '', detail: l.detail || '', fromVal: l.fromVal || '', toVal: l.toVal || '', rationale: rationaleExportText(l), ...extra
   });
+  const title = 'Appendix A. Methodological Audit Trail, Team Perspectives & Reflexive Synthesis Log';
+  if (mode === 'full') {
+    return { mode, title, caption: 'Chronological record of interpretive decisions, team perspectives, GRADE-CERQual judgements, and researcher reflexivity (eMERGe items 9, 11, 13, 15 and 18). Every entry of the audit trail is listed.', rows: all.map(l => rowOf(l)), total: all.length, shown: all.length };
+  }
+  // Key decisions, with repeated edits of one text folded into one line. A series is closed by any other key entry about the
+  // same row (so the line stays in its place in the story), and an edit with a reason is never folded.
+  const rows = [], open = new Map(); // series key -> row being built
+  let nKey = 0;
+  for (const l of all) {
+    if (!isKeyDecisionLog(l)) continue;
+    nKey++;
+    const ser = !(l.rationale || '').trim() ? appendixSeries(l) : null;
+    const rowIds = l.clusterIds || [];
+    if (ser) {
+      const g = open.get(ser.key);
+      if (g) {
+        g.n++; g.toVal = l.toVal || ''; g.lastT = l.timestamp;
+        if (g.reviewers.indexOf(l.reviewer) < 0) g.reviewers.push(l.reviewer);
+        continue;
+      }
+      const r = rowOf(l, { n: 1, firstT: l.timestamp, lastT: l.timestamp, reviewers: [l.reviewer || 'Unknown'], seriesLabel: ser.label, rowIds });
+      rows.push(r); open.set(ser.key, r);
+      continue;
+    }
+    // Another key entry about the same row(s), or a project-wide one for project-wide texts, closes their open series
+    for (const [k, g] of open) {
+      const sameRow = g.rowIds.length ? g.rowIds.some(id => rowIds.includes(id)) : (!rowIds.length && l.category === g.cat);
+      if (sameRow) open.delete(k);
+    }
+    rows.push(rowOf(l));
+  }
+  rows.forEach(r => {
+    if (!r.n || r.n < 2) return;
+    r.when = `${fmt(r.firstT)} – ${fmt(r.lastT)}`;
+    r.reviewer = r.reviewers.join(', ');
+    r.action = `${r.seriesLabel} (${r.n} edits)${r.action.match(/ for "(.*)"$/) ? ': "' + r.action.match(/ for "(.*)"$/)[1] + '"' : ''}`;
+    r.detail = 'First wording ➔ last wording; the intermediate edits are in the full audit trail.';
+  });
+  return {
+    mode, title, total: all.length, shown: rows.length,
+    caption: `Key decisions from the audit trail: decisions about the aim and question, the studies and their order, the third-order constructs and their translation, the line of argument, the team's perspectives and the project data, every entry with a recorded reason, and the reflexive and analytic memos (eMERGe items 9, 11, 13, 15 and 18). Routine steps (labels, links, placements, per-question appraisal recorded in Table 1, wording of the Methods) are not listed, and repeated edits of one text are shown as one line with the first and the last wording. ${rows.length} line(s) from ${nKey} of ${all.length} audit trail entries; the full audit trail is available as a supplementary file.`,
+    rows
+  };
+}
+function appendixChangeText(r, arrow = '➔') {
+  return (r.fromVal || r.toVal) ? `${r.fromVal ? 'From: ' + r.fromVal + ' ' : ''}${r.toVal ? arrow + ' To: ' + r.toVal : ''}` : '-';
+}
+
+function buildAppendixHtml() {
+  const spec = getAppendixASpec();
+  const rowsHtml = spec.rows.map(r => `
+      <tr>
+        <td style="white-space:nowrap;">${escapeHtml(r.when)}</td>
+        <td><b>@${escapeHtml(r.reviewer)}</b></td>
+        <td><b>${escapeHtml(r.category)}</b></td>
+        <td><b>${escapeHtml(r.action)}</b>${r.detail ? `<br>${escapeHtml(r.detail)}` : ''}</td>
+        <td>${escapeHtml(appendixChangeText(r))}</td>
+        <td>${escapeHtml(r.rationale)}</td>
+      </tr>`).join('');
 
   return `
     <div class="mb-3">
-      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Appendix A. Methodological Audit Trail, Team Perspectives & Reflexive Synthesis Log</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Chronological record of interpretive decisions, team perspectives, GRADE-CERQual judgements, and researcher reflexivity (eMERGe items 9, 11, 13, 15 and 18).</p>
+      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">${escapeHtml(spec.title)}</h3>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">${escapeHtml(spec.caption)}</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
       <thead>
@@ -512,7 +613,7 @@ function getEmergeChecklist() {
     { name: 'Phase 1\nSelecting meta-ethnography and getting started', items: [
       [1, 'Rationale and context', 'Gap in knowledge to be filled and wider context of the review', A('Author to complete (Introduction)')],
       [2, 'Aim(s)', 'State the aim(s) of the meta-ethnography', hasAim ? R('Project Setup (Aim) → Methods Summary') : A('Not entered: set in Project Setup')],
-      [3, 'Focus', 'State the review question(s) or objectives', (loa.reviewQuestion && loa.reviewQuestion.trim()) ? R('Review Question field → Methods Summary') : A('Not entered: use the Review Question field (Project Setup or the drawer)')],
+      [3, 'Focus', 'State the review question(s) or objectives', (loa.reviewQuestion && loa.reviewQuestion.trim()) ? R('Review Question field → Methods Summary') : A('Not entered: use the Review Question field (Project Setup, or the write-up fields beside the Methods Summary)')],
       [4, 'Rationale for using meta-ethnography', 'Why meta-ethnography was the most appropriate synthesis methodology', A('Author to complete (Introduction / Methods)')] ] },
     { name: 'Phase 2\nDeciding what is relevant', items: [
       [5, 'Search strategy', 'Rationale for the literature search strategy', A('Author to complete (Methods; done outside the app)')],
@@ -523,19 +624,19 @@ function getEmergeChecklist() {
       [9, 'Reading and data extraction approach', 'Reading and extraction methods, who did them, independence, checking and discussion; full account vs findings only; units of synthesis',
         (loa.readingApproach && loa.extractionScope && loa.unitsTerminology) ? R('Phase 3 fields → Methods Summary')
           : (loa.readingApproach || loa.extractionScope || loa.unitsTerminology) ? P('Phase 3 fields partly filled (process / extracted from / units of synthesis)')
-          : (nDocs > 0 ? A('Author to complete: use the Phase 3 fields in Research Aim & Overall Model') : A('No studies loaded yet'))],
+          : (nDocs > 0 ? A('Author to complete: use the Phase 3 write-up fields beside the Methods Summary') : A('No studies loaded yet'))],
       [10, 'Characteristics of included studies', 'Describe included studies, including context, funder and companion papers',
         nDocs === 0 ? A('No studies loaded yet')
           : (state.docs.every(d => d.setting && d.participants && d.methodology) && state.docs.some(d => d.funder)) ? R('Table 1 (incl. funder and linked accounts)')
           : P(`Table 1; ${state.docs.filter(d => !(d.setting && d.participants && d.methodology)).length} stud(ies) with missing context; ${state.docs.some(d => d.funder) ? '' : 'no funder recorded; '}link companion papers in Edit Study Info`)] ] },
     { name: 'Phase 4\nDetermining how studies are related', items: [
-      [11, 'Process for determining how studies are related', 'Which aspects of studies were compared, and how', hasRelProc ? R('Phase 4 field → Methods Summary / Table 2') : A('Author to complete: use the Phase 4 field in Research Aim & Overall Model')],
-      [12, 'Outcome of relating studies', 'How studies relate to each other, incl. disconfirming cases', hasRelOut ? R('Phase 4 outcome text → Table 2 / Table 2b; constructs not translated → Appendix B') : (nCl > 0 ? P('Table 2b (contribution grid); enter the outcome in the Phase 4 field') : A('Author to complete (Findings)'))] ] },
+      [11, 'Process for determining how studies are related', 'Which aspects of studies were compared, and how', hasRelProc ? R('Item 11 field → Methods Summary / Table 2') : A('Author to complete: use the Item 11 write-up field beside the Methods Summary')],
+      [12, 'Outcome of relating studies', 'How studies relate to each other, incl. disconfirming cases', hasRelOut ? R('Phase 4 outcome text → Table 2 / Table 2b; constructs not translated → Appendix B') : (nCl > 0 ? P('Table 2b (contribution grid); enter the outcome (Item 12) in Research Aim & Overall Model (Tab 2)') : A('Author to complete (Findings)'))] ] },
     { name: 'Phase 5\nTranslating studies into one another', items: [
       [13, 'Process of translating studies', 'Working definitions, preservation of context/meaning, reciprocal and refutational translation, alternative interpretations',
         (loa.translationDefinitions && loa.translationProcess && loa.alternativeInterpretations) ? R('Phase 5 fields → Methods Summary; Table 2, Appendix A')
           : (loa.translationDefinitions || loa.translationProcess || loa.alternativeInterpretations || nCl > 0) ? P('Complete the Phase 5 fields (definitions / process / alternative interpretations)')
-          : A('Author to complete: use the Phase 5 fields')],
+          : A('Author to complete: use the Phase 5 write-up fields beside the Methods Summary and the alternative interpretations in Research Aim & Overall Model')],
       [14, 'Outcome of translation', 'Interpretive findings of the translation', nCl > 0 ? R('Table 2 / Table 2b') : A('No 3rd order constructs yet')] ] },
     { name: 'Phase 6\nSynthesizing translations', items: [
       [15, 'Synthesis process', 'Methods used to develop overarching concepts and the line of argument', hasLoa ? (loa.synthStudies && loa.synthStudies.trim() ? P('Line of Argument and synthesized-studies field → Methods Summary / Table 2; add who took part') : P('Line of Argument (Table 2); enter which studies were synthesized in the drawer and add who took part')) : A('Author to complete (Methods)')],
@@ -550,11 +651,11 @@ function getEmergeChecklist() {
       ['Ext. 2', 'Methodological strengths and limitations of primary studies', 'Rationale for (not) appraising, the tool, the judgement on each domain for each study, and how the appraisal was used', (() => {
         const hasPolicy = !!(loa.appraisalPolicy || loa.appraisalUse);
         const appraised = state.docs.filter(d => d.quality || hasAppraisalDomains(d));
-        if (!hasPolicy && appraised.length === 0) return A('Author to complete: use the Appraisal fields in Research Aim & Overall Model');
+        if (!hasPolicy && appraised.length === 0) return A('Author to complete: use the appraisal write-up fields beside the Methods Summary');
         const noChecklist = appraised.filter(d => !APPRAISAL_CHECKLISTS[d.appraisalTool]);
         const incomplete = appraised.filter(d => APPRAISAL_CHECKLISTS[d.appraisalTool] && !appraisalDomainsComplete(d));
         const missing = [];
-        if (!hasPolicy) missing.push('describe the appraisal policy and its use in the drawer');
+        if (!hasPolicy) missing.push('describe the appraisal policy and its use (write-up fields beside the Methods Summary)');
         if (appraised.length === 0) missing.push('no study appraised yet');
         if (incomplete.length) missing.push(`${incomplete.length} stud(ies) with domains not answered yet`);
         if (noChecklist.length) missing.push(`domain table for ${[...new Set(noChecklist.map(d => d.appraisalTool))].join(', ')} to add outside the app (no built-in checklist for this tool)`);
@@ -580,7 +681,8 @@ function appCitationHtml() {
 // ---- Methods Summary: built ONCE as sections, rendered identically to HTML / Markdown / Word ----
 // A sentence ending: no second full stop after a text that already ends with . ? or !
 const endStop = t => /[.?!]\s*$/.test(String(t || '')) ? '' : '.';
-const PH = (t) => `<span class="mec-gap" style="color:#2563eb; font-weight:bold;">[Author to insert: ${t}]</span>`;
+// A gap for the write-up. With a field key (state.loa), clicking it in the preview goes to that field (Tab 4 panel or the drawer).
+const PH = (t, field = '') => `<span class="mec-gap" style="color:#2563eb; font-weight:bold;"${field ? ` data-field="${field}" title="Click to go to this field" role="button" tabindex="0"` : ''}>[Author to insert: ${t}]</span>`;
 function getMethodSections() {
   const docCount = state.docs.length;
   const tools = new Set();
@@ -589,10 +691,10 @@ function getMethodSections() {
   const anyRichness = state.docs.some(d => d.richness);
   const toolStr = tools.size > 0 ? Array.from(tools).join(', ') : '';
   const polHtml = state.loa.appraisalPolicy ? escapeHtml(state.loa.appraisalPolicy) + ' ' : '';
-  const useHtml = state.loa.appraisalUse ? escapeHtml(state.loa.appraisalUse) : PH('how appraisal was used, e.g., whether any study was excluded, and whether it informed the reading of the studies or the CERQual judgements');
+  const useHtml = state.loa.appraisalUse ? escapeHtml(state.loa.appraisalUse) : PH('how appraisal was used, e.g., whether any study was excluded, and whether it informed the reading of the studies or the CERQual judgements', 'appraisalUse');
   const qualityHtml = anyQuality
     ? polHtml + `The methodological quality of each included study was appraised${toolStr ? ' using <b>' + escapeHtml(toolStr) + '</b>' : ' ' + PH('appraisal tool')}; ${getAppraisalDomainSpecs().length ? ' the judgement on each domain of the tool, with reasons, is reported for each study in Table 1b' + (getAppraisalDomainSpecs().length > 1 ? '–1c' : '') + ', and the reviewers\' overall judgements in Table 1. The checklist answers were not added up into a score.' : ' the overall judgements are reported in Table 1.'}${anyRichness ? ' Conceptual richness of each study was also recorded (Table 1).' : ''} ${useHtml}`
-    : (state.loa.appraisalPolicy ? polHtml + useHtml : PH('whether and how the quality of the included studies was appraised, and how appraisal was used'));
+    : (state.loa.appraisalPolicy ? polHtml + useHtml : PH('whether and how the quality of the included studies was appraised, and how appraisal was used', 'appraisalPolicy'));
 
   const synthHtml = state.loa.synthStudies ? ' Studies included in the line-of-argument synthesis: ' + escapeHtml(state.loa.synthStudies) + '.' : '';
   const hasLoaModel = !!(state.loa.title || state.loa.flow || state.loa.narrative);
@@ -676,7 +778,7 @@ function getMethodSections() {
 
   const relProcHtml = state.loa.relateProcess
     ? escapeHtml(state.loa.relateProcess)
-    : PH('aspects of the studies compared and how they were compared (eMERGe Item 11); use the Phase 4 field in Research Aim &amp; Overall Model');
+    : PH('aspects of the studies compared and how they were compared (eMERGe Item 11)', 'relateProcess');
   const relOutHtml = state.loa.relateOutcome ? ' ' + escapeHtml(state.loa.relateOutcome) : '';
 
   const cqHtml = cqAnyAssessed
@@ -691,7 +793,7 @@ function getMethodSections() {
   const esc = v => escapeHtml(String(v || '').trim());
   const questionHtml = L.reviewQuestion && L.reviewQuestion.trim()
     ? ` The review question was: <i>${esc(L.reviewQuestion)}</i>${endStop(L.reviewQuestion)}`
-    : ` ${PH('the review question(s) or objectives (eMERGe Item 3); use the Review Question field')}`;
+    : ` ${PH('the review question(s) or objectives (eMERGe Item 3)', 'reviewQuestion')}`;
 
   // Phase 3 (Item 9) + Item 10 companion papers
   const scopeText = { full: 'Data were extracted from across the full primary study accounts, not only the findings sections.',
@@ -702,19 +804,19 @@ function getMethodSections() {
   const companionHtml = companionPairs.length
     ? ` Some accounts derived from the same primary study (${companionPairs.join('; ')}); these are identified in Table 1.`
     : '';
-  const readingHtml = `${L.readingApproach ? esc(L.readingApproach) : PH('how studies were read and data extracted, by whom, whether independently, whether extracted data were checked against the accounts and how differences were discussed (eMERGe Item 9)')} ${scopeText || PH('whether data were extracted from the full accounts or the findings sections only')} First-order constructs (participant quotations) and second-order constructs (the primary authors' interpretations) were extracted and recorded separately${L.unitsTerminology ? '; ' + esc(L.unitsTerminology) : ''}.${L.unitsTerminology ? '' : ' ' + PH('what is meant by the units of synthesis used, e.g., concept, theme, metaphor')}${companionHtml}`;
+  const readingHtml = `${L.readingApproach ? esc(L.readingApproach) : PH('how studies were read and data extracted, by whom, whether independently, whether extracted data were checked against the accounts and how differences were discussed (eMERGe Item 9)', 'readingApproach')} ${scopeText || PH('whether data were extracted from the full accounts or the findings sections only', 'extractionScope')} First-order constructs (participant quotations) and second-order constructs (the primary authors' interpretations) were extracted and recorded separately${L.unitsTerminology ? '; ' + esc(L.unitsTerminology) : ''}.${L.unitsTerminology ? '' : ' ' + PH('what is meant by the units of synthesis used, e.g., concept, theme, metaphor', 'unitsTerminology')}${companionHtml}`;
 
   // Phase 5 (Item 13)
-  const translationHtml = `Data extraction and cross-study translation were managed using <i>Meta-Ethnography Canvas</i>${appCitationHtml()}. ${orderHtml}${seedHtml} ${L.translationDefinitions ? esc(L.translationDefinitions) : PH('working definitions of reciprocal and refutational translation (eMERGe Item 13)')} ${L.translationProcess ? esc(L.translationProcess) : PH('who translated, how meaning was translated from one study into another, and how context and relationships between concepts were preserved')} ${translationKindHtml}${withinHtml}${notTranslatedHtml} ${L.alternativeInterpretations ? esc(L.alternativeInterpretations) : PH('how alternative interpretations or explanations were considered (Items 13 and 15)')}`;
+  const translationHtml = `Data extraction and cross-study translation were managed using <i>Meta-Ethnography Canvas</i>${appCitationHtml()}. ${orderHtml}${seedHtml} ${L.translationDefinitions ? esc(L.translationDefinitions) : PH('working definitions of reciprocal and refutational translation (eMERGe Item 13)', 'translationDefinitions')} ${L.translationProcess ? esc(L.translationProcess) : PH('who translated, how meaning was translated from one study into another, and how context and relationships between concepts were preserved', 'translationProcess')} ${translationKindHtml}${withinHtml}${notTranslatedHtml} ${L.alternativeInterpretations ? esc(L.alternativeInterpretations) : PH('how alternative interpretations or explanations were considered (Items 13 and 15)', 'alternativeInterpretations')}`;
 
   // Phase 6 (Items 15-16) incl. independent team models (Atkins et al., 2008)
   const teamModels = Array.isArray(L.teamModels) ? L.teamModels : [];
   const tmReviewers = [...new Set(teamModels.map(m => m.reviewer))];
   const teamHtml = teamModels.length > 1
-    ? ` ${tmReviewers.length} reviewer(s) (${tmReviewers.map(r => '@' + esc(r)).join(', ')}) first developed ${teamModels.length} overarching models independently; these were compared and merged into the line of argument${L.teamMergeNote ? ': ' + esc(L.teamMergeNote) : '. ' + PH('how the independent models were compared and merged')}`
+    ? ` ${tmReviewers.length} reviewer(s) (${tmReviewers.map(r => '@' + esc(r)).join(', ')}) first developed ${teamModels.length} overarching models independently; these were compared and merged into the line of argument${L.teamMergeNote ? ': ' + esc(L.teamMergeNote) : '. ' + PH('how the independent models were compared and merged', 'teamMergeNote')}`
     : '';
   const synthesisHtml = hasLoaModel
-    ? `The third-order constructs were then synthesized into a line-of-argument model${L.title ? ', "<b>' + esc(L.title) + '</b>"' : ''} (Table 2).${synthHtml}${teamHtml} ${L.modelContext ? esc(L.modelContext) : PH('the context in which the model applies, or does not, given the characteristics of the included studies (eMERGe Item 16)')}`
+    ? `The third-order constructs were then synthesized into a line-of-argument model${L.title ? ', "<b>' + esc(L.title) + '</b>"' : ''} (Table 2).${synthHtml}${teamHtml} ${L.modelContext ? esc(L.modelContext) : PH('the context in which the model applies, or does not, given the characteristics of the included studies (eMERGe Item 16)', 'modelContext')}`
     : `${PH('how the line-of-argument synthesis was conducted, or why it was not (eMERGe Item 15)')}${teamHtml}`;
 
   const sections = [
@@ -803,7 +905,58 @@ function buildeMERGeTableHtml() {
 
 // Gaps for the write-up are shown quietly (grey) while working; exports always keep the full [Author to insert] text
 function quietGaps() { try { return lsGet('me_quiet_gaps') !== '0'; } catch (e) { return true; } }
+document.getElementById('appendixModeSelect').addEventListener('change', e => {
+  lsSet('me_appendix_mode', e.target.value);
+  renderPublicationView();
+});
+// The whole trail, oldest first, for a supplementary file (Appendix A in the paper may show only the key decisions)
+document.getElementById('fullTrailCsvBtn').addEventListener('click', async () => {
+  await flushAllPendingSaves();
+  const logs = [...state.logs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  const rows = [['Timestamp (ISO)', 'Timestamp', 'Reviewer', 'Category', 'Action', 'Detail', 'Before', 'After', 'Rationale', 'Key decision (Appendix A)', '3rd Order row ids', 'Entry id']];
+  logs.forEach(l => {
+    rows.push([l.isoTime || new Date(l.timestamp).toISOString(), new Date(l.timestamp).toLocaleString(), l.reviewer || 'Unknown', getCategoryMeta(l.category).label,
+      l.action || '', l.detail || '', l.fromVal || '', l.toVal || '', rationaleExportText(l), isKeyDecisionLog(l) ? 'yes' : 'no', (l.clusterIds || []).join(' '), l.id]);
+  });
+  const csv = '\uFEFF' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `audit_trail_full_${state.projectCode ? state.projectCode.replace(/[^\w-]+/g, '_') + '_' : ''}${backupTimestamp()}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showSnackbar(`Full audit trail saved (${logs.length} entries).`);
+});
+
+// Clicking a gap goes to its field: a write-up field beside the Methods Summary, or an analysis field in the drawer (Tab 2)
+function goToProjectField(key) {
+  const def = [...WRITEUP_FIELDS, ...LOA_EXTRA_FIELDS].find(f => f[0] === key);
+  const el = def && document.getElementById(def[1]);
+  if (!el) return;
+  if (!document.getElementById('writeupPanel').contains(el)) {
+    setActiveTab('matrix');
+    if (!state.isLoaOpen) document.getElementById('toggleLoaDrawerBtn').click();
+  }
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.focus({ preventScroll: true });
+  el.classList.add('ring-2', 'ring-amber-400');
+  setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 1600);
+}
+(() => {
+  const c = document.getElementById('pubPreviewContainer');
+  const go = e => { const gap = e.target.closest && e.target.closest('.mec-gap[data-field]'); if (gap) { e.preventDefault(); goToProjectField(gap.dataset.field); } };
+  c.addEventListener('click', go);
+  c.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') go(e); });
+})();
+
 function renderPublicationView() {
+  document.getElementById('writeupPanel').classList.toggle('hidden', state.activePubTable !== 'method');
+  const onAppendix = state.activePubTable === 'appendix';
+  const apSel = document.getElementById('appendixModeSelect');
+  apSel.classList.toggle('hidden', !onAppendix); apSel.value = getAppendixMode();
+  const csvBtn = document.getElementById('fullTrailCsvBtn');
+  csvBtn.classList.toggle('hidden', !onAppendix); csvBtn.classList.toggle('inline-flex', onAppendix);
   const container = document.getElementById('pubPreviewContainer');
   container.classList.toggle('gaps-quiet', quietGaps());
   const qt = document.getElementById('quietGapsToggle'); if (qt) qt.checked = quietGaps();
@@ -824,7 +977,7 @@ document.getElementById('copyRichTableBtn').addEventListener('click', async () =
     const blobHtml = new Blob([html], { type: 'text/html' });
     const blobText = new Blob([text], { type: 'text/plain' });
     await navigator.clipboard.write([new ClipboardItem({ 'text/html': blobHtml, 'text/plain': blobText })]);
-    alert('Rich Table copied! Paste directly (Ctrl+V / Cmd+V) into Microsoft Word or Google Docs.');
+    showSnackbar('Rich Table copied. Paste directly (Ctrl+V / Cmd+V) into Microsoft Word or Google Docs.');
   } catch (e) {
     const range = document.createRange();
     range.selectNodeContents(container);
@@ -833,7 +986,7 @@ document.getElementById('copyRichTableBtn').addEventListener('click', async () =
     sel.addRange(range);
     document.execCommand('copy');
     sel.removeAllRanges();
-    alert('Table copied to clipboard!');
+    showSnackbar('Table copied to the clipboard.');
   }
 });
 
@@ -939,13 +1092,13 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       md += '\n';
     });
   } else {
-    md += `### Appendix A. Methodological Audit Trail & Reflexive Log\n\n`;
+    const ap = getAppendixASpec();
+    md += `### ${ap.title}\n\n*${cleanMd(ap.caption)}*\n\n`;
     md += `| Timestamp | Reviewer | Category | Action / Memo | Before ➔ After | Rationale |\n`;
     md += `|---|---|---|---|---|---|\n`;
-    [...state.logs].reverse().forEach(l => {
-      const meta = getCategoryMeta(l.category);
-      const diff = (l.fromVal || l.toVal) ? `${l.fromVal || ''} ➔ ${l.toVal || ''}` : '-';
-      md += `| ${cleanMd(new Date(l.timestamp).toLocaleString())} | @${cleanMd(l.reviewer || 'Unknown')} | ${cleanMd(meta.label)} | **${cleanMd(l.action)}** ${cleanMd(l.detail)} | ${cleanMd(diff)} | ${cleanMd(rationaleExportText(l))} |\n`;
+    ap.rows.forEach(r => {
+      const diff = (r.fromVal || r.toVal) ? `${r.fromVal || ''} ➔ ${r.toVal || ''}` : '-';
+      md += `| ${cleanMd(r.when)} | @${cleanMd(r.reviewer)} | ${cleanMd(r.category)} | **${cleanMd(r.action)}** ${cleanMd(r.detail)} | ${cleanMd(diff)} | ${cleanMd(r.rationale)} |\n`;
     });
     const nt = getNotTranslatedSpec();
     md += `\n### ${nt.title}\n\n*${nt.caption}*\n\n`;
@@ -961,7 +1114,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
   }
 
   await navigator.clipboard.writeText(md);
-  alert('Markdown table copied to clipboard!');
+  showSnackbar('Markdown copied to the clipboard.');
 });
 
 document.getElementById('downloadWordDocBtn').addEventListener('click', async () => {
@@ -1175,22 +1328,20 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   const appRows = [
     new TableRow({ tableHeader: true, children: appHeaders.map(h => makeCell(h, { isHeader: true })) })
   ];
-  const chronological = [...state.logs].reverse();
-  if (chronological.length === 0) {
+  const appSpec = getAppendixASpec();
+  if (appSpec.rows.length === 0) {
     appRows.push(new TableRow({ children: [makeCell('No audit trail entries recorded yet.', { isLastRow: true }), ...Array(5).fill(0).map(() => makeCell('-', { isLastRow: true }))] }));
   } else {
-    chronological.forEach((l, idx) => {
-      const isLast = idx === chronological.length - 1;
-      const meta = getCategoryMeta(l.category);
-      const changeStr = (l.fromVal || l.toVal) ? `${l.fromVal ? 'From: ' + l.fromVal + ' ' : ''}${l.toVal ? '-> To: ' + l.toVal : ''}` : '-';
+    appSpec.rows.forEach((r, idx) => {
+      const isLast = idx === appSpec.rows.length - 1;
       appRows.push(new TableRow({
         children: [
-          makeCell(new Date(l.timestamp).toLocaleString(), { isLastRow: isLast }),
-          makeCell(`@${l.reviewer || 'Reviewer'}`, { isLastRow: isLast, bold: true }),
-          makeCell(meta.label, { isLastRow: isLast }),
-          makeCell(`${l.action}${l.detail ? '\n' + l.detail : ''}`, { isLastRow: isLast }),
-          makeCell(changeStr, { isLastRow: isLast }),
-          makeCell(rationaleExportText(l), { isLastRow: isLast })
+          makeCell(r.when, { isLastRow: isLast }),
+          makeCell(`@${r.reviewer}`, { isLastRow: isLast, bold: true }),
+          makeCell(r.category, { isLastRow: isLast }),
+          makeCell(`${r.action}${r.detail ? '\n' + r.detail : ''}`, { isLastRow: isLast }),
+          makeCell(appendixChangeText(r, '->'), { isLastRow: isLast }),
+          makeCell(r.rationale, { isLastRow: isLast })
         ]
       }));
     });
@@ -1352,9 +1503,10 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
-          children: [new TextRun({ text: "Appendix A. Methodological Audit Trail, Team Perspectives & Reflexive Synthesis Log", bold: true, font: "Times New Roman", size: 24 })],
-          spacing: { after: 140 }
+          children: [new TextRun({ text: appSpec.title, bold: true, font: "Times New Roman", size: 24 })],
+          spacing: { after: 80 }
         }),
+        new Paragraph({ children: [new TextRun({ text: appSpec.caption, italics: true, font: "Times New Roman", size: 20 })], spacing: { after: 140 } }),
         widthTable(appRows, [11, 8, 11, 32, 18, 20]),
 
         new Paragraph({ children: [new PageBreak()] }),

@@ -187,7 +187,6 @@ function renderAuditTimeline() {
     });
 
     card.querySelector('.del-log').onclick = async () => {
-      if (!confirm('Delete this audit trail entry? (You can Undo with Ctrl+Z)')) return;
       pushUndoAction({
         type: 'delete_log',
         label: `Audit Log (${log.action.slice(0, 30)})`,
@@ -205,6 +204,7 @@ function renderAuditTimeline() {
       });
       updateAuditBadge();
       renderAuditTimeline();
+      showUndoSnackbar('Deleted the audit trail entry (the deletion itself is recorded)');
     };
 
     container.appendChild(card);

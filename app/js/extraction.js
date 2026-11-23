@@ -252,7 +252,6 @@ function updateSidebar() {
     bindPendingCommit(w.querySelector('.sec-conc-note'), updateSecConcordance);
 
     w.querySelector('.del').onclick = async () => {
-      if (!confirm('Delete this 2nd Order Construct? (Linked 1st Order quotes will be unlinked, and you can Undo with Ctrl+Z)')) return;
       const unlinkedIds = linked.map(f => f.id);
       pushUndoAction({
         type: 'delete_annotation',
@@ -266,6 +265,7 @@ function updateSidebar() {
       state.annotations = state.annotations.filter(x => x.id !== sec.id);
       updateSidebar();
       renderHighlights();
+      showUndoSnackbar(`Deleted the 2nd Order construct${unlinkedIds.length ? ` (${unlinkedIds.length} quote(s) unlinked)` : ''}`);
     };
 
     const clist = w.querySelector('.child-list');
@@ -517,14 +517,13 @@ async function splitOffPassage(sec, pid) {
 async function removePassage(sec, pid) {
   const p = sec.passages.find(x => x.id === pid);
   if (!p) return;
-  if (p.absorbed && !confirm('This passage was a separate construct before. Remove it entirely? (Use ↗ Split off to keep it as its own construct. Ctrl+Z to undo.)')) return;
   const affectedQuotes = (p.absorbed?.movedQuoteIds || []).map(id => state.annotations.find(a => a.id === id)).filter(Boolean);
   pushAnnoSnapshotUndo(`Removed passage p.${p.page} from "${secShortLabel(sec)}"`, [sec, ...affectedQuotes]);
   sec.passages = sec.passages.filter(x => x.id !== pid);
   await dbPut('annotations', sec);
   updateSidebar();
   renderHighlights();
-  showSnackbar('Passage removed — Ctrl+Z to undo');
+  showUndoSnackbar(p.absorbed ? 'Passage removed (it was a separate construct before; ↗ Split off keeps it as its own)' : 'Passage removed');
 }
 async function wrapFirstOrderInSecondOrder(f, initialConceptLabel = '') {
   const doc = state.docs.find(d => d.id === f.docId);
@@ -677,12 +676,12 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
   }
 
   c.querySelector('.del').onclick = async () => {
-    if (!confirm('Delete this 1st Order Quote? (You can Undo with Ctrl+Z)')) return;
     pushUndoAction({ type: 'delete_annotation', label: `1st Order Quote (p.${f.page})`, annotations: [{ ...f }] });
     await dbDelete('annotations', f.id);
     state.annotations = state.annotations.filter(x => x.id !== f.id);
     updateSidebar();
     renderHighlights();
+    showUndoSnackbar('Deleted the 1st Order quote');
   };
   if (isLinked) {
     c.querySelector('.unl').onclick = async () => {

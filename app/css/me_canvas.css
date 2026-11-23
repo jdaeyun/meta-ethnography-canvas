@@ -72,3 +72,5 @@ textarea.auto-grow { max-height: 60vh; overflow-y: auto; }
 
 /* Tab 4: write-up gaps shown quietly while working (exports unchanged) */
 #pubPreviewContainer.gaps-quiet .mec-gap { color: #94a3b8 !important; font-weight: 400 !important; }
+#pubPreviewContainer .mec-gap[data-field] { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+#pubPreviewContainer .mec-gap[data-field]:hover { background: #eff6ff; }

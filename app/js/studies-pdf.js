@@ -166,7 +166,13 @@ async function setOrderStrategy(next, { rationale = '', reason = '' } = {}) {
 }
 document.getElementById('orderStrategySelect')?.addEventListener('change', async (e) => {
   const next = e.target.value;
-  const why = (prompt(`Translation order: "${ORDER_STRATEGIES[next].label}". Why? (optional — recorded in the audit trail)`) || '').trim();
+  const why = await askReason({
+    title: `Translation order: ${ORDER_STRATEGIES[next].label}`,
+    context: `From "${ORDER_STRATEGIES[getOrderStrategy()].label}" to "${ORDER_STRATEGIES[next].label}". The reason is also used in the Methods Summary.`,
+    label: 'Why this order? (optional, saved in the Audit Trail)',
+    confirmLabel: 'Change order', draftKey: 'order-strategy'
+  });
+  if (why === null) { e.target.value = getOrderStrategy(); return; } // cancelled: nothing changed
   await setOrderStrategy(next, { rationale: why });
 });
 
@@ -278,7 +284,12 @@ async function moveStudyOrder(fromIdx, toIdx) {
   const newIndexPaper = getDisplayName(state.docs[0]);
 
   if (oldIndexPaper !== newIndexPaper) {
-    const idxWhy = (prompt(`The #1 study (${firstStudyMeta().long}) has changed. Why? (optional — recorded in the audit trail as the rationale)`) || '').trim();
+    const idxWhy = await askReason({
+      title: `The #1 study (${firstStudyMeta().long}) has changed`,
+      context: `From ${oldIndexPaper} to ${newIndexPaper}. Rows established by study #1 are marked for re-reading.`,
+      label: 'Why this study first? (optional, saved in the Audit Trail as the rationale)',
+      cancelLabel: null
+    });
     await recordAuditLog({
       category: 'study_order',
       rationale: idxWhy,
@@ -355,11 +366,18 @@ function renderStudyList() {
     item.addEventListener('click', (e) => { if (!e.target.closest('.del')) switchStudy(doc.id); });
     item.querySelector('.del').addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (confirm('Delete this study and its extracted constructs? (You can Undo with Ctrl+Z; the deletion is recorded in the Audit Trail)')) {
+      const nExtracted = state.annotations.filter(a => a.docId === doc.id).length;
+      // One dialog: the decision and its reason (removing a study from the synthesis is an interpretive decision)
+      const why = await askReason({
+        title: `Remove ${getDisplayName(doc)} from the synthesis?`,
+        context: `The study and its ${nExtracted} extracted construct(s)/quote(s) are deleted${idx === 0 ? ', and the next study becomes #1' : ''}. The removal is recorded in the Audit Trail; Ctrl+Z undoes it.`,
+        label: 'Why is this study being removed? (optional, saved in the Audit Trail as the rationale)',
+        confirmLabel: 'Remove study', draftKey: 'remove-study-' + doc.id
+      });
+      if (why !== null) {
         const wasIndex = idx === 0;
         const binRec = await dbGet('pdf_binaries', doc.id);
         const toDel = state.annotations.filter(a => a.docId === doc.id);
-        const why = (prompt('Why is this study being removed? (optional — recorded in the audit trail as the rationale)') || '').trim();
         pushUndoAction({
           type: 'delete_study',
           label: `Study (${getDisplayName(doc)})`,
@@ -383,6 +401,7 @@ function renderStudyList() {
           toVal: `${state.docs.length} studies`
         });
         if (state.activeDocId === doc.id) state.activeDocId = state.docs[0]?.id || null;
+        showUndoSnackbar(`Removed ${getDisplayName(doc)}`);
         renderStudyList();
         if (state.activeDocId) switchStudy(state.activeDocId);
         else {
