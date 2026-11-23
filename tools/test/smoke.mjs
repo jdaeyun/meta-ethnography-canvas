@@ -1127,6 +1127,21 @@ await group('Review fixes 2: welcome buttons, awaited commits, peer rows importe
     return { ids: got.clusterIds, rel: got.clusterRelations.peer_only_row, cmt: got.clusterComments.peer_only_row, waiting: !!got._peerRows, row: !!row };
   });
   check('importing the row afterwards places the construct with its judgement and cell note', after.row && after.ids.includes('peer_only_row') && after.rel === 'refutational' && after.cmt === 'why it fits' && !after.waiting, JSON.stringify(after));
+  // The same when the matching row is made here (same title) instead of imported
+  const titled = await p.evaluate(async () => {
+    const peer = JSON.parse(JSON.stringify(state.peerComparison.peerData));
+    peer.clusters.push({ id: 'peer_row_t', thirdOrderTitle: 'Made here too', order: 100 });
+    peer.annotations.push({ ...peer.annotations.find(a => a.type === 'second_order'), id: 'peer_sec_t', text: 'Waiting for a row made here', clusterIds: ['peer_row_t'], clusterRelations: { peer_row_t: 'reciprocal' }, clusterComments: {} });
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    await importPeerConstruct(state.peerComparison.peerOnlyAnnos.find(x => x.peerAnno.id === 'peer_sec_t'), 'discuss');
+    const local = normalizeCluster({ id: 'local_t', thirdOrderTitle: 'made here TOO', order: 101 });
+    state.clusters.push(local); await dbPut('clusters', local);
+    setCompareTab('clusters_logs'); renderComparisonTabContent();
+    await new Promise(r => setTimeout(r, 600));
+    const got = state.annotations.find(a => a.text === 'Waiting for a row made here');
+    return { ids: got.clusterIds, rel: got.clusterRelations.local_t, waiting: !!got._peerRows };
+  });
+  check('a waiting construct is placed in a row with the same title made here', titled.ids.includes('local_t') && titled.rel === 'reciprocal' && !titled.waiting, JSON.stringify(titled));
   // Clicking a highlight shows its card (the text layer lies above the highlights)
   await tab(p, 'extract'); await p.evaluate(() => switchStudy(state.docs[0].id));
   await p.waitForFunction(() => document.querySelector('#pdfPagesWrapper .hl-box'), null, { timeout: 15000 }); await p.waitForTimeout(800);
@@ -1189,6 +1204,14 @@ await group('Reasons are asked in a multi-line dialog; undoable deletions show U
   check('the #1 change offers "Record without a reason", not Cancel', (await p.innerText('#reasonModalSecondaryBtn')).includes('without a reason'));
   await p.keyboard.press('Escape'); await pending; await p.waitForTimeout(300);
   check('Escape records the #1 change without a reason', await p.evaluate(() => /#1 Study/.test(state.logs.find(l => l.category === 'study_order').action)));
+  // A second question while one is open: the first caller goes on (cancelled), it does not hang
+  const both = await p.evaluate(async () => {
+    const a = askReason({ title: 'first' }); const b = askReason({ title: 'second' });
+    const ra = await Promise.race([a, new Promise(r => setTimeout(() => r('hung'), 500))]);
+    document.getElementById('reasonModalConfirmBtn').click();
+    return { ra, rb: await b };
+  });
+  check('a dialog replaced by a new question lets its caller go on', both.ra === null && both.rb === '', JSON.stringify(both));
   // Undoable deletion: no confirmation first, a notice with Undo after
   const dialogs = []; p.on('dialog', d => dialogs.push(d.type()));
   await tab(p, 'matrix'); await p.waitForTimeout(500);
@@ -1250,7 +1273,15 @@ await group('Appendix A shows the key decisions; repeated edits of one text are 
       mk(5, { category: 'third_order', action: `Updated Step B 3rd Order Definition & Interpretation for "Row"`, fromVal: 'v5', toVal: 'v6', clusterIds: [cid], rationale: 'A reasoned change' }),
       mk(6, { category: 'linking', action: 'Linked 1st Order Quote to 2nd Order Construct (X)' }),
       mk(7, { category: 'reading_extraction', action: 'Updated Reading & extraction process (Item 9)', fromVal: 'a', toVal: 'b' }),
-      mk(8, { category: 'reflexive_memo', action: '[Reflexivity (Positionality)] ', detail: 'my position' })
+      mk(8, { category: 'reflexive_memo', action: '[Reflexivity (Positionality)] ', detail: 'my position' }),
+      mk(9, { category: 'third_order', action: 'Undid: Merge "A" into "B"', clusterIds: [cid] }),
+      // An older trail without row ids: edits of two rows stay two lines
+      mk(10, { category: 'third_order', action: 'Updated Step B 3rd Order Definition & Interpretation for "Old row 1"', fromVal: 'o1', toVal: 'o2' }),
+      mk(11, { category: 'third_order', action: 'Updated Step B 3rd Order Definition & Interpretation for "Old row 2"', fromVal: 'p1', toVal: 'p2' }),
+      mk(12, { category: 'third_order', action: 'Updated Step B 3rd Order Definition & Interpretation for "Old row 1"', fromVal: 'o2', toVal: 'o3' }),
+      mk(13, { category: 'cerqual', action: 'Updated GRADE-CERQual Assessment for "Row"', fromVal: 'x', toVal: 'y', detail: 'Coherence — first note', clusterIds: [cid] }),
+      mk(14, { category: 'cerqual', action: 'Updated GRADE-CERQual Assessment for "Row"', fromVal: 'y', toVal: 'z', detail: 'Coherence — final note', clusterIds: [cid] }),
+      mk(15, { category: 'translation_process', action: 'Updated Working definitions (Item 13) / Alternative interpretations (Items 13/15)', toVal: 'alt' })
     ];
     state.logs = [...extra.slice().reverse(), ...state.logs];
     const key = getAppendixASpec('key'), full = getAppendixASpec('full');
@@ -1262,7 +1293,11 @@ await group('Appendix A shows the key decisions; repeated edits of one text are 
       routineOut: !key.rows.some(x => x.action === 'Linked 1st Order Quote to 2nd Order Construct (X)') && full.rows.some(x => x.action === 'Linked 1st Order Quote to 2nd Order Construct (X)'),
       writeupOut: !key.rows.some(x => x.action === 'Updated Reading & extraction process (Item 9)'),
       memoIn: key.rows.some(x => x.detail === 'my position'),
-      caption: /full audit trail is available as a supplementary file/.test(key.caption)
+      caption: /full audit trail is available as a supplementary file/.test(key.caption),
+      undoMerge: key.rows.some(x => x.action === 'Undid: Merge "A" into "B"'),
+      oldRowsApart: key.rows.some(x => /\(2 edits\): "Old row 1"/.test(x.action) && x.fromVal === 'o1' && x.toVal === 'o3') && key.rows.some(x => x.action.endsWith('"Old row 2"') && x.fromVal === 'p1'),
+      cqNote: key.rows.some(x => /GRADE-CERQual assessment revised \(2 edits\)/.test(x.action) && x.detail.includes('Coherence — final note')),
+      mixedOld: key.rows.some(x => x.toVal === 'alt')
     };
   });
   check('the full mode lists every entry; the key mode fewer', r.total && r.fewer, JSON.stringify(r));
@@ -1270,6 +1305,10 @@ await group('Appendix A shows the key decisions; repeated edits of one text are 
   check('an edit with a reason stays a line of its own', r.reasoned);
   check('routine steps and Methods wording are left out; memos stay', r.routineOut && r.writeupOut && r.memoIn);
   check('the caption says how the entries were chosen and where the full trail is', r.caption);
+  check('undoing a row merge stays in the key decisions', r.undoMerge);
+  check('entries without row ids are folded per row, not across rows', r.oldRowsApart);
+  check('a folded CERQual line keeps the latest notes', r.cqNote);
+  check('an older combined entry with an analysis field stays', r.mixedOld);
   await tab(p, 'pub'); await p.locator('[data-pub=appendix]').click(); await p.waitForTimeout(300);
   check('the mode select and the full-trail button show with the Appendices', await p.isVisible('#appendixModeSelect') && await p.isVisible('#fullTrailCsvBtn'));
   const keyRows = await p.locator('#pubPreviewContainer table').first().locator('tbody tr').count();

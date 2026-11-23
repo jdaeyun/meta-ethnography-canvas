@@ -408,7 +408,8 @@ const APPENDIX_EDIT_SERIES = [
 function appendixSeries(l) {
   const hit = APPENDIX_EDIT_SERIES.find(([re]) => re.test(l.action || ''));
   if (!hit) return null;
-  return { label: hit[1], key: hit[1] + '|' + ((l.clusterIds || [])[0] || '') };
+  // Same row by id; entries from older versions without row ids are kept apart by their action text (it names the row)
+  return { label: hit[1], key: hit[1] + '|' + ((l.clusterIds || [])[0] || l.action || '') };
 }
 function isMemoLog(l) { return /^\[[^\]]+\]/.test(l.action || '') && !/^\[Reviewer-wrapped\]/.test(l.action || ''); }
 // Routine bookkeeping: shown in the full trail; in Appendix A only when a reason was recorded with it
@@ -416,7 +417,7 @@ const APPENDIX_ROUTINE = [
   /^Linked 1st Order Quote/, /^Unlinked 1st Order Quote/, /^Switched (1st|2nd) Order/, /^\[Reviewer-wrapped\]/, /^Set 2nd Order label source/,
   /^Updated 2nd Order Summary Label/, /^Placed 2nd Order Construct/, /^Removed 2nd Order Construct from/,
   /^Added a further passage/, /^Recorded p\..* as a further passage/, /^Split p\..* off/, /^Recorded how two concepts relate within/, /^Removed a relationship between concepts within/,
-  /^Edited the extracted text of/, /^Wrote Study Overview/, /^Revised Study Overview/, /^Undid: (?!3rd)/,
+  /^Edited the extracted text of/, /^Wrote Study Overview/, /^Revised Study Overview/,
   /^Imported Peer Construct from/, /^Merged \d+ audit trail entries from/, /^Recorded provisional agreement/, /^2nd Order Team Perspective Updated/,
   /^Reordered 3rd Order Theme Row/, /^Updated note on how a concept fits/, /^Noted why a 2nd Order construct was not translated/,
   /^Set subgroup for/, /^Appraisal \(/, /^Updated Critical Appraisal/, /^(Linked|Unlinked) .* companion paper/,
@@ -428,7 +429,10 @@ function isKeyDecisionLog(l) {
   if ((l.rationale || '').trim()) return true;
   if (isMemoLog(l)) return true;
   const a = l.action || '';
-  if (APPENDIX_WRITEUP.test(a)) return false;
+  // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
+  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false;
+  // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
+  if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
   if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
   if (l.category === 'linking' || l.category === 'matrix_mapping' && !/^Auto-placed/.test(a)) return false;
   if (l.category === 'context_appraisal') return false; // reported per study in Table 1 / 1b
@@ -461,11 +465,12 @@ function getAppendixASpec(mode = getAppendixMode()) {
     if (ser) {
       const g = open.get(ser.key);
       if (g) {
-        g.n++; g.toVal = l.toVal || ''; g.lastT = l.timestamp;
-        if (g.reviewers.indexOf(l.reviewer) < 0) g.reviewers.push(l.reviewer);
+        g.n++; g.toVal = l.toVal || ''; g.lastT = l.timestamp; g.lastDetail = l.detail || '';
+        const rv = l.reviewer || 'Unknown';
+        if (g.reviewers.indexOf(rv) < 0) g.reviewers.push(rv);
         continue;
       }
-      const r = rowOf(l, { n: 1, firstT: l.timestamp, lastT: l.timestamp, reviewers: [l.reviewer || 'Unknown'], seriesLabel: ser.label, rowIds });
+      const r = rowOf(l, { n: 1, firstT: l.timestamp, lastT: l.timestamp, lastDetail: l.detail || '', reviewers: [l.reviewer || 'Unknown'], seriesLabel: ser.label, rowIds });
       rows.push(r); open.set(ser.key, r);
       continue;
     }
@@ -481,7 +486,8 @@ function getAppendixASpec(mode = getAppendixMode()) {
     r.when = `${fmt(r.firstT)} – ${fmt(r.lastT)}`;
     r.reviewer = r.reviewers.join(', ');
     r.action = `${r.seriesLabel} (${r.n} edits)${r.action.match(/ for "(.*)"$/) ? ': "' + r.action.match(/ for "(.*)"$/)[1] + '"' : ''}`;
-    r.detail = 'First wording ➔ last wording; the intermediate edits are in the full audit trail.';
+    // The latest notes (e.g. the CERQual explanations) stay; Before ➔ After spans the first and the last edit
+    r.detail = `${r.lastDetail ? r.lastDetail + '\n' : ''}(Before ➔ After: from the first to the last of these edits; each edit is in the full audit trail.)`;
   });
   return {
     mode, title, total: all.length, shown: rows.length,
@@ -971,7 +977,10 @@ function renderPublicationView() {
 document.getElementById('copyRichTableBtn').addEventListener('click', async () => {
   await flushAllPendingSaves();
   const container = document.getElementById('pubPreviewContainer');
-  const html = container.innerHTML;
+  // The gaps' links to app fields (data-field, role, tabindex, title) belong to the preview, not to the manuscript
+  const copyEl = container.cloneNode(true);
+  copyEl.querySelectorAll('.mec-gap[data-field]').forEach(g => ['data-field', 'role', 'tabindex', 'title'].forEach(at => g.removeAttribute(at)));
+  const html = copyEl.innerHTML;
   const text = container.innerText;
   try {
     const blobHtml = new Blob([html], { type: 'text/html' });

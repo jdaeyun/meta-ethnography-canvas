@@ -676,6 +676,7 @@ function showUndoSnackbar(message) {
 // or null when cancelled. cancelLabel: null means the decision is already made and cannot be cancelled: the second button
 // then records it without a reason. A text typed and then cancelled is kept as a draft for the same draftKey.
 const reasonDrafts = new Map();
+let reasonDismissOpen = null; // closes a dialog still open when a new question comes (its caller then goes on, not hangs)
 function askReason({ title = 'Why?', context = '', label = 'Why? (optional, saved in the Audit Trail)', confirmLabel = 'Record', cancelLabel = 'Cancel', draftKey = '' } = {}) {
   const modal = document.getElementById('reasonModal');
   const input = document.getElementById('reasonModalInput');
@@ -686,17 +687,20 @@ function askReason({ title = 'Why?', context = '', label = 'Why? (optional, save
   document.getElementById('reasonModalContext').textContent = context;
   document.getElementById('reasonModalContext').classList.toggle('hidden', !context);
   document.getElementById('reasonModalLabel').textContent = label;
+  if (reasonDismissOpen) reasonDismissOpen();
   okBtn.textContent = confirmLabel;
   secBtn.textContent = cancelLabel === null ? 'Record without a reason' : cancelLabel;
   input.value = (draftKey && reasonDrafts.get(draftKey)) || '';
   return new Promise(resolve => {
     const finish = value => {
+      reasonDismissOpen = null;
       if (draftKey) { if (value === null && input.value.trim()) reasonDrafts.set(draftKey, input.value); else reasonDrafts.delete(draftKey); }
       modal.classList.add('hidden'); modal.classList.remove('flex');
       okBtn.onclick = secBtn.onclick = closeBtn.onclick = input.onkeydown = null;
       resolve(value);
     };
     const dismiss = () => finish(cancelLabel === null ? '' : null);
+    reasonDismissOpen = dismiss;
     okBtn.onclick = () => finish(input.value.trim());
     secBtn.onclick = () => finish(cancelLabel === null ? '' : null);
     closeBtn.onclick = dismiss; // also Escape (modal handling in app.js clicks the close button)

@@ -644,6 +644,14 @@ function renderComparisonTabContent() {
     } else {
       peerClusters.forEach(pc => {
         const exists = state.clusters.find(c => c.id === pc.id || sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
+        // Constructs imported before this row existed here wait for it: place them now that a matching row is here
+        if (exists && state.annotations.some(a => a._peerRows && a._peerRows[pc.id])) {
+          reattachPeerRowPlacements(pc.id, exists.id).then(async placed => {
+            if (!placed) return;
+            await recordAuditLog({ clusterIds: [exists.id], category: 'concordance', action: `Placed ${placed} construct(s) imported from @${cmp.peerReviewer} in "${exists.thirdOrderTitle || 'Untitled Row'}"`, detail: `The row matches @${cmp.peerReviewer}'s row "${pc.thirdOrderTitle || ''}"; their judgements and cell notes came with them.` });
+            showSnackbar(`Placed ${placed} construct(s) from @${cmp.peerReviewer} in "${exists.thirdOrderTitle || 'Untitled Row'}".`);
+          });
+        }
         const row = document.createElement('div');
         row.className = 'p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between text-xs';
         row.innerHTML = `
@@ -721,15 +729,16 @@ function peerRowMap(cmp) {
 
 // Per-row values a 2nd Order construct carries for each row it is placed in (same list as merge / split in matrix.js)
 const PEER_ROW_KEYS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
-// A peer row imported after its constructs: place the constructs that were waiting for it, with their judgements.
-async function reattachPeerRowPlacements(rowId) {
+// A peer row that is here now (imported after its constructs, or a local row with the same title): place the constructs
+// that were waiting for it, with their judgements. peerRowId = the row's id in the peer's file; localRowId = the row here.
+async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
   let n = 0;
   for (const a of state.annotations) {
-    const w = a.type === 'second_order' && a._peerRows && a._peerRows[rowId];
+    const w = a.type === 'second_order' && a._peerRows && a._peerRows[peerRowId];
     if (!w) continue;
-    if (!a.clusterIds.includes(rowId)) a.clusterIds.push(rowId);
-    PEER_ROW_KEYS.forEach(k => { if (k in w) a[k] = { ...(a[k] || {}), [rowId]: w[k] }; });
-    delete a._peerRows[rowId];
+    if (!a.clusterIds.includes(localRowId)) a.clusterIds.push(localRowId);
+    PEER_ROW_KEYS.forEach(k => { if (k in w && !(a[k] && localRowId in a[k])) a[k] = { ...(a[k] || {}), [localRowId]: w[k] }; });
+    delete a._peerRows[peerRowId];
     if (!Object.keys(a._peerRows).length) delete a._peerRows;
     await dbPut('annotations', a);
     n++;

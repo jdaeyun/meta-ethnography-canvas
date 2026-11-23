@@ -103,6 +103,9 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row. A placed card is judged 'reciprocal',
   'refutational' or 'other_aspect' (◇, Noblit & Hare's third relation; `aspectUsedInLoa[rowId]` marks those the line of
   argument draws on), or stays 'unjudged'.
+  Items imported in Compare before what they belong to is here keep the peer's links in `_peerParentIds` (a quote waiting for its
+  2nd order construct) / `_peerRows` (a construct waiting for its row: per peer row id, the judgement, cell note and line-of-argument
+  mark): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.
   Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
   was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
