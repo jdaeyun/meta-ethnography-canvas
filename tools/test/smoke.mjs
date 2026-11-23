@@ -35,13 +35,17 @@ async function openDemo(url = BASE + '?demo') {
   page.on('dialog', d => d.accept());
   // The app asks for reasons in its own dialog (#reasonModal). Like the browser dialogs above, it is answered automatically
   // (page.reasonAnswer, default no reason) unless a test sets page.autoReason = false to drive it itself.
-  page.autoReason = true; page.reasonAnswer = '';
+  // Choices (#choiceModal, e.g. clean restore / merge) likewise: page.choiceAnswer is the value to pick (default the first option).
+  page.autoReason = true; page.reasonAnswer = ''; page.choiceAnswer = null;
   const reasonLoop = setInterval(async () => {
     if (!page.autoReason || page.isClosed()) return;
     try {
       if (await page.isVisible('#reasonModal')) {
         await page.fill('#reasonModalInput', page.reasonAnswer);
         await page.click('#reasonModalConfirmBtn', { timeout: 1000 });
+      }
+      if (await page.isVisible('#choiceModal')) {
+        await page.click(page.choiceAnswer ? `#choiceModalOptions .choice-option[data-value="${page.choiceAnswer}"]` : '#choiceModalOptions .choice-option', { timeout: 1000 });
       }
     } catch (e) { /* page busy or closing */ }
   }, 120);
@@ -394,7 +398,7 @@ await group('MERGE restore never overwrites local work', async () => {
   const local = await p.evaluate(() => ({ title: state.clusters[0].thirdOrderTitle, aim: state.loa.aim, n: state.annotations.length }));
   const alerts = [];
   p.removeAllListeners('dialog');
-  p.on('dialog', d => { if (d.type() === 'confirm') d.dismiss(); else { alerts.push(d.message()); d.accept(); } }); // Cancel = MERGE
+  p.on('dialog', d => { alerts.push(d.message()); d.accept(); }); p.choiceAnswer = 'merge';
   await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
   const after = await p.evaluate(() => ({ title: state.clusters[0].thirdOrderTitle, aim: state.loa.aim, n: state.annotations.length, log: state.logs[0] }));
   check('local row title and aim are kept', after.title === local.title && after.aim === local.aim);
@@ -656,11 +660,11 @@ await group('Review fixes: peer rows by title, merge links, PDF search race, Wor
     d.annotations.push({ ...f, id: 'm_quote', parentIds: ['ghost_sec', s.id] });
     return JSON.stringify(d);
   });
-  p.removeAllListeners('dialog'); p.on('dialog', d => d.type() === 'confirm' ? d.dismiss() : d.accept());
+  p.removeAllListeners('dialog'); p.on('dialog', d => d.accept()); p.choiceAnswer = 'merge';
   await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
   const tidy = await p.evaluate(() => { const s = state.annotations.find(a => a.id === 'm_sec'), q = state.annotations.find(a => a.id === 'm_quote'); return { c: s.clusterIds, r: Object.keys(s.clusterRelations), q: q.parentIds }; });
   check('merged items keep only links to rows and constructs that exist', tidy.c.length === 1 && !tidy.r.includes('ghost_row') && tidy.q.length === 1 && tidy.q[0] !== 'ghost_sec', JSON.stringify(tidy));
-  p.removeAllListeners('dialog'); p.on('dialog', d => d.accept());
+  p.removeAllListeners('dialog'); p.on('dialog', d => d.accept()); p.choiceAnswer = null;
   // PDF search: switching study while indexing never stores one paper's text under another
   await tab(p, 'extract'); await p.waitForTimeout(500);
   const race = await p.evaluate(async () => {
@@ -1166,7 +1170,7 @@ await group('MERGE restore maps every study id of a study matched by file name',
     return JSON.stringify(d);
   });
   p.removeAllListeners('dialog');
-  p.on('dialog', d => { if (d.type() === 'confirm') d.dismiss(); else d.accept(); }); // Cancel = MERGE
+  p.on('dialog', d => d.accept()); p.choiceAnswer = 'merge';
   await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
   const r = await p.evaluate(() => {
     const c = state.clusters.find(x => x.id === 'bk_row');
@@ -1323,6 +1327,103 @@ await group('Appendix A shows the key decisions; repeated edits of one text are 
   check('the Appendix controls hide on other tables', !(await p.isVisible('#appendixModeSelect')) && !(await p.isVisible('#fullTrailCsvBtn')));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
+});
+
+await group('Review fixes 3: restore choice, card removal, row moves under a filter, map width, CSV cells, search phrases, HiDPI', async () => {
+  const p = await openDemo();
+  // Restore: Cancel in the choice dialog changes nothing (it used to run MERGE)
+  p.autoReason = false;
+  const before = await p.evaluate(() => ({ n: state.annotations.length, logs: state.logs.length }));
+  const json = await p.evaluate(() => JSON.stringify({ docs: state.docs, annotations: [...state.annotations, { ...state.annotations[0], id: 'only_in_backup' }], clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode }));
+  await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) });
+  await p.waitForSelector('#choiceModal:not(.hidden)');
+  check('restore asks with named choices (clean restore / merge)', (await p.locator('#choiceModalOptions .choice-option').count()) === 2);
+  await p.click('#choiceModalCancelBtn'); await p.waitForTimeout(800);
+  check('Cancel in the restore dialog changes nothing', await p.evaluate(b => state.annotations.length === b.n && state.logs.length === b.logs && !state.annotations.some(a => a.id === 'only_in_backup'), before));
+  await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) });
+  await p.waitForSelector('#choiceModal:not(.hidden)'); await p.keyboard.press('Escape'); await p.waitForTimeout(800);
+  check('Escape in the restore dialog changes nothing', await p.evaluate(b => state.annotations.length === b.n, before));
+  p.autoReason = true;
+  // A card taken out of a row loses its judgement, note and line-of-argument mark there; Ctrl+Z brings all three back
+  const card = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && a.clusterIds.length && !isRowBase(a, a.clusterIds[0]));
+    const cid = sec.clusterIds[0], c = state.clusters.find(x => x.id === cid);
+    sec.clusterRelations[cid] = 'other_aspect'; sec.clusterComments[cid] = 'kept note'; sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [cid]: true };
+    await removeSecondOrderFromCluster(sec, c);
+    const gone = !(cid in sec.clusterRelations) && !(cid in sec.clusterComments) && !(sec.aspectUsedInLoa || {})[cid];
+    await performUndo();
+    const back = sec.clusterIds.includes(cid) && sec.clusterRelations[cid] === 'other_aspect' && sec.clusterComments[cid] === 'kept note' && sec.aspectUsedInLoa[cid] === true;
+    await removeSecondOrderFromCluster(sec, c);
+    sec.clusterRelations[cid] = 'refutational'; // as an older version would have left it
+    await assignSecondOrderToCluster(sec, c);
+    return { gone, back, fresh: secRelation(sec, cid) === 'unjudged' && !sec.clusterComments[cid] };
+  });
+  check('taking a card out clears its judgement, note and line-of-argument mark in that row', card.gone, JSON.stringify(card));
+  check('Ctrl+Z restores all three', card.back);
+  check('placing it again starts unjudged, without the old note', card.fresh);
+  // ▲ / ▼ with "Contradictions Only" moves past the next row on view
+  const moved = await p.evaluate(async () => {
+    // Make the first and the last row contradictory, so a row in between is hidden by the filter
+    const mark = c => { const s = state.annotations.find(a => a.type === 'second_order' && a.clusterIds.includes(c.id) && !isRowBase(a, c.id)); if (s) s.clusterRelations[c.id] = 'refutational'; };
+    state.clusters.forEach(c => state.annotations.forEach(a => { if (a.clusterRelations && a.clusterRelations[c.id] === 'refutational') a.clusterRelations[c.id] = 'reciprocal'; }));
+    mark(state.clusters[0]); mark(state.clusters[state.clusters.length - 1]);
+    state.matrixRefutationalOnly = true;
+    const vis = matrixVisibleClusters();
+    if (vis.length < 2) { state.matrixRefutationalOnly = false; return { skip: true }; }
+    const a = vis[1], b = vis[0];
+    await moveClusterOrder(a.id, -1);
+    const r = state.clusters.indexOf(a) < state.clusters.indexOf(b) && state.clusters.length > 2 && vis.length === 2;
+    state.matrixRefutationalOnly = false;
+    return { r };
+  });
+  if (!moved.skip) check('a row moves past the next visible row while a filter hides others', moved.r);
+  // Flow map: same-column loops in the last column stay inside the picture
+  const fits = await p.evaluate(() => {
+    const saved = state.loa.links;
+    const [x, y, z] = state.clusters;
+    state.loa.links = [{ id: 'f1', from: x.id, to: y.id, type: 'leads' }, { id: 'f2', from: x.id, to: z.id, type: 'leads' }, { id: 'f3', from: y.id, to: z.id, type: 'mutual' }];
+    const svg = buildConceptMapSvg('t', 640, 360, 'flow');
+    state.loa.links = saved;
+    const box = document.createElement('div'); box.style.width = '2000px'; box.innerHTML = svg; document.body.appendChild(box);
+    const el = box.querySelector('svg'), W = el.viewBox.baseVal.width;
+    const right = Math.max(...[...el.querySelectorAll('path')].map(pa => { const bb = pa.getBBox(); return bb.x + bb.width; }));
+    box.remove();
+    return { right, W };
+  });
+  check('flow map loops in the last column are not cut off', fits.right <= fits.W, JSON.stringify(fits));
+  check('CSV cells that start with - or @ cannot become formulas (both CSV exports)', await p.evaluate(() => csvCell('-I felt') === `"'-I felt"` && csvCell('@Reviewer') === `"'@Reviewer"` && csvCell('plain') === '"plain"'));
+  // ◇ list in the open drawer follows an empty cell marked as a different aspect
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  if (!(await p.evaluate(() => state.isLoaOpen))) { await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(300); }
+  const nAspect = await p.locator('#loaAspectList > *').count();
+  const idx = await p.evaluate(() => [...document.querySelectorAll('.empty-status')].findIndex(x => x.value === ''));
+  if (idx >= 0) {
+    await p.locator('.empty-status').nth(idx).selectOption('other_aspect'); await p.waitForTimeout(500);
+    check('the drawer\'s ◇ list updates when a cell is marked as a different aspect', (await p.locator('#loaAspectList > *').count()) > nAspect);
+  }
+  await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(200);
+  // Search: a phrase that runs over two text spans is highlighted
+  await tab(p, 'extract'); await p.evaluate(() => switchStudy(state.docs[0].id)); await p.waitForTimeout(1500);
+  const phrase = await p.evaluate(async () => {
+    const pc = document.querySelector('#pdfPagesWrapper .page-container[data-p="1"]');
+    const sp = [...pc.querySelectorAll('.textLayer span')].filter(x => x.firstChild && x.firstChild.nodeType === 3 && x.textContent.trim().length > 3);
+    const k = sp.findIndex((x, i) => i + 1 < sp.length && sp[i + 1].textContent.trim().length > 3);
+    const q = sp[k].textContent.trim().split(/\s+/).pop() + ' ' + sp[k + 1].textContent.trim().split(/\s+/)[0];
+    await runPdfSearch(q);
+    await new Promise(r => setTimeout(r, 300));
+    return { q, lit: [...pc.querySelectorAll('.textLayer span')].filter(x => x.style.backgroundColor).length };
+  });
+  check('a search phrase over two text spans lights both up', phrase.lit >= 2, JSON.stringify(phrase));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+  // HiDPI: the page is drawn at the device pixel ratio and shown at its CSS size
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 2 });
+  const hp = await ctx.newPage();
+  await hp.goto(BASE + '?demo');
+  await hp.waitForFunction(() => document.querySelector('#pdfPagesWrapper canvas'), null, { timeout: 20000 }); await hp.waitForTimeout(800);
+  const c = await hp.evaluate(() => { const cv = document.querySelector('#pdfPagesWrapper canvas'); return { w: cv.width, css: parseFloat(cv.style.width) }; });
+  check('PDF pages are sharp on HiDPI screens (canvas at 2× its CSS size)', Math.abs(c.w / c.css - 2) < 0.02, JSON.stringify(c));
+  await ctx.close();
 });
 
 await group('Shared global scope: no top-level name is declared twice across the app scripts', async () => {

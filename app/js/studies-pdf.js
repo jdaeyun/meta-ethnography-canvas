@@ -978,9 +978,13 @@ async function renderPageContentNow(container, num) {
     const placeholder = container.querySelector('.page-loading-placeholder');
     if (placeholder) placeholder.remove();
 
+    // Sharp text on HiDPI screens: draw at the device pixel ratio (capped at 2 to keep memory in check), show at CSS size
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const canvas = document.createElement('canvas');
-    canvas.width = vp.width;
-    canvas.height = vp.height;
+    canvas.width = Math.floor(vp.width * dpr);
+    canvas.height = Math.floor(vp.height * dpr);
+    canvas.style.width = vp.width + 'px';
+    canvas.style.height = vp.height + 'px';
 
     const hlLayer = container.querySelector('.highlight-layer');
     container.insertBefore(canvas, hlLayer);
@@ -992,7 +996,7 @@ async function renderPageContentNow(container, num) {
     txtLayer.style.setProperty('--scale-factor', state.scale);
     container.appendChild(txtLayer);
 
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
     const textContent = await page.getTextContent();
     await pdfjsLib.renderTextLayer({
       textContentSource: textContent,
@@ -1059,12 +1063,14 @@ document.addEventListener('mouseup', (e) => {
   let lastPage = null;
   let lastRect = rects[rects.length - 1];
 
+  // Each rect belongs to the page whose box contains its centre. Found by geometry, not elementFromPoint: a selection that runs
+  // under the sticky zoom bar or outside the visible area would otherwise lose those lines (and the page range).
+  const pageBoxes = [...document.querySelectorAll('#pdfPagesWrapper .page-container')].map(pc => ({ el: pc, box: pc.getBoundingClientRect() }));
   rects.forEach(r => {
-    // Find the page container under the centre of this rect
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
-    let el = document.elementFromPoint(cx, cy);
-    while (el && !el.classList?.contains('page-container')) el = el.parentElement;
+    const hit = pageBoxes.find(p => cx >= p.box.left && cx <= p.box.right && cy >= p.box.top && cy <= p.box.bottom);
+    const el = hit ? hit.el : null;
     
     if (el) {
       const pageNum = parseInt(el.dataset.p, 10);
@@ -1413,16 +1419,25 @@ async function jumpToSearchedPage(matchIdx, queryStr) {
   if (!pageContainer.dataset.rendered) await renderPageContent(pageContainer, targetPage); // or wait for the render already running
 
   const q = (queryStr || document.getElementById('pdfSearchInput')?.value || '').normalize('NFC').trim().toLowerCase();
-  const spans = Array.from(pageContainer.querySelectorAll('.textLayer span'));
-  const hitSpan = spans.find(s => s.textContent.normalize('NFC').toLowerCase().includes(q));
-  if (hitSpan) {
-    hitSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    spans.forEach(s => {
-      if (s.textContent.normalize('NFC').toLowerCase().includes(q)) {
-        s.style.backgroundColor = 'rgba(250, 204, 21, 0.55)';
-        s.style.borderRadius = '2px';
-        setTimeout(() => { s.style.backgroundColor = ''; }, 2200);
-      }
+  // The search index joins the page's text items with spaces, so a phrase can run over several text spans (PDF.js splits
+  // lines and words into spans): match against the same joined text and light up every span the match touches.
+  const spans = Array.from(pageContainer.querySelectorAll('.textLayer span')).filter(sp => sp.firstChild && sp.firstChild.nodeType === 3);
+  const norm = t => t.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
+  const needle = norm(q).trim();
+  let joined = '';
+  const starts = spans.map(sp => { const at = joined.length; joined += norm(sp.textContent) + ' '; return at; });
+  const hits = new Set();
+  for (let at = needle ? joined.indexOf(needle) : -1; at >= 0; at = joined.indexOf(needle, at + 1)) {
+    const end = at + needle.length;
+    spans.forEach((sp, k) => { const a = starts[k], b = a + norm(sp.textContent).length; if (a < end && b > at) hits.add(sp); });
+  }
+  if (hits.size) {
+    const first = spans.find(sp => hits.has(sp));
+    first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    hits.forEach(sp => {
+      sp.style.backgroundColor = 'rgba(250, 204, 21, 0.55)';
+      sp.style.borderRadius = '2px';
+      setTimeout(() => { sp.style.backgroundColor = ''; }, 2200);
     });
   } else {
     pageContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });

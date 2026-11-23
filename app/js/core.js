@@ -672,6 +672,48 @@ function showUndoSnackbar(message) {
   });
 }
 
+// A choice between named actions (instead of confirm(), whose OK / Cancel cannot say what each does, and which a browser may
+// suppress). choices: [{ value, label, hint, tone: 'primary' | 'danger' | 'plain' }]. Resolves to the chosen value, or null when
+// cancelled (Cancel, ×, Escape). Nothing is chosen by default: Enter does not pick an option.
+let choiceDismissOpen = null;
+function askChoice({ title = 'Choose', body = '', choices = [] } = {}) {
+  const modal = document.getElementById('choiceModal');
+  if (choiceDismissOpen) choiceDismissOpen();
+  document.getElementById('choiceModalTitle').textContent = title;
+  document.getElementById('choiceModalBody').textContent = body;
+  document.getElementById('choiceModalBody').classList.toggle('hidden', !body);
+  const box = document.getElementById('choiceModalOptions');
+  box.innerHTML = '';
+  const TONE = {
+    primary: 'border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-900',
+    danger: 'border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-900',
+    plain: 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800'
+  };
+  return new Promise(resolve => {
+    const finish = v => {
+      choiceDismissOpen = null;
+      modal.classList.add('hidden'); modal.classList.remove('flex');
+      document.getElementById('choiceModalCloseBtn').onclick = document.getElementById('choiceModalCancelBtn').onclick = null;
+      resolve(v);
+    };
+    choices.forEach(c => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.value = c.value;
+      b.className = `choice-option w-full text-left rounded-lg border px-3 py-2 cursor-pointer ${TONE[c.tone] || TONE.plain}`;
+      const l = document.createElement('div'); l.className = 'text-[13px] font-bold'; l.textContent = c.label; b.appendChild(l);
+      if (c.hint) { const h = document.createElement('div'); h.className = 'text-[12px] mt-0.5 opacity-80'; h.textContent = c.hint; b.appendChild(h); }
+      b.onclick = () => finish(c.value);
+      box.appendChild(b);
+    });
+    choiceDismissOpen = () => finish(null);
+    document.getElementById('choiceModalCloseBtn').onclick = () => finish(null); // also Escape (modal handling in app.js)
+    document.getElementById('choiceModalCancelBtn').onclick = () => finish(null);
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+    setTimeout(() => document.getElementById('choiceModalCancelBtn').focus(), 20);
+  });
+}
+
 // Asks for the reason of a decision in a multi-line box (instead of prompt()). Resolves to the text ('' = no reason given),
 // or null when cancelled. cancelLabel: null means the decision is already made and cannot be cancelled: the second button
 // then records it without a reason. A text typed and then cancelled is kept as a draft for the same draftKey.

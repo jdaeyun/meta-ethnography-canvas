@@ -49,7 +49,7 @@ function mergeFillEmpty(local, incoming, skip = []) {
   Object.keys(incoming || {}).forEach(k => {
     if (skip.includes(k) || isEmptyValue(incoming[k])) return;
     if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
-    else if (JSON.stringify(local[k]) !== JSON.stringify(incoming[k])) conflicts.push(k);
+    else if (stableJson(local[k]) !== stableJson(incoming[k])) conflicts.push(k); // same content in another key order is no conflict
   });
   return { filled, conflicts };
 }
@@ -63,7 +63,8 @@ function mergeSummaryText(r) {
   let t = `Backup merged.\n\nAdded: ${r.docs} studies, ${r.annotations} constructs/quotes, ${r.clusters} 3rd Order rows, ${r.logs} audit entries.`;
   if (r.conflicts.length) {
     t += `\n\nKept YOUR version of ${r.conflicts.length} item(s) that differ in the backup (also listed in the Audit Trail):\n`
-      + r.conflicts.slice(0, 12).map(x => '• ' + x).join('\n') + (r.conflicts.length > 12 ? `\n… and ${r.conflicts.length - 12} more` : '');
+      + r.conflicts.slice(0, 12).map(x => '• ' + x).join('\n') + (r.conflicts.length > 12 ? `\n… and ${r.conflicts.length - 12} more` : '')
+      + '\n\nTo look at the backup\'s version of these items side by side and adopt parts of it, open the backup with Compare.';
   }
   return t;
 }
@@ -81,41 +82,28 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     const currentProjCode = sanitizeProjectCode(state.projectCode || '');
     const hasExistingWork = state.docs.length > 0 || state.annotations.length > 0 || state.clusters.length > 0;
 
-    if (hasExistingWork && currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode) {
-      const proceedMismatch = confirm(
-        `⚠️ PROJECT CODE MISMATCH WARNING!\n\n` +
-        `• Current Workspace Project Code: [${currentProjCode}]\n` +
-        `• Backup File Project Code: [${incomingProjCode}]\n\n` +
-        `You are attempting to load a JSON file from a DIFFERENT project [${incomingProjCode}] into [${currentProjCode}].\n` +
-        `Click [Cancel] to abort safely, or [OK] ONLY if you intend to switch to or overwrite with [${incomingProjCode}].`
-      );
-      if (!proceedMismatch) {
-        e.target.value = '';
-        return;
-      }
-    }
-
     let replaceCleanly = true;
     const mergeReport = { docs: 0, annotations: 0, clusters: 0, logs: 0, filled: 0, tidied: 0, conflicts: [] };
     const mergeDocIdMap = {}; // MERGE: backup study id -> local study id
     if (hasExistingWork) {
-      if (currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode) {
-        const confirmCleanSwitch = confirm(
-          `Because the Project Codes differ ([${currentProjCode}] vs. [${incomingProjCode}]), MERGE mode is disabled to prevent cross-project contamination.\n\n` +
-          `Click [OK] to perform a CLEAN RESTORE of project [${incomingProjCode}] (replacing current workspace data), or [Cancel] to abort.`
-        );
-        if (!confirmCleanSwitch) {
-          e.target.value = '';
-          return;
-        }
-        replaceCleanly = true;
-      } else {
-        replaceCleanly = confirm(
-          `Restore Mode Selection (Project: ${incomingProjCode || currentProjCode || 'Current'}):\n\n` +
-          '• Click [OK] for CLEAN RESTORE (Recommended): Replaces current annotations, clusters, and logs with the backup while preserving any matching PDF binaries already loaded in your browser.\n' +
-          '• Click [Cancel] for MERGE: Keeps all current data and adds what is only in the backup. Where an item exists in both with different content, your current version is kept and the item is listed afterwards.'
-        );
-      }
+      // Every button names what it does; closing the dialog (Cancel, ×, Escape) changes nothing
+      const otherProject = currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode;
+      const choice = otherProject
+        ? await askChoice({
+            title: 'This backup is from another project',
+            body: `This workspace: [${currentProjCode}]\nBackup file: [${incomingProjCode}] (${file.name})\n\nMerging is not offered across projects, so that two projects never mix.`,
+            choices: [{ value: 'clean', tone: 'danger', label: `Replace this workspace with project [${incomingProjCode}]`, hint: 'Clean restore: the studies, constructs, rows and audit trail here are replaced by the backup (make a Backup of this workspace first if you may need it). PDFs already stored for matching studies are kept.' }]
+          })
+        : await askChoice({
+            title: `Restore from ${file.name}`,
+            body: `Project: ${incomingProjCode || currentProjCode || 'this workspace'}. This workspace already has work in it.`,
+            choices: [
+              { value: 'clean', tone: 'primary', label: 'Clean restore (replace)', hint: 'Replaces the studies, constructs, rows and audit trail here with the backup. PDFs already stored for matching studies are kept.' },
+              { value: 'merge', tone: 'plain', label: 'Merge into this workspace', hint: 'Keeps everything here and adds what is only in the backup. Where an item is in both with different content, your version is kept and the item is listed afterwards (and in the Audit Trail).' }
+            ]
+          });
+      if (!choice) { e.target.value = ''; return; }
+      replaceCleanly = choice === 'clean';
     }
 
     if (replaceCleanly) {

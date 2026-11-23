@@ -209,6 +209,7 @@ async function performUndoStep() {
         if (!sec.clusterComments) sec.clusterComments = {};
         sec.clusterComments[last.clusterId] = last.prevComment;
       }
+      if (last.prevAspectUsed) sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [last.clusterId]: true };
       await dbPut('annotations', sec);
     }
     updateSidebar();

@@ -154,7 +154,10 @@ function buildFlowMapSvg(prefix) {
   const pos = {};
   const colHeights = cols.map(col => col.reduce((h, id) => h + (wrap(clusterLabel(state.clusters.find(c => c.id === id))).length * 14 + 14) + rowGap, -rowGap));
   const H = Math.max(160, Math.max(...colHeights) + padY * 2 + 20);
-  const W = padX * 2 + nCols * boxW + (nCols - 1) * colGap;
+  // Same-column relations loop out to the right of their column (see below): leave room for the loops of the last column
+  const loopReach = l => 0.75 * (22 + 10 * Math.abs((orderIdx[l.to] || 0) - (orderIdx[l.from] || 0))) + 10;
+  const lastColLoop = Math.max(0, ...links.filter(l => rank[l.from] === nCols - 1 && rank[l.to] === nCols - 1).map(loopReach));
+  const W = padX * 2 + nCols * boxW + (nCols - 1) * colGap + Math.max(0, lastColLoop - padX);
   cols.forEach((col, ci) => {
     let y = (H - colHeights[ci]) / 2;
     col.forEach(id => {

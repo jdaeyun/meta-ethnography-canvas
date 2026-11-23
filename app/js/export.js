@@ -915,6 +915,13 @@ document.getElementById('appendixModeSelect').addEventListener('change', e => {
   lsSet('me_appendix_mode', e.target.value);
   renderPublicationView();
 });
+// Spreadsheet-safe CSV cell: text starting with = + - @ (common in quotes, e.g. "- I felt...", and in the trail, e.g. "@Reviewer")
+// would otherwise be read as a formula by Excel
+function csvCell(c) {
+  let v = String(c ?? '');
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+  return `"${v.replace(/"/g, '""')}"`;
+}
 // The whole trail, oldest first, for a supplementary file (Appendix A in the paper may show only the key decisions)
 document.getElementById('fullTrailCsvBtn').addEventListener('click', async () => {
   await flushAllPendingSaves();
@@ -924,7 +931,7 @@ document.getElementById('fullTrailCsvBtn').addEventListener('click', async () =>
     rows.push([l.isoTime || new Date(l.timestamp).toISOString(), new Date(l.timestamp).toLocaleString(), l.reviewer || 'Unknown', getCategoryMeta(l.category).label,
       l.action || '', l.detail || '', l.fromVal || '', l.toVal || '', rationaleExportText(l), isKeyDecisionLog(l) ? 'yes' : 'no', (l.clusterIds || []).join(' '), l.id]);
   });
-  const csv = '\uFEFF' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const csv = '\uFEFF' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1604,12 +1611,6 @@ document.getElementById('exportCsvBtn').addEventListener('click', async () => {
     });
   });
 
-  // Spreadsheet-safe cells: text starting with = + - @ (common in quotes, e.g. "- I felt...") would otherwise be read as a formula by Excel
-  const csvCell = c => {
-    let v = String(c ?? '');
-    if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
-    return `"${v.replace(/"/g, '""')}"`;
-  };
   const csvContent = '\uFEFF' + rows.map(r => r.map(csvCell).join(',')).join('\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);

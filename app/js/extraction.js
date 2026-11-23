@@ -7,6 +7,7 @@
 // EXTRACTION SIDEBAR (With Clickable Reviewer Badge)
 // ========================================================
 function updateSidebar() {
+  flushAllPendingSaves(); // a label or note being typed is committed (saved + logged) before its box is rebuilt
   const list = document.getElementById('annotationsList');
   const prevScrollTop = list ? list.scrollTop : 0;
   list.innerHTML = '';

@@ -599,7 +599,7 @@ function renderComparisonTabContent() {
       for (const l of peerModel.links) {
         const f = byTitle(l.from), t = byTitle(l.to);
         if (!f || !t || f.id === t.id) { skipped++; continue; }
-        const dup = (state.loa.links || []).some(x => x.type === l.type && ((x.from === f.id && x.to === t.id) || (l.type !== 'leads' && x.from === t.id && x.to === f.id)));
+        const dup = (state.loa.links || []).some(x => x.type === l.type && ((x.from === f.id && x.to === t.id) || (!isDirectedLink(l.type) && x.from === t.id && x.to === f.id)));
         if (dup) continue;
         state.loa.links = [...(state.loa.links || []), { id: 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from: f.id, to: t.id, type: l.type, note: (l.note ? l.note + ' ' : '') + `[from @${cmp.peerReviewer}]` }];
         added++;
