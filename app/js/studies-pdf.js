@@ -470,13 +470,15 @@ async function layoutPdfPages(loadedPdf, isStale) {
 
 let switchStudyToken = 0;
 async function switchStudy(id) {
-  // What was typed for the study being left is saved (and logged) before the next one opens
-  await flushAllPendingSaves();
-  const doc = state.docs.find(d => d.id === id);
-  if (!doc) return;
-  // Each call gets a token; an older call that resumes after a newer one started simply stops (prevents duplicated pages on rapid clicks/zoom)
+  // Each call gets a token, taken BEFORE any wait: an older call that resumes after a newer one started simply stops
+  // (prevents duplicated pages on rapid clicks / zoom, and an earlier click winning over a later one)
   const myToken = ++switchStudyToken;
   const isStale = () => myToken !== switchStudyToken;
+  // What was typed for the study being left is saved (and logged) before the next one opens
+  await flushAllPendingSaves();
+  if (isStale()) return;
+  const doc = state.docs.find(d => d.id === id);
+  if (!doc) return;
   state.activeDocId = id;
   renderStudyList();
   updateDocHeaderUI();

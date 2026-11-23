@@ -228,6 +228,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       }
       // Another project's view settings do not carry over: open sub-tabs, a comparison in progress, hidden studies
       state.clusterActiveTabs = {};
+      state.rowToolsOpen = new Set();
       state.peerComparison = null;
       state.hiddenStudyIds = new Set();
       lsRemove('me_hidden_studies');
@@ -417,6 +418,7 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
   state.loa = { id: 'loa_main', projectCode: '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null };
   state.activeDocId = null;
   state.clusterActiveTabs = {};
+  state.rowToolsOpen = new Set();
   state.peerComparison = null;
   state.hiddenStudyIds = new Set();
   lsRemove('me_hidden_studies');

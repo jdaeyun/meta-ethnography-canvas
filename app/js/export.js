@@ -443,7 +443,7 @@ function isKeyDecisionLog(l) {
   if (isMemoLog(l)) return true;
   const a = l.action || '';
   // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
-  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false;
+  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return (l.clusterIds || []).length > 0; // undoing the deletion of a placed construct
   // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
   if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
   if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
@@ -1117,7 +1117,8 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       const cells = state.docs.map(d => {
         const docSecs = mappedSecs.filter(s => s.docId === d.id);
         if (!docSecs.length) { const info = emptyCellInfo(c, d.id); return info ? info.symbol : ' '; }
-        return contribSymbol(docSecs, c.id).replace(/ \/ /g, '/') + ' (' + cellPagesLabel(docSecs) + ')';
+        const pg = cellPagesLabel(docSecs);
+        return contribSymbol(docSecs, c.id).replace(/ \/ /g, '/') + (pg ? ' (' + pg + ')' : '');
       });
       const notes = rowStatusNotes(c, { short: true });
       md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}**${notes.length ? ' (' + cleanMd(notes.join('; ')) + ')' : ''} | ${cells.join(' | ')} | **${cleanMd(c.cerqualConfidence)}** |\n`;
@@ -1333,7 +1334,8 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
         const docSecs = mappedSecs.filter(s => s.docId === d.id);
         if (docSecs.length === 0) { const info = emptyCellInfo(c, d.id); return makeCell(info ? info.symbol : '', { isLastRow: isLast }); }
         const sym = contribSymbol(docSecs, c.id);
-        return makeCell(`${sym}\n${cellPagesLabel(docSecs)}`, { isLastRow: isLast, bold: true });
+        const pg = cellPagesLabel(docSecs);
+        return makeCell(pg ? `${sym}\n${pg}` : sym, { isLastRow: isLast, bold: true });
       });
       t2bRows.push(new TableRow({
         children: [

@@ -80,7 +80,9 @@ async function performUndoStep() {
       await dbDelete('annotations', id);
       state.annotations = state.annotations.filter(a => a.id !== id);
     }
-    await recordAuditLog({ category: 'reading_extraction', action: `Undid: ${last.label}`, detail: '' });
+    // A construct placed in rows: its undoing concerns those rows (and is a key decision, as its deletion was)
+    const rowIds = [...new Set((last.annotations || []).flatMap(a => (a.type === 'second_order' && a.clusterIds) || []))].filter(id => state.clusters.some(c => c.id === id));
+    await recordAuditLog({ category: 'reading_extraction', action: `Undid: ${last.label}`, detail: '', clusterIds: rowIds.length ? rowIds : null });
     renderHighlights();
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();

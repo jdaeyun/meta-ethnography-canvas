@@ -1777,6 +1777,20 @@ await group('Row header: title and status always shown; row tools open with ⋯'
   await p.context().close();
 });
 
+await group('Switching study quickly: the last click wins, also while a commit is pending', async () => {
+  const p = await openDemo();
+  await tab(p, 'extract'); await p.evaluate(() => switchStudy(state.docs[0].id)); await p.waitForTimeout(800);
+  await p.click('#activeDocHeader'); await p.fill('#metaContextNote', 'typed, not yet saved');
+  const r = await p.evaluate(async () => {
+    const x = state.docs[1].id, y = state.docs[2].id;
+    const a = switchStudy(x); const b = switchStudy(y);
+    await Promise.all([a, b]); await new Promise(res => setTimeout(res, 500));
+    return { active: state.activeDocId === y, saved: state.docs[0].contextNote === 'typed, not yet saved' };
+  });
+  check('the study clicked last is the one open, and the text typed before is saved', r.active && r.saved, JSON.stringify(r));
+  await p.context().close();
+});
+
 await group('Appendix A rules still match the audit entries the app writes', async () => {
   // Appendix A sorts entries by their action text (APPENDIX_EDIT_SERIES / APPENDIX_ROUTINE / APPENDIX_WRITEUP). If the wording of
   // an entry changes, its rule would stop matching without any error: every rule must match some action the app can write.
