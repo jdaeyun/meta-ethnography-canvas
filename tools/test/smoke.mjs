@@ -379,7 +379,7 @@ await group('Extracted text edits, attribution changes and late reasons leave a 
   check('the entry is tagged with its row', (ed.clusterIds || []).length > 0);
   before = await logCount(p);
   p.reasonAnswer = 'NewRev';
-  await p.locator('.cl-rev-btn').first().click(); await p.waitForTimeout(600);
+  await p.locator('.cl-tools-toggle').first().click(); await p.locator('.cl-rev-btn').first().click(); await p.waitForTimeout(600);
   p.reasonAnswer = '';
   const at = await p.evaluate(() => state.logs[0]);
   check('changing the attributed reviewer is logged', (await logCount(p)) === before + 1 && at.category === 'audit_edit' && at.toVal === '@NewRev');
@@ -461,6 +461,7 @@ await group('Each row records the study that established it (◆); #1 is not the
   check('the Refutation Map contrasts it with the row\'s base', r.holders.includes(r.d2));
   await p.waitForTimeout(500);
   await p.evaluate(cid => document.querySelector(`tr[data-cluster-id="${cid}"]`).scrollIntoView({ block: 'center' }), r.cid); await p.waitForTimeout(800); // rows are built lazily
+  await p.locator(`tr[data-cluster-id="${r.cid}"] .cl-tools-toggle`).click();
   const sel = p.locator(`tr[data-cluster-id="${r.cid}"] .cl-base-select`);
   await sel.selectOption(''); await p.waitForTimeout(500);
   const nb = await p.evaluate(cid => { const c = clusterById(cid); return { base: c.baseDocId, rels: clusterSecsIn(c).map(a => secRelation(a, cid)), log: state.logs[0] }; }, r.cid);
@@ -934,7 +935,7 @@ await group('Rows can be merged and split: judgements, texts, map relations and 
   await p.evaluate(async () => { state.loa = { ...state.loa, links: [{ id: 'lk1', from: state.clusters[1].id, to: state.clusters[2].id, type: 'leads' }, { id: 'lk2', from: state.clusters[0].id, to: state.clusters[1].id, type: 'mutual' }] }; await dbPut('meta', state.loa); });
   const before = await snap();
   // Open the dialog from the row header (UI path), then merge row 2 into row 1
-  await p.locator('.cl-rowops').first().click(); await p.waitForTimeout(200);
+  await p.locator('.cl-tools-toggle').first().click(); await p.locator('.cl-rowops').first().click(); await p.waitForTimeout(200);
   check('the merge / split dialog opens from the row header', await p.evaluate(() => !document.getElementById('rowOpsModal').classList.contains('hidden')));
   await p.click('#rowOpsCloseBtn');
   const m = await p.evaluate(async () => {
@@ -1235,7 +1236,7 @@ await group('Reasons are asked in a multi-line dialog; undoable deletions show U
   const dialogs = []; p.on('dialog', d => dialogs.push(d.type()));
   await tab(p, 'matrix'); await p.waitForTimeout(500);
   const nRows = await p.evaluate(() => state.clusters.length);
-  await p.locator('.del-cluster').first().click(); await p.waitForTimeout(500);
+  await p.locator('.cl-tools-toggle').first().click(); await p.locator('.del-cluster').first().click(); await p.waitForTimeout(500);
   check('a row is removed without a confirmation dialog', dialogs.length === 0 && (await p.evaluate(() => state.clusters.length)) === nRows - 1);
   check('the notice offers Undo', await p.isVisible('#snackbarAction') && (await p.innerText('#snackbarAction')).toLowerCase() === 'undo');
   await p.click('#snackbarAction'); await p.waitForTimeout(600);
@@ -1754,6 +1755,24 @@ await group('Review fixes 6: flow by every directed relation, row deletion leave
   });
   check('a reason being typed stays in place while the timeline would redraw', rs.same);
   check('publication years from 1940 are recognised (classic studies of the 1960s)', await p.evaluate(() => '(1967) The discovery of grounded theory'.match(YEAR_RE)[1] === '1967'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Row header: title and status always shown; row tools open with ⋯', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const r = await p.evaluate(() => {
+    const tr = document.querySelector('#matrixTable tbody tr[data-cluster-id]');
+    const vis = sel => { const el = tr.querySelector(sel); return !!el && el.offsetParent !== null; };
+    return { title: vis('.cluster-title'), pills: vis('.cl-conc-pill') && vis('.cl-cerqual-pill') && vis('.cl-base-pill'), move: vis('.move-cl-up'),
+      toolsHidden: !vis('.cl-rev-btn') && !vis('.del-cluster') && !vis('.cl-rowops') && !vis('.cl-base-select'), id: tr.dataset.clusterId };
+  });
+  check('title, team / CERQual / ◆ badges and ▲ ▼ are shown; reviewer, history, ◆ selector, merge and delete are not', r.title && r.pills && r.move && r.toolsHidden, JSON.stringify(r));
+  await p.locator(`tr[data-cluster-id="${r.id}"] .cl-tools-toggle`).click(); await p.waitForTimeout(200);
+  check('⋯ opens the row tools', await p.evaluate(id => { const tr = document.querySelector(`tr[data-cluster-id="${id}"]`); return tr.querySelector('.del-cluster').offsetParent !== null && tr.querySelector('.cl-tools-toggle').getAttribute('aria-expanded') === 'true'; }, r.id));
+  await p.evaluate(() => renderMatrixTable()); await p.waitForTimeout(400);
+  check('open row tools stay open when the matrix is drawn again', await p.evaluate(id => { const tr = document.querySelector(`tr[data-cluster-id="${id}"]`); return !!tr && tr.querySelector('.del-cluster').offsetParent !== null; }, r.id));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });

@@ -299,6 +299,7 @@ const state = {
   showContextRow: true,
   isLoaOpen: false,
   clusterActiveTabs: {}, // { [clusterId]: 'synthesis' | 'cerqual' | 'concordance' }
+  rowToolsOpen: new Set(), // rows whose ⋯ tools (reviewer, history, ◆ base, merge / split, delete) are open
   activePubTable: 'method', // 'method' | 'table1' | 'table2' | 'table2_grid' | 'table3' | 'appendix'
   peerComparison: null,
   activeCompareTab: 'divergent',
@@ -479,12 +480,6 @@ function unlinkQuote(f, secId) {
   f.parentIds = quoteParentIds(f).filter(id => id !== secId);
 }
 function clearQuoteLinks(f) { f.parentIds = []; }
-// Quotes linked to any of the given constructs, each counted once (a quote may illustrate several constructs)
-function uniqueQuotesOf(secs) {
-  const seen = new Set(), out = [];
-  secs.forEach(s => quotesOf(s.id).forEach(f => { if (!seen.has(f.id)) { seen.add(f.id); out.push(f); } }));
-  return out;
-}
 // Evidence of a 2nd order construct = primary passage + additional passages
 function secAllPassages(s) {
   return [{ text: s.text, page: s.page }, ...((s.passages || []).map(p => ({ text: p.text, page: p.page })))];

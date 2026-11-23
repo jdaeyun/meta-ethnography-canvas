@@ -936,24 +936,35 @@ function renderMatrixTable() {
     const tdMeta = document.createElement('td');
     tdMeta.innerHTML = `
       <div class="space-y-2">
-        <!-- Header Badges & Reviewer -->
-        <div class="flex items-center justify-between">
-          <div class="flex items-center flex-wrap gap-1">
-            <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">3rd Order</span>
-            <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
+        <!-- Always visible: the title, the row's status and its place in the order. Everything else about the row
+             (reviewer, history, the study that established it, merge / split, delete) opens with ⋯, so the header stays
+             light while reading and translating; nothing is hidden for good and no data changes. -->
+        <input type="text" class="cluster-title w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-indigo-600" placeholder="3rd Order Construct / Theme Name..." value="${escapeHtml(cluster.thirdOrderTitle)}">
+        <div class="flex items-center justify-between gap-1">
+          <div class="flex items-center flex-wrap gap-1 min-w-0">
             <span class="cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
-            ${(() => { const n = rowHistoryCount(cluster); return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
-            ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from the Index Paper's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
             <span class="cl-cerqual-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
+            ${(() => { const b = rowBaseDocId(cluster); const d = b && state.docs.find(x => x.id === b); return d ? `<span class="cl-base-pill text-[11px] px-1.5 py-0.2 rounded border border-slate-300 bg-white text-slate-700 truncate max-w-[10rem]" title="◆ Established by ${escapeHtml(getDisplayName(d))}: its cards in this row are what the other studies are translated into. Change it under ⋯.">◆ ${escapeHtml(getDisplayName(d))}</span>` : `<span class="cl-base-pill text-[11px] px-1.5 py-0.2 rounded border border-slate-300 bg-white text-slate-500" title="No single base: every study's cards are judged. Change it under ⋯.">◆ none</span>`; })()}
+            ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from study #1's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
           </div>
-          <div class="flex items-center space-x-1">
+          <div class="flex items-center gap-1 shrink-0">
             <button type="button" class="move-cl-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === 0 ? 'disabled' : ''} title="Move row up">▲</button>
             <button type="button" class="move-cl-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === visibleClusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
-            <button type="button" class="cl-rowops text-slate-400 hover:text-indigo-600 cursor-pointer ml-1" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i></button>
-            <button class="del-cluster text-slate-400 hover:text-rose-500 cursor-pointer ml-1" title="Delete Row"><i class="ph ph-trash"></i></button>
+            <button type="button" class="cl-tools-toggle px-1.5 py-0.2 rounded border ${state.rowToolsOpen.has(cluster.id) ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold" aria-expanded="${state.rowToolsOpen.has(cluster.id)}" title="Row tools: reviewer, history, the study that established the row (◆), merge / split, delete">⋯</button>
           </div>
         </div>
-        
+
+        <div class="cl-tools ${state.rowToolsOpen.has(cluster.id) ? '' : 'hidden'} space-y-1.5 rounded border border-slate-200 bg-slate-50 p-1.5">
+          <div class="flex items-center justify-between gap-1">
+            <div class="flex items-center flex-wrap gap-1">
+              <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
+              ${(() => { const n = rowHistoryCount(cluster); return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 History (${n})</button>` : ''; })()}
+            </div>
+            <div class="flex items-center gap-1">
+              <button type="button" class="cl-rowops text-[11px] px-1.5 py-0.2 rounded border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 cursor-pointer" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i> Merge / split</button>
+              <button class="del-cluster text-[11px] px-1.5 py-0.2 rounded border border-slate-200 bg-white text-slate-500 hover:text-rose-600 cursor-pointer" title="Delete Row"><i class="ph ph-trash"></i></button>
+            </div>
+          </div>
         ${(() => {
           // Which study's construct established this row (◆). Its own cards are not judged in this row; every other study's are.
           const rowDocIds = new Set(rowSecsIndexed(cluster.id).map(a => a.docId));
@@ -970,6 +981,7 @@ function renderMatrixTable() {
             </select>
           </div>`;
         })()}
+        </div>
 
         ${cluster.baselineChange ? (() => {
           const bc = cluster.baselineChange;
@@ -984,9 +996,6 @@ function renderMatrixTable() {
           </div>
         </div>`;
         })() : ''}
-
-        <!-- Always-visible 3rd Order Title -->
-        <input type="text" class="cluster-title w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-indigo-600" placeholder="3rd Order Construct / Theme Name..." value="${escapeHtml(cluster.thirdOrderTitle)}">
 
         <!-- 3-Mode Mini-Tab Bar to prevent vertical clutter -->
         <div class="cl-subtab-bar grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
@@ -1374,6 +1383,14 @@ function renderMatrixTable() {
       bindPendingCommit(tdMeta.querySelector(sel), saveCerqualChanges);
     });
 
+    tdMeta.querySelector('.cl-tools-toggle').onclick = () => {
+      const open = !state.rowToolsOpen.has(cluster.id);
+      if (open) state.rowToolsOpen.add(cluster.id); else state.rowToolsOpen.delete(cluster.id);
+      tdMeta.querySelector('.cl-tools').classList.toggle('hidden', !open);
+      const t = tdMeta.querySelector('.cl-tools-toggle');
+      t.setAttribute('aria-expanded', String(open));
+      t.className = `cl-tools-toggle px-1.5 py-0.2 rounded border ${open ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold`;
+    };
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
     tdMeta.querySelector('.del-cluster').onclick = async () => {
       const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
