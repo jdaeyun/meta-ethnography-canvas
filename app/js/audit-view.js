@@ -112,7 +112,10 @@ function rationaleExportText(log) {
 let auditRedrawWaiting = false;
 function renderAuditTimeline() {
   const container = document.getElementById('auditTimelineList');
-  const typing = document.activeElement && document.activeElement.classList.contains('rationale-input') && container.contains(document.activeElement);
+  // Only a box with text not yet committed holds the redraw back (focus merely resting in a box, e.g. returned there after
+  // a dialog closed, does not)
+  const ae = document.activeElement;
+  const typing = ae && ae.classList.contains('rationale-input') && container.contains(ae) && ae.value !== ae.defaultValue;
   if (typing) {
     if (!auditRedrawWaiting) {
       auditRedrawWaiting = true;
