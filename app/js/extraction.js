@@ -6,10 +6,54 @@
 // ========================================================
 // EXTRACTION SIDEBAR (With Clickable Reviewer Badge)
 // ========================================================
+// The sidebar is rebuilt after most changes: what the reviewer had open (folded sections) and where the cursor was are put back,
+// so a link or a deletion elsewhere does not close what they were reading or move them out of a box.
+// An element is identified by the chain of cards it sits in (a quote can appear under several constructs) and its position.
+function sidebarKey(el, list) {
+  const chain = [];
+  for (let n = el.parentElement; n && n !== list; n = n.parentElement) if (n.dataset && n.dataset.sidebarAnno) chain.unshift(n.dataset.sidebarAnno);
+  let scope = el.parentElement;
+  while (scope && scope !== list && !(scope.dataset && scope.dataset.sidebarAnno)) scope = scope.parentElement;
+  const sel = el.tagName === 'DETAILS' ? 'details' : (el.tagName.toLowerCase() + (el.classList[0] ? '.' + CSS.escape(el.classList[0]) : ''));
+  const same = [...(scope || list).querySelectorAll(sel)].filter(x => {
+    // only those whose nearest card is the same scope (not those of a nested card)
+    let s2 = x.parentElement; while (s2 && s2 !== list && !(s2.dataset && s2.dataset.sidebarAnno)) s2 = s2.parentElement;
+    return (s2 || list) === (scope || list);
+  });
+  return `${chain.join('>') || 'root'}|${sel}|${same.indexOf(el)}`;
+}
+let sidebarStateDocId = null;
+function snapshotSidebarState(list) {
+  const open = new Set(), closed = new Set();
+  list.querySelectorAll('details').forEach(d => (d.open ? open : closed).add(sidebarKey(d, list)));
+  const a = document.activeElement;
+  const focus = a && list.contains(a) && a !== list ? { key: sidebarKey(a, list), start: a.selectionStart, end: a.selectionEnd, top: a.scrollTop } : null;
+  return { docId: sidebarStateDocId, open, closed, focus };
+}
+function restoreSidebarState(list, snap) {
+  if (!snap) return;
+  const sameDoc = snap.docId === state.activeDocId;
+  list.querySelectorAll('details').forEach(d => {
+    const k = sidebarKey(d, list);
+    if (!sameDoc && !k.startsWith('root|')) return; // another study: only the study-wide boxes keep their state
+    if (snap.open.has(k)) d.open = true; else if (snap.closed.has(k)) d.open = false;
+  });
+  if (sameDoc && snap.focus) {
+    const el = [...list.querySelectorAll('input, textarea, select, button, summary, [tabindex]')].find(x => sidebarKey(x, list) === snap.focus.key);
+    if (el && el.offsetParent !== null) {
+      el.focus({ preventScroll: true });
+      try { if (typeof snap.focus.start === 'number' && el.setSelectionRange) el.setSelectionRange(snap.focus.start, snap.focus.end); } catch (e) { /* not a text box */ }
+      if (snap.focus.top) el.scrollTop = snap.focus.top;
+    }
+  }
+}
+
 function updateSidebar() {
   flushAllPendingSaves(); // a label or note being typed is committed (saved + logged) before its box is rebuilt
   const list = document.getElementById('annotationsList');
   const prevScrollTop = list ? list.scrollTop : 0;
+  const sidebarSnap = list ? snapshotSidebarState(list) : null;
+  sidebarStateDocId = state.activeDocId;
   list.innerHTML = '';
   const annos = state.annotations.filter(a => a.docId === state.activeDocId).map(normalizeAnnotation);
   const firsts = annos.filter(a => a.type === 'first_order');
@@ -25,6 +69,7 @@ function updateSidebar() {
       </div>
     `;
     prependStudyOverviewNudge(list, activeDoc);
+    restoreSidebarState(list, sidebarSnap);
     return;
   }
 
@@ -300,6 +345,7 @@ function updateSidebar() {
   const overviewBox = prependStudyOverviewNudge(list, activeDoc);
   const linksBox = buildStudyConceptLinksBox(activeDoc, seconds);
   if (linksBox && overviewBox) overviewBox.after(linksBox);
+  restoreSidebarState(list, sidebarSnap);
   if (list) list.scrollTop = prevScrollTop;
 }
 

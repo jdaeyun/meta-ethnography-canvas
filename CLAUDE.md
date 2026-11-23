@@ -108,6 +108,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   mark and the peer row's title, so a row of that title made here later takes it in): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.
   `loa.peerSetAside` (optional, same kind) remembers the peer constructs set aside in Compare (peer id, reviewer, text key), so the next
   file from that reviewer does not show them as new.
+  `loa.mapPositions` (optional, same kind) holds the places the reviewer dragged the line-of-argument map's boxes to, per layout
+  (`{ circle: { rowId: {x, y} }, flow: {...} }`, map units); a box without one keeps its computed place. Layout only: undoable, not logged.
   Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
   was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
 - Operations that change several records at once (merge / split / delete a row, delete a study, the order of studies or rows)

@@ -305,6 +305,12 @@ async function performUndoStep() {
     }
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
+  } else if (last.type === 'map_layout') {
+    // Places of the boxes in the line-of-argument map (layout only: no audit entry, as for the move itself)
+    state.loa.mapPositions = { ...(state.loa.mapPositions || {}) };
+    if (last.before) state.loa.mapPositions[last.layout] = last.before; else delete state.loa.mapPositions[last.layout];
+    await dbPut('meta', state.loa);
+    renderLoaMap();
   } else if (last.type === 'toggle_order_type') {
     const idx = state.annotations.findIndex(a => a.id === last.snapshot.id);
     if (idx >= 0) {

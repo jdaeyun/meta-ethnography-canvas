@@ -544,9 +544,13 @@
                     <button type="button" data-layout="circle" class="loa-layout-btn px-2 py-0.5 cursor-pointer">◯ Circular</button>
                     <button type="button" data-layout="flow" class="loa-layout-btn px-2 py-0.5 cursor-pointer border-l border-purple-200">➔ Left → right flow</button>
                   </div>
-                  <button type="button" id="loaMapSvgBtn" class="px-2 py-0.5 bg-white hover:bg-purple-50 border border-purple-300 text-purple-800 font-semibold rounded cursor-pointer disabled:opacity-40" title="Download the map as an SVG (editable in PowerPoint, Illustrator, Inkscape…)"><i class="ph ph-download-simple"></i> Download .svg</button>
+                  <div class="flex items-center gap-1">
+                    <button type="button" id="loaMapResetBtn" class="px-2 py-0.5 bg-white hover:bg-purple-50 border border-purple-300 text-purple-800 font-semibold rounded cursor-pointer disabled:opacity-40" title="Put the boxes you moved back where the layout places them (Ctrl+Z undoes it)" disabled><i class="ph ph-arrow-counter-clockwise"></i> Reset layout</button>
+                    <button type="button" id="loaMapSvgBtn" class="px-2 py-0.5 bg-white hover:bg-purple-50 border border-purple-300 text-purple-800 font-semibold rounded cursor-pointer disabled:opacity-40" title="Download the map as an SVG (editable in PowerPoint, Illustrator, Inkscape…)"><i class="ph ph-download-simple"></i> Download .svg</button>
+                  </div>
                 </div>
                 <div id="loaMapBox" class="bg-white border border-purple-100 rounded overflow-auto"></div>
+                <div class="text-[10px] text-purple-500">Drag a box to move it (or Tab to it and use the arrow keys). Each layout keeps its own places, and the .svg uses them.</div>
               </div>
             </div>
           </div>

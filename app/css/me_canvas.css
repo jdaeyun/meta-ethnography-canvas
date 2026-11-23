@@ -74,3 +74,8 @@ textarea.auto-grow { max-height: 60vh; overflow-y: auto; }
 #pubPreviewContainer.gaps-quiet .mec-gap { color: #94a3b8 !important; font-weight: 400 !important; }
 #pubPreviewContainer .mec-gap[data-field] { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
 #pubPreviewContainer .mec-gap[data-field]:hover { background: #eff6ff; }
+
+/* Line-of-argument map: movable boxes (drag, or Tab + arrow keys) */
+.loa-map-node:focus { outline: none; }
+.loa-map-node:focus-visible rect { stroke: #7c3aed; stroke-width: 2.5; }
+.loa-map-node:hover rect { stroke: #7c3aed; }

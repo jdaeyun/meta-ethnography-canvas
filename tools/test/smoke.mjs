@@ -1931,6 +1931,90 @@ await group('Review fixes 8: merge of nested appraisal answers, deletions take t
   await p.context().close();
 });
 
+await group('Sidebar redraw keeps open sections, focus and caret', async () => {
+  const p = await openDemo();
+  await tab(p, 'extract'); await p.evaluate(() => switchStudy(state.docs[0].id)); await p.waitForTimeout(900);
+  const r = await p.evaluate(async () => {
+    const list = document.getElementById('annotationsList');
+    const card = [...list.querySelectorAll('[data-sidebar-anno]')].find(c => c.querySelector('.sec-note-input') && [...c.querySelectorAll('details')].some(d => !d.open));
+    const det = card && [...card.querySelectorAll('details')].find(d => !d.open);
+    if (!det) return { setup: false };
+    det.open = true;
+    const idx = [...card.querySelectorAll('details')].indexOf(det);
+    const ta = card.querySelector('.sec-note-input');
+    let caret = null;
+    if (ta) { ta.focus(); caret = Math.min(3, ta.value.length); ta.setSelectionRange(caret, caret); }
+    const id = card.dataset.sidebarAnno;
+    updateSidebar();
+    await new Promise(res => setTimeout(res, 200));
+    const card2 = list.querySelector(`[data-sidebar-anno="${id}"]`);
+    const det2 = card2 && card2.querySelectorAll('details')[idx];
+    const ae = document.activeElement;
+    return { setup: !!ta, open: !!det2 && det2.open, focus: (ae && ae.classList.contains('sec-note-input') && card2.contains(ae) && ae.selectionStart === caret) };
+  });
+  check('a section opened in a card stays open after the sidebar is drawn again', r.setup && r.open, JSON.stringify(r));
+  check('the text box being edited keeps focus and caret', r.setup && r.focus, JSON.stringify(r));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Line-of-argument map: boxes can be moved, keep their place per layout and in the .svg; Reset layout and Ctrl+Z', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  await p.evaluate(async () => {
+    const ids = state.clusters.map(c => c.id);
+    state.loa.links = [{ id: 'm1', from: ids[0], to: ids[1], type: 'leads', note: '' }, { id: 'm2', from: ids[1], to: ids[2], type: 'tension', note: '' }];
+    state.loa.mapLayout = 'circle'; delete state.loa.mapPositions;
+    await dbPut('meta', state.loa);
+  });
+  await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(500);
+  await p.evaluate(() => document.getElementById('loaMapBox').scrollIntoView());
+  const node = p.locator('#loaMapBox .loa-map-node').first();
+  const id = await node.getAttribute('data-node');
+  const before = await p.evaluate(i => mapNodeCenter(document.querySelector(`#loaMapBox .loa-map-node[data-node="${CSS.escape(i)}"]`)), id);
+  check('Reset layout is off while nothing was moved', await p.isDisabled('#loaMapResetBtn'));
+  const b = await node.boundingBox();
+  await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2); await p.mouse.down();
+  await p.mouse.move(b.x + b.width / 2 + 60, b.y + b.height / 2 + 40, { steps: 6 }); await p.mouse.up();
+  await p.waitForTimeout(300);
+  const r = await p.evaluate(async ({ i, before }) => {
+    const g = document.querySelector(`#loaMapBox .loa-map-node[data-node="${CSS.escape(i)}"]`);
+    const now = mapNodeCenter(g);
+    const stored = (await dbGetAll('meta')).find(m => m.id === 'loa_main');
+    const svgDl = buildConceptMapSvg('dl', 640, 360);
+    return { moved: now.x - before.x > 20 && now.y - before.y > 10, saved: !!(stored.mapPositions && stored.mapPositions.circle && stored.mapPositions.circle[i]),
+      inExport: svgDl.includes(`x="${(now.x - +g.querySelector('rect').getAttribute('width') / 2).toFixed(1)}"`), exportPlain: !svgDl.includes('loa-map-node') && !svgDl.includes('data-node'),
+      flowUntouched: !savedMapPos('flow', i), reset: !document.getElementById('loaMapResetBtn').disabled, now };
+  }, { i: id, before });
+  check('dragging a box moves it and saves its place', r.moved && r.saved, JSON.stringify(r));
+  check('the downloaded .svg draws it there, without the editing attributes', r.inExport && r.exportPlain, JSON.stringify(r));
+  check('the other layout keeps its own places; Reset layout is on', r.flowUntouched && r.reset);
+  // Keyboard
+  await p.locator(`#loaMapBox .loa-map-node[data-node="${id}"]`).focus();
+  await p.keyboard.press('ArrowRight'); await p.keyboard.press('ArrowRight');
+  await p.waitForTimeout(800);
+  const k = await p.evaluate(i => ({ x: savedMapPos('circle', i).x, focused: document.activeElement && document.activeElement.dataset.node === i }), id);
+  check('arrow keys move the focused box (and it keeps focus)', Math.abs(k.x - (Math.round(r.now.x) + 20)) <= 1 && k.focused, JSON.stringify(k));
+  // Ctrl+Z undoes the key series in one step, Reset puts everything back, and Ctrl+Z undoes the reset
+  await p.evaluate(() => performUndo()); await p.waitForTimeout(300);
+  const u = await p.evaluate(i => savedMapPos('circle', i).x, id);
+  check('Ctrl+Z undoes the arrow-key move as one step', Math.abs(u - Math.round(r.now.x)) <= 1, String(u));
+  await p.click('#loaMapResetBtn'); await p.waitForTimeout(300);
+  const z = await p.evaluate(i => ({ gone: !savedMapPos('circle', i), c: mapNodeCenter(document.querySelector(`#loaMapBox .loa-map-node[data-node="${CSS.escape(i)}"]`)) }), id);
+  check('Reset layout puts the box back in its computed place', z.gone && Math.abs(z.c.x - before.x) < 1 && Math.abs(z.c.y - before.y) < 1, JSON.stringify(z));
+  await p.evaluate(() => performUndo()); await p.waitForTimeout(300);
+  check('Ctrl+Z brings the moved places back', await p.evaluate(i => !!savedMapPos('circle', i), id));
+  // Flow layout: a moved box stays where it was put and the map grows to hold it
+  const f = await p.evaluate(i => {
+    state.loa.mapLayout = 'flow'; setMapPos('flow', i, 900, 400);
+    const svg = buildConceptMapSvg('t', 640, 360); const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+    return { w: +vb[1], h: +vb[2], drawn: svg.includes('x="821.0"') };
+  }, id);
+  check('flow layout: the moved box is drawn there and the map grows', f.w >= 900 + 79 && f.h >= 400 && f.drawn, JSON.stringify(f));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Appendix A rules still match the audit entries the app writes', async () => {
   // Appendix A sorts entries by their action text (APPENDIX_EDIT_SERIES / APPENDIX_ROUTINE / APPENDIX_WRITEUP). If the wording of
   // an entry changes, its rule would stop matching without any error: every rule must match some action the app can write.
