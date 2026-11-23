@@ -27,6 +27,29 @@ function upgradeProjectData(data) {
     throw new Error(`This file was saved by a newer version of Meta-Ethnography Canvas (${(data && data.appVersion) || 'unknown version'}, data format ${f}; this app reads format ${PROJECT_FORMAT}). Update the app, or download the latest offline edition, to open it. Nothing was changed.`);
   }
   // Format 1 is the current one: nothing to upgrade yet. Later formats add their steps here, oldest first.
+  return sanitizeProjectData(data);
+}
+// A project file can come from someone else (Compare) or be edited by hand: keys that would change an object's prototype
+// are removed at every depth, and records that are not objects with an id are left out (counted in data._droppedRecords).
+function sanitizeProjectData(data) {
+  if (!data || typeof data !== 'object') return data;
+  const strip = v => {
+    if (Array.isArray(v)) { v.forEach(strip); return v; }
+    if (v && typeof v === 'object' && !(v instanceof ArrayBuffer)) {
+      ['__proto__', 'constructor', 'prototype'].forEach(k => { if (Object.prototype.hasOwnProperty.call(v, k)) delete v[k]; });
+      Object.keys(v).forEach(k => strip(v[k]));
+    }
+    return v;
+  };
+  strip(data);
+  let dropped = 0;
+  ['docs', 'annotations', 'clusters', 'logs'].forEach(k => {
+    if (!Array.isArray(data[k])) return;
+    const ok = data[k].filter(r => r && typeof r === 'object' && !Array.isArray(r) && (typeof r.id === 'string' || typeof r.id === 'number'));
+    dropped += data[k].length - ok.length;
+    data[k] = ok;
+  });
+  if (dropped) data._droppedRecords = dropped;
   return data;
 }
 let dbInstancePromise = null;
@@ -139,8 +162,11 @@ function bindPendingCommit(el, commitFn) {
   };
   run.isCommit = true;
   el.addEventListener('input', () => { dirty = true; pendingSaveCleanups.add(run); });
-  el.addEventListener('change', run);
-  el.addEventListener('blur', run);
+  // Leaving the box commits; the window losing focus (a look at the PDF in another window, another app) does not, so a text
+  // being written is not logged in pieces. It is still committed on the next real leave, a tab switch or the page closing.
+  const onLeave = () => { if (document.hasFocus()) run(); };
+  el.addEventListener('change', onLeave);
+  el.addEventListener('blur', onLeave);
   return run;
 }
 

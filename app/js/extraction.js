@@ -76,7 +76,7 @@ function updateSidebar() {
           <span>🟩 2nd Order</span>
           ${sec.passages.length ? `<span class="text-[10.5px] px-1.5 py-0.2 rounded border border-violet-300 bg-violet-50 text-violet-800 font-semibold" title="Stated in ${sec.passages.length + 1} places in the paper">📑 ${sec.passages.length + 1} passages</span>` : ''}
           ${sec.origin === 'wrapped_first_order' ? `<span class="text-[10.5px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold" title="No author-stated interpretation was captured. The reviewer wrapped a 1st order quote (participant data) in a 2nd order construct and wrote the label themselves (@${escapeHtml(sec.by || '')}).">🏷 Reviewer-wrapped from 1st-order quote</span>` : ''}
-          <button type="button" class="jump-pdf-btn text-xs bg-emerald-200/80 hover:bg-emerald-300 text-emerald-950 px-1.5 py-0.2 rounded-full font-bold cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${sec.page}"><i class="ph ph-crosshair"></i><span>p.${sec.page}</span></button>
+          <button type="button" class="jump-pdf-btn text-xs bg-emerald-200/80 hover:bg-emerald-300 text-emerald-950 px-1.5 py-0.2 rounded-full font-bold cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(sec.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(sec.page)}</span></button>
           <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1.5 py-0.2 rounded font-mono cursor-pointer transition" title="Click to change reviewer for this construct">@${escapeHtml(sec.by || 'Unknown')}</button>
           <span class="text-xs bg-white border border-emerald-200 px-1.5 rounded-full">${linked.length} quotes</span>
           <span class="concordance-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
@@ -606,7 +606,7 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
     <div class="flex justify-between items-center text-blue-800 font-bold text-[13px]">
       <span class="flex items-center space-x-1">
         <span>🟦 1st Order</span>
-        <button type="button" class="jump-pdf-btn font-bold text-xs bg-blue-100 hover:bg-blue-200 text-blue-900 px-1.5 py-0.2 rounded-full cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${f.page}"><i class="ph ph-crosshair"></i><span>p.${f.page}</span></button>
+        <button type="button" class="jump-pdf-btn font-bold text-xs bg-blue-100 hover:bg-blue-200 text-blue-900 px-1.5 py-0.2 rounded-full cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(f.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(f.page)}</span></button>
         <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1 py-0.2 rounded font-mono cursor-pointer transition" title="Click to change reviewer">@${escapeHtml(f.by || 'Unknown')}</button>
       </span>
       <div class="flex items-center space-x-1">
@@ -828,9 +828,19 @@ async function submitManualAddForm() {
     clusterComments: {},
     clusterRelations: {}
   });
-  // Clear the form before the (async) save, so typing the next entry right away is never wiped
+  // Clear the form before the (async) save, so typing the next entry right away is never wiped; if the save fails (e.g. the
+  // browser's storage is full), what was typed is put back into the form, so nothing typed by hand is lost
+  const typed = { text: textInput.value, note: document.getElementById('manualAddNoteInput').value, type: activeManualAddType };
   closeManualAddDrawer();
-  await dbPut('annotations', a);
+  try {
+    await dbPut('annotations', a);
+  } catch (err) {
+    openManualAddDrawer(typed.type);
+    textInput.value = typed.text;
+    document.getElementById('manualAddNoteInput').value = typed.note;
+    showNotice('The entry was not saved', `${err && err.message ? err.message : err}\n\nWhat you typed is back in the form. Free some space (e.g. make a Backup and remove PDFs you no longer need), then add it again.`);
+    return;
+  }
   state.annotations.push(a);
   updateSidebar();
   showSnackbar(`Added manual ${activeManualAddType === 'second_order' ? '2nd Order Construct' : '1st Order Quote'} (p.${cleanPage})`);

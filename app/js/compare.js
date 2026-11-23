@@ -514,7 +514,7 @@ function renderComparisonTabContent() {
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-2 text-xs">
             ${differs ? '<span class="bg-amber-500 text-white font-bold px-2 py-0.5 rounded">◇ Read differently</span>' : '<span class="text-slate-400 px-1">✓ Matched</span>'}
-            <span class="font-bold text-slate-800">${escapeHtml(dName)} (p.${l.page})</span>
+            <span class="font-bold text-slate-800">${escapeHtml(dName)} (p.${escapeHtml(l.page)})</span>
             <span class="text-xs text-slate-500">${l.type === 'second_order' ? '🟩 2nd Order' : '🟦 1st Order'}</span>
           </div>
           <div class="flex items-center space-x-2">
@@ -570,7 +570,7 @@ function renderComparisonTabContent() {
       card.className = 'bg-white p-3.5 rounded-xl border border-slate-200 flex items-center justify-between gap-4 text-xs';
       card.innerHTML = `
         <div>
-          <div class="font-bold text-slate-800">${escapeHtml(getDisplayName(doc))} (p.${l.page}) — <span class="text-indigo-700">${l.type === 'second_order' ? '🟩 2nd Order' : '🟦 1st Order'}</span></div>
+          <div class="font-bold text-slate-800">${escapeHtml(getDisplayName(doc))} (p.${escapeHtml(l.page)}) — <span class="text-indigo-700">${l.type === 'second_order' ? '🟩 2nd Order' : '🟦 1st Order'}</span></div>
           ${l.note ? `<div class="font-semibold text-slate-700 mt-0.5">${escapeHtml(l.note)}</div>` : ''}
           <div class="italic text-slate-500 mt-0.5">"${escapeHtml(l.text)}"</div>
         </div>
@@ -754,13 +754,19 @@ async function mergePeerAuditLogs() {
   const cmp = state.peerComparison;
   if (!cmp || !cmp.peerData) return 0;
   let added = 0;
+  // Once merged, a comparison does not merge again (bulk import calls this per construct); ids looked up in a Set
+  if (cmp.logsMerged) return 0;
+  const have = new Set(state.logs.map(l => l.id));
+  const entries = [];
   for (const pl of (cmp.peerData.logs || [])) {
-    if (state.logs.find(x => x.id === pl.id)) continue;
-    const entry = { ...pl, reviewer: pl.reviewer || cmp.peerReviewer };
-    await dbPut('logs', entry);
-    state.logs.push(entry);
-    added++;
+    if (!pl || !pl.id || have.has(pl.id)) continue;
+    have.add(pl.id);
+    entries.push({ ...pl, reviewer: pl.reviewer || cmp.peerReviewer });
   }
+  await dbBatch(entries.map(e => ({ store: 'logs', put: e }))); // all of them in one transaction
+  entries.forEach(e => state.logs.push(e));
+  added = entries.length;
+  cmp.logsMerged = true;
   if (added) {
     state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     await recordAuditLog({ category: 'concordance', action: `Merged ${added} audit trail entries from @${cmp.peerReviewer}`, detail: 'Both reviewers\' decisions now appear in one trail.', isMinorOp: false });

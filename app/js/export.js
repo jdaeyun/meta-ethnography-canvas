@@ -177,7 +177,7 @@ function buildTable2Html() {
       const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
       firsts.forEach(f => {
         const attrTag = f.note ? ` <b>[${escapeHtml(f.note)}]</b>` : '';
-        linkedQuotesList.push(`<div style="margin-bottom:5px;">• <i>"${escapeHtml(f.text)}"</i>${attrTag} (${escapeHtml(dName)}, p.${f.page})</div>`);
+        linkedQuotesList.push(`<div style="margin-bottom:5px;">• <i>"${escapeHtml(f.text)}"</i>${attrTag} (${escapeHtml(dName)}, p.${escapeHtml(f.page)})</div>`);
       });
     });
 
@@ -430,7 +430,7 @@ const APPENDIX_ROUTINE = [
   /^Linked 1st Order Quote/, /^Unlinked 1st Order Quote/, /^Switched (1st|2nd) Order/, /^\[Reviewer-wrapped\]/, /^Set 2nd Order label source/,
   /^Updated 2nd Order Summary Label/, /^Placed 2nd Order Construct/, /^Removed 2nd Order Construct from/,
   /^Added a further passage/, /^Recorded p\..* as a further passage/, /^Split p\..* off/, /^Recorded how two concepts relate within/, /^Removed a relationship between concepts within/,
-  /^Edited the extracted text of/, /^Wrote Study Overview/, /^Revised Study Overview/, /^Deleted a 1st Order quote/,
+  /^Edited the extracted text of/, /^Wrote Study Overview/, /^Revised Study Overview/, /^Deleted a 1st Order quote/, /^Restored a deleted 1st Order quote/,
   /^Imported Peer Construct from/, /^Merged \d+ audit trail entries from/, /^Recorded provisional agreement/, /^2nd Order Team Perspective Updated/,
   /^Reordered 3rd Order Theme Row/, /^Updated note on how a concept fits/, /^Noted why a 2nd Order construct was not translated/,
   /^Set subgroup for/, /^Appraisal \(/, /^Updated Critical Appraisal/, /^(Linked|Unlinked) .* companion paper/,
@@ -443,7 +443,9 @@ function isKeyDecisionLog(l) {
   if (isMemoLog(l)) return true;
   const a = l.action || '';
   // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
-  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return (l.clusterIds || []).length > 0; // undoing the deletion of a placed construct
+  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false; // undoing a passage step is routine like the step
+  // Restoring a deleted construct is a key decision when the construct is placed in rows (as its deletion is)
+  if (/^Restored a deleted 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
   // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
   if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
   if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;

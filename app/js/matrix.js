@@ -81,6 +81,8 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
     createdAt: Date.now(),
     baseDocId: opts.baseDocId || '' // '' = the study of the first construct placed establishes the row
   });
+  // deferWrite: the caller writes the row in its own transaction (dbBatch) together with what else it changes
+  if (opts.deferWrite) return cluster;
   await dbPut('clusters', cluster);
   state.clusters.push(cluster);
   if (!opts.silent) {
@@ -530,7 +532,7 @@ function renderSecondOrderPool() {
       <details class="mt-1.5 bg-blue-50/50 rounded border border-blue-100 p-1.5">
         <summary class="text-xs font-semibold text-blue-700 cursor-pointer select-none">🟦 Preview ${linkedQuotes.length} 1st Order Quote(s)</summary>
         <ul class="pl-3 mt-1 list-disc text-xs text-slate-600 space-y-1">
-          ${linkedQuotes.map(q => `<li>"${escapeHtml(q.text)}" <span class="text-slate-400">(p.${q.page})</span></li>`).join('')}
+          ${linkedQuotes.map(q => `<li>"${escapeHtml(q.text)}" <span class="text-slate-400">(p.${escapeHtml(q.page)})</span></li>`).join('')}
         </ul>
       </details>
     ` : '';
@@ -541,7 +543,7 @@ function renderSecondOrderPool() {
         <div class="flex items-center space-x-1 shrink-0">
           <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
           <span class="text-[11px] px-1 py-0.2 rounded border ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
-          <button type="button" class="jump-pdf-btn text-xs bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-700 px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition transform hover:-translate-y-0.5" title="Open study & jump to PDF page ${sec.page}"><i class="ph ph-file-pdf"></i><span>PDF p.${sec.page}</span><i class="ph ph-arrow-square-out"></i></button>
+          <button type="button" class="jump-pdf-btn text-xs bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-700 px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition transform hover:-translate-y-0.5" title="Open study & jump to PDF page ${escapeHtml(sec.page)}"><i class="ph ph-file-pdf"></i><span>PDF p.${escapeHtml(sec.page)}</span><i class="ph ph-arrow-square-out"></i></button>
         </div>
       </div>
       ${sec.origin === 'wrapped_first_order' ? `<div class="text-[10px] font-semibold text-amber-800 mb-0.5">🏷 Reviewer-wrapped (1st-order quote)</div>` : ''}
@@ -644,7 +646,7 @@ function renderSecondOrderPool() {
 
       fCard.innerHTML = `
         <div class="flex items-center justify-between text-xs font-bold text-blue-800">
-          <button type="button" class="jump-pdf-btn truncate bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition" title="Jump to PDF page ${f.page}"><i class="ph ph-file-pdf"></i><span class="truncate">${escapeHtml(docName)} (p.${f.page})</span><i class="ph ph-arrow-square-out"></i></button>
+          <button type="button" class="jump-pdf-btn truncate bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition" title="Jump to PDF page ${escapeHtml(f.page)}"><i class="ph ph-file-pdf"></i><span class="truncate">${escapeHtml(docName)} (p.${escapeHtml(f.page)})</span><i class="ph ph-arrow-square-out"></i></button>
           <button type="button" class="wrap-btn px-1.5 py-0.2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold cursor-pointer" title="Wrap into a 2nd Order Construct">+ Convert to 2nd Order</button>
         </div>
         ${f.note ? `<div class="text-xs font-semibold text-slate-700">${escapeHtml(f.note)}</div>` : ''}
@@ -1472,7 +1474,7 @@ function renderMatrixTable() {
               <details class="matrix-card-detail mt-1.5 bg-white rounded border border-blue-100 p-1.5">
                 <summary class="text-xs font-semibold text-blue-700 cursor-pointer">🟦 ${firsts.length} Linked 1st Order Quote(s)</summary>
                 <ul class="pl-3 mt-1 list-disc text-xs text-slate-600 space-y-1">
-                  ${firsts.map(f => `<li>"${escapeHtml(f.text)}" ${f.note ? `<span class="font-semibold text-blue-800 not-italic">[${escapeHtml(f.note)}]</span> ` : ''}<span class="text-slate-400">(p.${f.page})</span>${f.nuanceNote ? `<div class="text-[11px] text-sky-700 not-italic">🌐 ${escapeHtml(f.nuanceNote)}</div>` : ''}</li>`).join('')}
+                  ${firsts.map(f => `<li>"${escapeHtml(f.text)}" ${f.note ? `<span class="font-semibold text-blue-800 not-italic">[${escapeHtml(f.note)}]</span> ` : ''}<span class="text-slate-400">(p.${escapeHtml(f.page)})</span>${f.nuanceNote ? `<div class="text-[11px] text-sky-700 not-italic">🌐 ${escapeHtml(f.nuanceNote)}</div>` : ''}</li>`).join('')}
                 </ul>
               </details>
             `;
@@ -1493,7 +1495,7 @@ function renderMatrixTable() {
                   : `<select class="rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${relMeta.badgeCls}" title="How this study's construct relates to the row: not yet judged, Reciprocal (translates into it), Refutational (contrasts with it) or Different aspect (speaks to another aspect of the topic, for the line of argument)">
                   ${CELL_RELATIONS.map(r => `<option value="${r}" ${r === cellRelation ? 'selected' : ''}>${escapeHtml(getCellRelationMeta(r).label)}</option>`).join('')}
                 </select>`}
-                <button type="button" class="jump-pdf-btn text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 px-2.5 py-0.5 rounded-md shadow-sm cursor-pointer transition flex items-center space-x-1 transform hover:-translate-y-0.5" title="Open PDF & jump to page ${sec.page} in ${escapeHtml(getDisplayName(doc))}"><i class="ph ph-file-pdf"></i><span>PDF p.${sec.page}</span><i class="ph ph-arrow-square-out"></i></button>
+                <button type="button" class="jump-pdf-btn text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 px-2.5 py-0.5 rounded-md shadow-sm cursor-pointer transition flex items-center space-x-1 transform hover:-translate-y-0.5" title="Open PDF & jump to page ${escapeHtml(sec.page)} in ${escapeHtml(getDisplayName(doc))}"><i class="ph ph-file-pdf"></i><span>PDF p.${escapeHtml(sec.page)}</span><i class="ph ph-arrow-square-out"></i></button>
                 <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
                 <span class="text-[11px] px-1 py-0.2 rounded border ${secBadge.cls} ${showConcUI ? '' : 'hidden'}">${secBadge.label}</span>
                 ${firsts.length > 0 ? `<span class="text-[11px] bg-blue-50 text-blue-700 border border-blue-200 px-1 py-0.2 rounded font-semibold" title="${firsts.length} linked 1st Order Quote(s)">🟦 ${firsts.length}</span>` : ''}
@@ -2066,7 +2068,7 @@ async function mergeRows(src, tgt, why) {
 async function splitRow(src, secIds, title, why) {
   const srcTitle = clusterLabel(src);
   const secs = rowSecs(src).filter(s => secIds.includes(s.id));
-  const nw = await createNewClusterRow(title, { silent: true });
+  const nw = await createNewClusterRow(title, { silent: true, deferWrite: true });
   const ids = [src.id, nw.id];
   const beforeAnns = secs.map(a => annRowState(a, ids));
   const srcBase = rowBaseDocId(src);
@@ -2087,12 +2089,13 @@ async function splitRow(src, secIds, title, why) {
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
     ops.push({ store: 'annotations', put: s });
   }
-  ops.push({ store: 'clusters', put: nw });
-  // The new row sits right below the one it was split from
-  state.clusters = state.clusters.filter(c => c.id !== nw.id);
-  state.clusters.splice(state.clusters.findIndex(c => c.id === src.id) + 1, 0, nw);
+  // The new row sits right below the one it was split from; the new row, the moved cards and the order of every row are
+  // one transaction, and the rows in memory change only once it is stored
+  const order = state.clusters.filter(c => c.id !== nw.id);
+  order.splice(order.findIndex(c => c.id === src.id) + 1, 0, nw);
+  order.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
   await dbBatch(ops);
-  await persistClusterOrder();
+  state.clusters = order;
   pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${srcTitle.slice(0, 24)}"`, srcId: src.id, newId: nw.id,
     before: { anns: beforeAnns }, after: { anns: secs.map(a => annRowState(a, ids)) } });
   await recordAuditLog({

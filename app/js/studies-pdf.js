@@ -913,7 +913,7 @@ commitMeta.isCommit = true;
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('input', () => { metaDirty = true; pendingSaveCleanups.add(commitMeta); });
-    el.addEventListener('change', commitMeta);
+    el.addEventListener('change', () => { if (document.hasFocus()) commitMeta(); }); // not when only the window lost focus
   });
 
 document.querySelectorAll('.meta-drop-target').forEach(input => {
@@ -1011,8 +1011,13 @@ function renderPageContent(container, num) {
 }
 async function renderPageContentNow(container, num) {
   container.dataset.rendering = 'true';
+  // Bound to the PDF it started with: if the study is switched or the pages are laid out again (zoom) meanwhile, the
+  // container is gone or the PDF replaced, and the render stops quietly instead of drawing into a detached page
+  const pdfDoc = state.activePdfDoc;
+  const stale = () => !container.isConnected || state.activePdfDoc !== pdfDoc;
   try {
-    const page = await state.activePdfDoc.getPage(num);
+    const page = await pdfDoc.getPage(num);
+    if (stale()) { delete container.dataset.rendering; return; }
     const vp = page.getViewport({ scale: state.scale });
     container.style.width = vp.width + 'px';
     container.style.height = vp.height + 'px';
@@ -1040,6 +1045,7 @@ async function renderPageContentNow(container, num) {
     container.appendChild(txtLayer);
 
     await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
+    if (stale()) { delete container.dataset.rendering; return; }
     const textContent = await page.getTextContent();
     await pdfjsLib.renderTextLayer({
       textContentSource: textContent,
@@ -1052,7 +1058,7 @@ async function renderPageContentNow(container, num) {
     delete container.dataset.rendering;
   } catch (e) {
     delete container.dataset.rendering;
-    console.error('Error rendering page ' + num, e);
+    if (!stale()) console.error('Error rendering page ' + num, e); // a destroyed PDF (study switched) is not an error
   }
 }
 
@@ -1334,13 +1340,16 @@ function focusSidebarCard(annoId) {
 function hlBoxAtPoint(target, x, y) {
   const pageContainer = target && target.closest ? target.closest('#pdfPagesWrapper .page-container') : null;
   if (!pageContainer) return null;
-  // The smallest box under the pointer: a short highlight inside a longer one stays reachable
+  // The smallest box under the pointer: a short highlight inside a longer one stays reachable. Boxes are placed in percent of
+  // the page, so one measurement of the page is enough (no layout read per box on every mouse move)
+  const pr = pageContainer.getBoundingClientRect();
+  if (!pr.width || !pr.height) return null;
+  const px = (x - pr.left) / pr.width * 100, py = (y - pr.top) / pr.height * 100;
   let best = null, bestArea = Infinity;
   pageContainer.querySelectorAll('.hl-box').forEach(b => {
-    const r = b.getBoundingClientRect();
-    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return;
-    const area = r.width * r.height;
-    if (area < bestArea) { best = b; bestArea = area; }
+    const l = parseFloat(b.style.left), t = parseFloat(b.style.top), w = parseFloat(b.style.width), h = parseFloat(b.style.height);
+    if (!(px >= l && px <= l + w && py >= t && py <= t + h)) return;
+    if (w * h < bestArea) { best = b; bestArea = w * h; }
   });
   return best;
 }
@@ -1534,6 +1543,13 @@ function extractSurnameFromAuthorString(rawAuthor) {
     .replace(/[\d*†‡§¶✉]/g, '')
     .replace(/\b(MD|PhD|RN|PharmD|MSc|MPH|BSc|Prof|Dr)\b\.?/gi, '')
     .trim();
+  // Chinese / Japanese names put the family name first ("山田 太郎"), and authors are separated by 、 ， or ・: take the first
+  // token of the first author; a name written without a space is kept whole (family and given name cannot be told apart)
+  if (CJK_CHAR.test(cleaned)) {
+    const authors = cleaned.split(/[、，,;・／/]|\band\b|&/).map(x => x.trim()).filter(Boolean);
+    const first = authors[0] || '';
+    return { surname: first.split(/[\s\u3000]+/)[0], hasEtAl: authors.length > 1 };
+  }
   const multiAuthors = /;|,|\band\b|&/i.test(cleaned);
   const firstChunk = cleaned.split(/;|\band\b|&/i)[0].trim();
   if (firstChunk.includes(',')) {

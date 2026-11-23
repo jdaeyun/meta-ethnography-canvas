@@ -596,7 +596,8 @@ const commitLoaDrawer = async () => {
 commitLoaDrawer.isCommit = true;
 function markLoaDrawerDirty() { loaDrawerDirty = true; pendingSaveCleanups.add(commitLoaDrawer); }
 LOA_DRAWER_FIELD_IDS().forEach(id => document.getElementById(id)?.addEventListener('input', markLoaDrawerDirty));
-loaDrawer.addEventListener('focusout', e => { if (!e.relatedTarget || !loaDrawer.contains(e.relatedTarget)) commitLoaDrawer(); });
+// Focus leaving the drawer commits it; the window losing focus (another window or app) does not (see bindPendingCommit)
+loaDrawer.addEventListener('focusout', e => { if (document.hasFocus() && (!e.relatedTarget || !loaDrawer.contains(e.relatedTarget))) commitLoaDrawer(); });
 document.getElementById('saveLoaBtn').addEventListener('click', async () => {
   loaDrawerDirty = false; pendingSaveCleanups.delete(commitLoaDrawer);
   await saveLoaDrawer();

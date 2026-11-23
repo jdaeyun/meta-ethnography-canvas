@@ -1791,6 +1791,60 @@ await group('Switching study quickly: the last click wins, also while a commit i
   await p.context().close();
 });
 
+await group('Review fixes 7: undo logs of constructs, manual entry kept on failure, peer logs once, project files sanitised, atomic split, Japanese authors', async () => {
+  const p = await openDemo();
+  // Undoing the deletion of a placed construct is logged with its rows, and is a key decision like the deletion
+  await tab(p, 'extract'); await p.evaluate(() => switchStudy(state.docs[0].id)); await p.waitForTimeout(800);
+  const u = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && a.docId === state.activeDocId && a.clusterIds.length);
+    const card = document.querySelector(`[data-sidebar-anno="${sec.id}"]`);
+    const del = card && (card.querySelector(':scope .del') || card.closest('div').querySelector('.del'));
+    del.click(); await new Promise(r => setTimeout(r, 500));
+    await performUndo(); await new Promise(r => setTimeout(r, 400));
+    const log = state.logs[0];
+    return { action: log.action, rows: (log.clusterIds || []).length, key: isKeyDecisionLog(log), back: state.annotations.some(a => a.id === sec.id) };
+  });
+  check('undoing the deletion of a placed construct is logged with its rows and reaches Appendix A', /^Restored a deleted 2nd Order construct \(Undo\)/.test(u.action) && u.rows > 0 && u.key && u.back, JSON.stringify(u));
+  // A manual entry whose save fails is put back into the form
+  const m = await p.evaluate(async () => {
+    openManualAddDrawer('first_order');
+    document.getElementById('manualAddPageInput').value = '3';
+    document.getElementById('manualAddTextInput').value = 'A quote typed by hand from a scanned page';
+    const orig = window.dbPut; window.dbPut = async (store, item, o) => { if (store === 'annotations') throw new Error('QuotaExceededError (simulated)'); return orig(store, item, o); };
+    try { await submitManualAddForm(); } finally { window.dbPut = orig; }
+    return { text: document.getElementById('manualAddTextInput').value, open: !document.getElementById('manualAddDrawer').classList.contains('hidden'), notice: !document.getElementById('choiceModal').classList.contains('hidden') || true };
+  });
+  check('a manual entry that could not be saved is back in the form', m.text === 'A quote typed by hand from a scanned page' && m.open, JSON.stringify(m));
+  await p.evaluate(() => closeManualAddDrawer());
+  // A project file: keys that would change a prototype are removed, records without an id are left out
+  const sz = await p.evaluate(() => {
+    const d = upgradeProjectData(JSON.parse('{"docs":[{"id":"d1","__proto__":{"polluted":true}},"not a record",{"name":"no id"}],"annotations":[],"clusters":[{"id":"c1","cellStatus":{"__proto__":{"polluted":true}}}]}'));
+    return { docs: d.docs.length, dropped: d._droppedRecords, own: Object.prototype.hasOwnProperty.call(d.docs[0], '__proto__'), cs: Object.getPrototypeOf(d.clusters[0].cellStatus) === Object.prototype, polluted: ({}).polluted === undefined };
+  });
+  check('project files: prototype keys removed and malformed records left out', sz.docs === 1 && sz.dropped === 2 && !sz.own && sz.cs && sz.polluted, JSON.stringify(sz));
+  // Compare: the peer's audit entries are merged once, however many constructs are imported
+  const pl = await p.evaluate(async () => {
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: state.logs.slice(0, 3).map((l, i) => ({ ...l, id: 'peerlog_' + i })), loa: state.loa, reviewerId: 'Peer' }));
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    const a = await mergePeerAuditLogs(); const b = await mergePeerAuditLogs();
+    return { a, b, merged: state.logs.filter(l => /^peerlog_/.test(l.id)).length };
+  });
+  check('the other reviewer\'s audit entries are merged once', pl.a === 3 && pl.b === 0 && pl.merged === 3, JSON.stringify(pl));
+  // A split whose write fails leaves no empty row behind
+  const sp = await p.evaluate(async () => {
+    const src = state.clusters.find(c => rowSecs(c).length >= 2);
+    const n = state.clusters.length, stored = (await dbGetAll('clusters')).length;
+    const orig = window.dbBatch; window.dbBatch = async () => { throw new Error('simulated failure'); };
+    let failed = false;
+    try { await splitRow(src, [rowSecs(src)[0].id], 'Never stored', ''); } catch (e) { failed = true; } finally { window.dbBatch = orig; }
+    return { failed, rows: state.clusters.length === n, db: (await dbGetAll('clusters')).length === stored };
+  });
+  check('a split that cannot be stored leaves no new row (in the project or in memory)', sp.failed && sp.rows && sp.db, JSON.stringify(sp));
+  check('a Japanese author line gives the family name and et al.', await p.evaluate(() => { const r = extractSurnameFromAuthorString('山田 太郎、佐藤 花子'); return r.surname === '山田' && r.hasEtAl; }));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Appendix A rules still match the audit entries the app writes', async () => {
   // Appendix A sorts entries by their action text (APPENDIX_EDIT_SERIES / APPENDIX_ROUTINE / APPENDIX_WRITEUP). If the wording of
   // an entry changes, its rule would stop matching without any error: every rule must match some action the app can write.

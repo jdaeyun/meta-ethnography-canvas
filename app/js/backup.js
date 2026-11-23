@@ -52,10 +52,12 @@ const MERGE_UNION_KEYS = {
   peerSetAside: x => [x.peerId, x.reviewer, x.textKey].join('|')
 };
 // Copy fields from `incoming` into `local` only where `local` is empty; report fields that differ
+// Keys that would change an object's prototype instead of a field (a JSON file from someone else can contain them)
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 function mergeFillEmpty(local, incoming, skip = []) {
   const filled = [], conflicts = [];
   Object.keys(incoming || {}).forEach(k => {
-    if (skip.includes(k) || isEmptyValue(incoming[k])) return;
+    if (UNSAFE_KEYS.has(k) || skip.includes(k) || isEmptyValue(incoming[k])) return;
     if (MERGE_UNION_KEYS[k] && Array.isArray(incoming[k]) && Array.isArray(local[k])) {
       const keyOf = MERGE_UNION_KEYS[k], have = new Set(local[k].map(keyOf));
       const add = incoming[k].filter(x => x && !have.has(keyOf(x)));
@@ -360,12 +362,12 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     // The restore / merge itself belongs in the trail (after the restored logs, so a clean restore keeps it)
     const src = `${file.name}${data.exportedAt ? ' (exported ' + new Date(data.exportedAt).toLocaleString() + (data.reviewerId ? ' by @' + data.reviewerId : '') + ')' : ''}`;
     if (replaceCleanly) {
-      await recordAuditLog({ category: 'project_data', action: 'Restored the project from a JSON backup (clean restore)', detail: `Backup file: ${src}. ${state.docs.length} studies, ${state.annotations.length} constructs/quotes, ${state.clusters.length} 3rd Order rows.` });
+      await recordAuditLog({ category: 'project_data', action: 'Restored the project from a JSON backup (clean restore)', detail: `Backup file: ${src}.${data._droppedRecords ? ` ${data._droppedRecords} malformed record(s) in the file were left out.` : ''} ${state.docs.length} studies, ${state.annotations.length} constructs/quotes, ${state.clusters.length} 3rd Order rows.` });
     } else {
       await recordAuditLog({
         category: 'project_data',
         action: 'Merged a JSON backup into the project',
-        detail: `Backup file: ${src}. Added ${mergeReport.docs} studies, ${mergeReport.annotations} constructs/quotes, ${mergeReport.clusters} 3rd Order rows, ${mergeReport.logs} audit entries.`
+        detail: `Backup file: ${src}.${data._droppedRecords ? ` ${data._droppedRecords} malformed record(s) in the file were left out.` : ''} Added ${mergeReport.docs} studies, ${mergeReport.annotations} constructs/quotes, ${mergeReport.clusters} 3rd Order rows, ${mergeReport.logs} audit entries.`
           + (mergeReport.filled ? ` Filled empty fields of ${mergeReport.filled} item(s) from the backup.` : '')
           + (mergeReport.tidied ? ` ${mergeReport.tidied} added item(s) pointed to rows or constructs not in this project; those links were dropped.` : '')
           + (mergeReport.conflicts.length ? `\nKept the local version of ${mergeReport.conflicts.length} item(s) that differ in the backup:\n` + mergeReport.conflicts.map(x => '• ' + x).join('\n') : '')

@@ -63,6 +63,19 @@ async function performUndoStep() {
         }
       }
     }
+    // The deletion was logged, so is its undoing; a construct placed in rows concerns those rows (a key decision, as its
+    // deletion was)
+    for (const a of last.annotations) {
+      const isSec = a.type === 'second_order';
+      const rows = isSec ? (a.clusterIds || []).filter(id => state.clusters.some(c => c.id === id)) : [];
+      const doc = state.docs.find(d => d.id === a.docId);
+      await recordAuditLog({
+        category: 'reading_extraction',
+        action: `Restored a deleted ${isSec ? '2nd Order construct' : '1st Order quote'} (Undo): ${doc ? getDisplayName(doc) : 'Study'}, p.${a.page}`,
+        detail: `${a.note ? a.note + ': ' : ''}"${String(a.text || '').slice(0, 80)}..."`,
+        clusterIds: rows.length ? rows : null
+      });
+    }
     renderHighlights();
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
@@ -80,8 +93,8 @@ async function performUndoStep() {
       await dbDelete('annotations', id);
       state.annotations = state.annotations.filter(a => a.id !== id);
     }
-    // A construct placed in rows: its undoing concerns those rows (and is a key decision, as its deletion was)
-    const rowIds = [...new Set((last.annotations || []).flatMap(a => (a.type === 'second_order' && a.clusterIds) || []))].filter(id => state.clusters.some(c => c.id === id));
+    // Passages and constructs placed in rows: the undoing belongs to those rows' history
+    const rowIds = [...new Set((last.snapshots || []).flatMap(a => (a.type === 'second_order' && a.clusterIds) || []))].filter(id => state.clusters.some(c => c.id === id));
     await recordAuditLog({ category: 'reading_extraction', action: `Undid: ${last.label}`, detail: '', clusterIds: rowIds.length ? rowIds : null });
     renderHighlights();
     updateSidebar();
