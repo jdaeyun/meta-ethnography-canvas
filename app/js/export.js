@@ -447,7 +447,7 @@ function buildTable2GridHtml() {
       }
       const hasRefut = docSecs.some(s => isSecRefutational(s, c.id));
       const symbol = contribSymbol(docSecs, c.id);
-      const pages = [...new Set(docSecs.map(s => 'p.' + s.page))].join(', ');
+      const pages = [...new Set(docSecs.flatMap(s => secAllPassages(s).map(ps => String(ps.page)).filter(Boolean)))].map(pg => 'p.' + pg).join(', ');
       return `<td style="text-align:center; font-weight:bold; color:${hasRefut ? '#be123c' : '#0f172a'};">${symbol}<div style="font-size:9.5px; font-weight:normal; color:#64748b;">${escapeHtml(pages)}</div></td>`;
     }).join('');
 
@@ -816,6 +816,7 @@ function renderPublicationView() {
 }
 
 document.getElementById('copyRichTableBtn').addEventListener('click', async () => {
+  await flushAllPendingSaves();
   const container = document.getElementById('pubPreviewContainer');
   const html = container.innerHTML;
   const text = container.innerText;
@@ -837,6 +838,7 @@ document.getElementById('copyRichTableBtn').addEventListener('click', async () =
 });
 
 document.getElementById('copyMarkdownBtn').addEventListener('click', async () => {
+  await flushAllPendingSaves();
   let md = '';
   const cleanMd = s => String(s || '-').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 
@@ -963,6 +965,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
 });
 
 document.getElementById('downloadWordDocBtn').addEventListener('click', async () => {
+  await flushAllPendingSaves();
   if (typeof docx === 'undefined') {
     alert('The bundled Word library (app/vendor/docx/index.umd.js) failed to load. Check that the app/vendor folder is next to me_canvas.html (offline edition: extract the whole ZIP), then reload the page.');
     return;
@@ -1389,7 +1392,8 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 
-document.getElementById('exportCsvBtn').addEventListener('click', () => {
+document.getElementById('exportCsvBtn').addEventListener('click', async () => {
+  await flushAllPendingSaves();
   const rows = [
     ['3rd Order Construct', 'Translation Type', '3rd Order Team Status', 'CERQual Confidence', 'CERQual Explanation', 'Step A: Translation Summary', 'Step B: 3rd Order Interpretation', 'StudyOrder', 'Study', 'Title', 'Setting', 'Participants', 'Methodology', 'Appraisal Tool', 'Quality Rating', 'Conceptual Depth (Richness)', 'Study Context Note', 'Study Overview / Key Metaphors', 'Funder', 'Same Primary Study As', '2nd Order Reviewer', '2nd Order Summary', '2nd Order Raw Text', '2nd Order Nuance Memo (Private)', '2nd Order Team Status', 'Row-Specific Comment', 'Linked 1st Order Quotes', 'Page']
   ];

@@ -307,13 +307,18 @@ document.querySelectorAll('.cmp-tab-btn').forEach(btn => {
   });
 });
 
-function getCompareBuckets(cmp) {
+// Two readings of the same passage are labelled differently when the labels differ, including when only one
+// reviewer gave a label (the other left it empty): both are readings to discuss.
+function pairLabelsDiffer(l, p) {
   const norm = v => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return norm(l.note) !== norm(p.note);
+}
+function getCompareBuckets(cmp) {
   const divergent = [];
   const aligned = [];
   cmp.matchedPairs.forEach(pair => {
     const l = pair.localAnno, p = pair.peerAnno;
-    const labelsDiffer = norm(l.note) && norm(p.note) && norm(l.note) !== norm(p.note);
+    const labelsDiffer = pairLabelsDiffer(l, p);
     const flagged = l.concordanceStatus === 'discuss' || p.concordanceStatus === 'discuss';
     const isAgreed = l.concordanceStatus === 'agreed';
     ((!isAgreed && (labelsDiffer || flagged)) ? divergent : aligned).push(pair);
@@ -431,8 +436,7 @@ function renderComparisonTabContent() {
       const l = pair.localAnno;
       const p = pair.peerAnno;
       const dName = pair.doc ? getDisplayName(pair.doc) : 'Study';
-      const nm = v => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
-      const labelDiff = !!(nm(l.note) && nm(p.note) && nm(l.note) !== nm(p.note));
+      const labelDiff = pairLabelsDiffer(l, p);
       const flaggedDisc = l.concordanceStatus === 'discuss' || p.concordanceStatus === 'discuss';
       const differs = (labelDiff || flaggedDisc) && l.concordanceStatus !== 'agreed';
       const card = document.createElement('div');
@@ -456,12 +460,12 @@ function renderComparisonTabContent() {
         <div class="grid grid-cols-2 gap-3 text-xs">
           <div class="p-2.5 rounded bg-indigo-50/40 border border-indigo-200">
             <div class="font-bold text-indigo-900 mb-1">👤 My Extraction (@${escapeHtml(l.by || state.reviewerId)})</div>
-            ${l.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(l.note)}</div>` : ''}
+            ${l.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(l.note)}</div>` : (labelDiff ? '<div class="mb-1 text-amber-800 italic">(no label)</div>' : '')}
             <div class="italic text-slate-600">"${escapeHtml(l.text)}"</div>
           </div>
           <div class="p-2.5 rounded bg-teal-50/40 border border-teal-200">
             <div class="font-bold text-teal-900 mb-1">🤝 Peer Extraction (@${escapeHtml(p.by || cmp.peerReviewer)})</div>
-            ${p.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(p.note)}</div>` : ''}
+            ${p.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(p.note)}</div>` : (labelDiff ? '<div class="mb-1 text-amber-800 italic">(no label)</div>' : '')}
             <div class="italic text-slate-600">"${escapeHtml(p.text)}"</div>
           </div>
         </div>
@@ -651,14 +655,20 @@ function renderComparisonTabContent() {
           // The peer's base study is one of their studies: point it to the matching local study (an unmatched one stays as is,
           // so it applies if that study is added later with the same id)
           const pBase = ('baseDocId' in pc) ? pc.baseDocId : null;
-          const newCl = normalizeCluster({ ...pc, by: cmp.peerReviewer, baseDocId: pBase ? (cmp.docMapPeerToLocal[pBase] || pBase) : pBase });
+          const toLocalDoc = id => cmp.docMapPeerToLocal[id] || id;
+          // Empty-cell records (absent / different aspect) are keyed by the peer's study ids: key them by the local ones
+          const cellStatus = {};
+          Object.keys(pc.cellStatus || {}).forEach(id => { cellStatus[toLocalDoc(id)] = pc.cellStatus[id]; });
+          const newCl = normalizeCluster({ ...JSON.parse(JSON.stringify(pc)), cellStatus, by: cmp.peerReviewer, baseDocId: pBase ? toLocalDoc(pBase) : pBase });
           await dbPut('clusters', newCl);
           state.clusters.push(newCl);
+          const placed = await reattachPeerRowPlacements(newCl.id);
           await recordAuditLog({
             clusterIds: [newCl.id],
             category: 'concordance',
             action: `Imported 3rd Order Row from @${cmp.peerReviewer}`,
-            toVal: newCl.thirdOrderTitle || '(Untitled)'
+            toVal: newCl.thirdOrderTitle || '(Untitled)',
+            detail: placed ? `${placed} construct(s) imported earlier from @${cmp.peerReviewer} placed in this row, with their judgements and cell notes.` : ''
           });
           renderComparisonTabContent();
         });
@@ -703,6 +713,24 @@ function peerRowMap(cmp) {
   return map;
 }
 
+// Per-row values a 2nd Order construct carries for each row it is placed in (same list as merge / split in matrix.js)
+const PEER_ROW_KEYS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+// A peer row imported after its constructs: place the constructs that were waiting for it, with their judgements.
+async function reattachPeerRowPlacements(rowId) {
+  let n = 0;
+  for (const a of state.annotations) {
+    const w = a.type === 'second_order' && a._peerRows && a._peerRows[rowId];
+    if (!w) continue;
+    if (!a.clusterIds.includes(rowId)) a.clusterIds.push(rowId);
+    PEER_ROW_KEYS.forEach(k => { if (k in w) a[k] = { ...(a[k] || {}), [rowId]: w[k] }; });
+    delete a._peerRows[rowId];
+    if (!Object.keys(a._peerRows).length) delete a._peerRows;
+    await dbPut('annotations', a);
+    n++;
+  }
+  return n;
+}
+
 async function importPeerConstruct(item, status) {
   await mergePeerAuditLogs();
   const cmp = state.peerComparison;
@@ -744,16 +772,24 @@ async function importPeerConstruct(item, status) {
     if (waiting.length) raw._peerParentIds = waiting;
   }
   // Map the peer's rows to local rows: same id, else same title (the rule that shows "✓ Already in Matrix").
-  // Placements in rows that do not exist here are dropped (peer rows can be imported in the "3rd Order & Logs" tab).
+  // A placement in a row that is not here yet is kept aside (_peerRows) with its judgement, cell note and line-of-argument
+  // mark, and is placed when that row is imported in the "3rd Order, Model & Logs" tab (see reattachPeerRowPlacements).
   if (Array.isArray(raw.clusterIds)) {
     const rowMap = peerRowMap(cmp);
+    const waitingRows = {};
+    raw.clusterIds.forEach(id => {
+      if (rowMap[id] || !id) return;
+      waitingRows[id] = {};
+      PEER_ROW_KEYS.forEach(k => { if (raw[k] && typeof raw[k] === 'object' && id in raw[k]) waitingRows[id][k] = raw[k][id]; });
+    });
     raw.clusterIds = [...new Set(raw.clusterIds.map(id => rowMap[id]).filter(Boolean))];
-    ['clusterRelations', 'clusterComments'].forEach(k => {
+    PEER_ROW_KEYS.forEach(k => {
       if (!raw[k] || typeof raw[k] !== 'object') return;
       const out = {};
       Object.keys(raw[k]).forEach(id => { if (rowMap[id] && !(rowMap[id] in out)) out[rowMap[id]] = raw[k][id]; });
       raw[k] = out;
     });
+    if (Object.keys(waitingRows).length) raw._peerRows = waitingRows; else delete raw._peerRows;
   }
   if (raw.type === 'second_order' && targetDocId === state.docs[0]?.id) raw.indexSeeded = true;
 

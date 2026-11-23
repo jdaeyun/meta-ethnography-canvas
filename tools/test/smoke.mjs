@@ -1031,6 +1031,123 @@ await group('Compatibility: a format-1 (v1.4.7) backup opens with the same meani
   await p.context().close();
 });
 
+await group('Review fixes 2: welcome buttons, awaited commits, peer rows imported later, merge ids, highlights, undo log', async () => {
+  const p = await openDemo();
+  // Welcome guide buttons work without inline handlers (the CSP blocks those)
+  await p.evaluate(() => { state.activeDocId = null; renderWelcomeGuideIfNeeded(); });
+  const [chooser] = await Promise.all([p.waitForEvent('filechooser', { timeout: 3000 }).catch(() => null), p.click('#welcomeSelectPdfBtn')]);
+  check('welcome "Select PDF Files" opens the file chooser', !!chooser);
+  check('no inline on…= handlers in the app scripts', !/\son[a-z]+="/.test(['app.js', 'matrix.js', 'extraction.js', 'export.js', 'compare.js', 'studies-pdf.js', 'audit-view.js', 'loa.js', 'backup.js'].map(f => fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')).join('\n')));
+  await p.evaluate(() => switchStudy(state.docs[0].id)); await p.waitForTimeout(800);
+  // A pending commit can be awaited: its audit entry is in the trail when the flush resolves
+  await tab(p, 'matrix'); await p.waitForTimeout(500);
+  await p.locator('.cluster-trans').first().fill('Step A typed just before leaving the tab');
+  const gained = await p.evaluate(async () => { const n = state.logs.length; await flushAllPendingSaves(); return state.logs.length - n; });
+  check('flushAllPendingSaves() resolves after the audit entry is written', gained === 1, String(gained));
+  // Only the title is shown in the drawer: typing Step A does not redraw the map; nothing is redrawn while the drawer is closed
+  const redraws = await p.evaluate(async () => {
+    let n = 0; const orig = window.renderLoaMap; window.renderLoaMap = () => { n++; };
+    state.isLoaOpen = false; renderLoaClusterChips();
+    window.renderLoaMap = orig; return n;
+  });
+  check('the line-of-argument map is not redrawn while the drawer is closed', redraws === 0);
+  // Merge / split dialog: Escape closes it
+  await p.evaluate(() => openRowOps(state.clusters[0])); await p.waitForTimeout(150);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+  check('Escape closes the merge / split dialog', await p.evaluate(() => document.getElementById('rowOpsModal').classList.contains('hidden')));
+  // Table 2b lists the pages of every passage of a construct
+  const t2b = await p.evaluate(() => {
+    const s = state.annotations.find(a => a.type === 'second_order' && a.clusterIds.length);
+    const saved = s.passages; s.passages = [...(s.passages || []), { page: '987', text: 'same idea stated later' }];
+    const html = buildTable2GridHtml(); s.passages = saved; return html.includes('p.987');
+  });
+  check('Table 2b shows the pages of additional passages', t2b);
+  // Undoing a row deletion is logged (the deletion was)
+  const undo = await p.evaluate(async () => {
+    const c = state.clusters[state.clusters.length - 1];
+    pushUndoAction({ type: 'delete_cluster', label: 'x', cluster: { ...c }, assignedSecIds: [] });
+    state.clusters = state.clusters.filter(x => x.id !== c.id); await dbDelete('clusters', c.id);
+    await performUndo();
+    return { back: state.clusters.some(x => x.id === c.id), log: state.logs[0].action, ids: state.logs[0].clusterIds };
+  });
+  check('undoing a row deletion restores it and writes an audit entry for that row', undo.back && /Restored 3rd Order Row \(Undo\)/.test(undo.log) && undo.ids && undo.ids.length === 1, JSON.stringify(undo));
+  // Compare: a construct imported before its row keeps the placement, judgement and cell note until the row is imported
+  const late = await p.evaluate(async () => {
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, reviewerId: 'Peer' }));
+    const d1 = state.docs[1].id;
+    peer.clusters.push({ id: 'peer_only_row', thirdOrderTitle: 'A row only the peer made', baseDocId: d1, cellStatus: { [state.docs[2].id]: { status: 'absent', note: 'nothing here' } }, order: 99 });
+    const sec = { ...peer.annotations.find(a => a.type === 'second_order' && a.docId === d1), id: 'peer_sec_late', text: 'A passage only the peer placed in their own row', clusterIds: ['peer_only_row'], clusterRelations: { peer_only_row: 'refutational' }, clusterComments: { peer_only_row: 'why it fits' } };
+    peer.annotations.push(sec);
+    // One matched pair where only the peer gave a label: a different reading, not aligned
+    const pairBase = peer.annotations.find(a => a.type === 'second_order' && a.note);
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    const lp = state.peerComparison.matchedPairs.find(pr => pr.peerAnno.id === pairBase.id);
+    const saved = lp ? [lp.localAnno.note, lp.localAnno.concordanceStatus, lp.peerAnno.concordanceStatus] : null;
+    let oneLabel = null;
+    if (lp) {
+      lp.localAnno.concordanceStatus = 'pending'; lp.peerAnno.concordanceStatus = 'pending';
+      const both = getCompareBuckets(state.peerComparison).divergent.includes(lp);
+      lp.localAnno.note = '';
+      oneLabel = !both && getCompareBuckets(state.peerComparison).divergent.includes(lp);
+      [lp.localAnno.note, lp.localAnno.concordanceStatus, lp.peerAnno.concordanceStatus] = saved;
+    }
+    const item = state.peerComparison.peerOnlyAnnos.find(x => x.peerAnno.id === 'peer_sec_late');
+    await importPeerConstruct(item, 'discuss');
+    const got = state.annotations.find(a => a.text === sec.text);
+    const waitingBefore = !!(got._peerRows && got._peerRows.peer_only_row) && got.clusterIds.length === 0;
+    setCompareTab('clusters_logs'); renderComparisonTabContent();
+    return { waitingBefore, oneLabel, hasPair: !!lp };
+  });
+  check('a pair where only one reviewer gave a label is read differently', late.hasPair && late.oneLabel === true, JSON.stringify(late));
+  check('a construct whose row is not here yet waits with its judgement', late.waitingBefore);
+  await p.evaluate(() => {
+    const row = [...document.querySelectorAll('#peerClustersList > div')].find(d => d.textContent.includes('A row only the peer made'));
+    row && row.querySelector('.imp-cl') && row.querySelector('.imp-cl').click();
+  });
+  await p.waitForTimeout(800);
+  const after = await p.evaluate(() => {
+    const got = state.annotations.find(a => a.text === 'A passage only the peer placed in their own row');
+    const row = state.clusters.find(c => c.id === 'peer_only_row');
+    return { ids: got.clusterIds, rel: got.clusterRelations.peer_only_row, cmt: got.clusterComments.peer_only_row, waiting: !!got._peerRows, row: !!row };
+  });
+  check('importing the row afterwards places the construct with its judgement and cell note', after.row && after.ids.includes('peer_only_row') && after.rel === 'refutational' && after.cmt === 'why it fits' && !after.waiting, JSON.stringify(after));
+  // Clicking a highlight shows its card (the text layer lies above the highlights)
+  await tab(p, 'extract'); await p.evaluate(() => switchStudy(state.docs[0].id));
+  await p.waitForFunction(() => document.querySelector('#pdfPagesWrapper .hl-box'), null, { timeout: 15000 }); await p.waitForTimeout(800);
+  const box = await p.evaluate(() => { const b = document.querySelector('#pdfPagesWrapper .hl-box'); b.scrollIntoView({ block: 'center' }); return b.dataset.annoId; });
+  await p.waitForTimeout(400);
+  const r = await p.evaluate(id => { const b = document.querySelector(`#pdfPagesWrapper .hl-box[data-anno-id="${CSS.escape(id)}"]`).getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; }, box);
+  await p.evaluate(() => window.getSelection().removeAllRanges());
+  await p.mouse.click(r.x, r.y); await p.waitForTimeout(200);
+  check('clicking a highlight shows its card in the sidebar', await p.evaluate(id => !!document.querySelector(`[data-sidebar-anno="${CSS.escape(id)}"].ring-amber-400`), box));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('MERGE restore maps every study id of a study matched by file name', async () => {
+  const p = await openDemo();
+  const json = await p.evaluate(() => {
+    const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: [], clusters: [], logs: [], loa: state.loa, projectCode: state.projectCode, version: DB_VERSION, formatVersion: PROJECT_FORMAT }));
+    const map = {}; d.docs.forEach((x, i) => { map[x.id] = 'bk_doc_' + i; x.id = map[x.id]; });
+    d.docs[1].companionOf = d.docs[0].id;
+    d.clusters.push({ id: 'bk_row', thirdOrderTitle: 'Row only in the backup', baseDocId: d.docs[1].id, cellStatus: { [d.docs[2].id]: { status: 'other_aspect', note: 'n' } }, order: 99 });
+    d.loa.baselineDocId = d.docs[0].id;
+    return JSON.stringify(d);
+  });
+  p.removeAllListeners('dialog');
+  p.on('dialog', d => { if (d.type() === 'confirm') d.dismiss(); else d.accept(); }); // Cancel = MERGE
+  await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
+  const r = await p.evaluate(() => {
+    const c = state.clusters.find(x => x.id === 'bk_row');
+    return { base: c && c.baseDocId === state.docs[1].id, cell: c && !!c.cellStatus[state.docs[2].id], noStray: !state.docs.some(x => /^bk_doc_/.test(x.id)), conflict: (state.logs[0].detail || '').includes('baselineDocId'),
+      sorted: state.clusters.every((x, i, a) => i === 0 || (a[i - 1].order ?? a[i - 1].createdAt ?? 0) <= (x.order ?? x.createdAt ?? 0)) };
+  });
+  check('a new row points to the local study (base ◆ and empty-cell record)', r.base && r.cell && r.noStray, JSON.stringify(r));
+  check('study #1 is not reported as a conflict when it is the same study', !r.conflict);
+  check('rows are in their order after the merge', r.sorted);
+  await p.context().close();
+});
+
 await group('Content-Security-Policy: the app works under it, and no request can leave the site (http and file://)', async () => {
   for (const url of [BASE + '?demo', 'file://' + path.join(ROOT, 'me_canvas.html') + '?demo']) {
     const where = url.startsWith('file') ? 'file://' : 'http';

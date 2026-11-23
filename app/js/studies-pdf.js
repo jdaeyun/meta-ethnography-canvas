@@ -560,10 +560,8 @@ async function jumpToPdfAnnotation(annoId, pageOverride = null) {
   const pageContainer = wrapper.querySelector(`.page-container[data-p="${targetPage}"]`);
   if (!pageContainer) return;
 
-  // Force immediate render of target page if not yet lazily rendered
-  if (!pageContainer.dataset.rendered && !pageContainer.dataset.rendering) {
-    await renderPageContent(pageContainer, targetPage);
-  }
+  // Render the page now, or wait for the render already running (e.g. started by scrolling), before looking for the hit
+  if (!pageContainer.dataset.rendered) await renderPageContent(pageContainer, targetPage);
 
   // Scroll to the exact highlight box or page top
   const hlBoxes = Array.from(pageContainer.querySelectorAll(`.hl-box[data-anno-id="${CSS.escape(anno.id)}"]`));
@@ -940,8 +938,16 @@ function createPagePlaceholder(num, width, height) {
   return container;
 }
 
-async function renderPageContent(container, num) {
-  if (!state.activePdfDoc || container.dataset.rendered || container.dataset.rendering) return;
+// The page being rendered, so a caller that needs its text layer (search jump) can wait for it
+const pageRenderPromises = new WeakMap();
+function renderPageContent(container, num) {
+  if (!state.activePdfDoc || container.dataset.rendered) return Promise.resolve();
+  if (container.dataset.rendering) return pageRenderPromises.get(container) || Promise.resolve();
+  const p = renderPageContentNow(container, num);
+  pageRenderPromises.set(container, p);
+  return p;
+}
+async function renderPageContentNow(container, num) {
   container.dataset.rendering = 'true';
   try {
     const page = await state.activePdfDoc.getPage(num);
@@ -988,7 +994,12 @@ async function renderPageContent(container, num) {
 // of the next ("againstthe") because PDF.js text items usually have no trailing space at a line end.
 // Here a space is added whenever the next text item starts on a new line or column (hyphen at line end: no space).
 function selectionTextWithSpaces(range) {
-  const spans = [...document.querySelectorAll('#pdfPagesWrapper .textLayer span')].filter(sp => sp.firstChild && sp.firstChild.nodeType === 3 && range.intersectsNode(sp));
+  // Only the spans under the selection's common ancestor (one page, or the pages it spans), not every rendered page
+  let root = range.commonAncestorContainer;
+  if (root && root.nodeType !== 1) root = root.parentElement;
+  if (!root || !root.closest || !root.closest('#pdfPagesWrapper')) return range.toString();
+  const candidates = root.matches('.textLayer span') ? [root] : [...root.querySelectorAll(root.closest('.textLayer') ? 'span' : '.textLayer span')];
+  const spans = candidates.filter(sp => sp.firstChild && sp.firstChild.nodeType === 3 && range.intersectsNode(sp));
   if (!spans.length) return range.toString();
   let out = '';
   let prev = null;
@@ -1225,20 +1236,63 @@ function renderHighlights() {
         b.style.top = (r.top * 100) + '%';
         b.style.width = (r.width * 100) + '%';
         b.style.height = (r.height * 100) + '%';
-        b.onclick = () => {
-          const cardEl = document.querySelector(`[data-sidebar-anno="${CSS.escape(a.id)}"]`);
-          if (cardEl) {
-            cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            cardEl.classList.add('ring-2', 'ring-amber-400');
-            setTimeout(() => cardEl.classList.remove('ring-2', 'ring-amber-400'), 1400);
-          }
-        };
         layer.appendChild(b);
       });
     }
     });
   });
 }
+
+// Clicking a highlight shows its card in the sidebar. The text layer lies above the highlights (so highlighted text can
+// still be selected again, e.g. to extract a second construct from it), so the click is matched to the boxes by position:
+// a plain click (no text selected) inside a box opens its card; a drag still selects text as usual.
+function focusSidebarCard(annoId) {
+  const cardEl = document.querySelector(`[data-sidebar-anno="${CSS.escape(annoId)}"]`);
+  if (!cardEl) return;
+  cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  cardEl.classList.add('ring-2', 'ring-amber-400');
+  setTimeout(() => cardEl.classList.remove('ring-2', 'ring-amber-400'), 1400);
+}
+function hlBoxAtPoint(target, x, y) {
+  const pageContainer = target && target.closest ? target.closest('#pdfPagesWrapper .page-container') : null;
+  if (!pageContainer) return null;
+  // The smallest box under the pointer: a short highlight inside a longer one stays reachable
+  let best = null, bestArea = Infinity;
+  pageContainer.querySelectorAll('.hl-box').forEach(b => {
+    const r = b.getBoundingClientRect();
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return;
+    const area = r.width * r.height;
+    if (area < bestArea) { best = b; bestArea = area; }
+  });
+  return best;
+}
+(() => {
+  const wrapper = document.getElementById('pdfPagesWrapper');
+  if (!wrapper) return;
+  wrapper.addEventListener('click', e => {
+    if (e.button !== 0) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim()) return; // the user selected text
+    const box = hlBoxAtPoint(e.target, e.clientX, e.clientY);
+    if (box) focusSidebarCard(box.dataset.annoId);
+  });
+  // Pointer cursor and the highlight's tooltip while hovering over it (checked once per frame)
+  let pending = null, lastPage = null;
+  wrapper.addEventListener('mousemove', e => {
+    if (pending) return;
+    const { target, clientX, clientY } = e;
+    pending = requestAnimationFrame(() => {
+      pending = null;
+      const box = hlBoxAtPoint(target, clientX, clientY);
+      const pageContainer = target && target.closest ? target.closest('.page-container') : null;
+      if (lastPage && lastPage !== pageContainer) { lastPage.classList.remove('hl-hover'); lastPage.removeAttribute('title'); }
+      lastPage = pageContainer;
+      if (!pageContainer) return;
+      pageContainer.classList.toggle('hl-hover', !!box);
+      if (box) pageContainer.title = box.title + ' (click to show its card)'; else pageContainer.removeAttribute('title');
+    });
+  });
+})();
 
 // --- D. Full-PDF Keyword Search across Lazy-Rendered Pages ---
 const pdfSearchState = {
@@ -1337,9 +1391,7 @@ async function jumpToSearchedPage(matchIdx, queryStr) {
   const pageContainer = wrapper.querySelector(`.page-container[data-p="${targetPage}"]`);
   if (!pageContainer) return;
 
-  if (!pageContainer.dataset.rendered && !pageContainer.dataset.rendering) {
-    await renderPageContent(pageContainer, targetPage);
-  }
+  if (!pageContainer.dataset.rendered) await renderPageContent(pageContainer, targetPage); // or wait for the render already running
 
   const q = (queryStr || document.getElementById('pdfSearchInput')?.value || '').normalize('NFC').trim().toLowerCase();
   const spans = Array.from(pageContainer.querySelectorAll('.textLayer span'));

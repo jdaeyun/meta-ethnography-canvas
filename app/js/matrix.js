@@ -1072,9 +1072,11 @@ function renderMatrixTable() {
     };
 
     let initialClusterTitle = cluster.thirdOrderTitle || '';
+    // Only the row title appears in the line-of-argument drawer (chips, map labels): redraw it when the title changed
+    let chipsTitle = cluster.thirdOrderTitle;
     const debouncedSaveCluster = createDebouncedSaver(async () => {
       await dbPut('clusters', cluster);
-      renderLoaClusterChips();
+      if (cluster.thirdOrderTitle !== chipsTitle) { chipsTitle = cluster.thirdOrderTitle; renderLoaClusterChips(); }
     }, 350);
 
     tdMeta.querySelector('.cluster-title').addEventListener('input', e => {
@@ -1562,6 +1564,7 @@ function renderMatrixTable() {
               toVal: newVal || '(Empty)'
             });
           };
+          commitCellComment.isCommit = true;
           cmtInput.addEventListener('input', e => {
             if (!sec.clusterComments) sec.clusterComments = {};
             sec.clusterComments[cluster.id] = e.target.value.trim();

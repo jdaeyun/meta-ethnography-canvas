@@ -12,7 +12,8 @@ function backupTimestamp(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-document.getElementById('backupJsonBtn').addEventListener('click', () => {
+document.getElementById('backupJsonBtn').addEventListener('click', async () => {
+  await flushAllPendingSaves(); // a text typed just now (and its audit entry) belongs in the backup
   const payload = {
     version: DB_VERSION,
     formatVersion: PROJECT_FORMAT,
@@ -96,6 +97,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
 
     let replaceCleanly = true;
     const mergeReport = { docs: 0, annotations: 0, clusters: 0, logs: 0, filled: 0, tidied: 0, conflicts: [] };
+    const mergeDocIdMap = {}; // MERGE: backup study id -> local study id
     if (hasExistingWork) {
       if (currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode) {
         const confirmCleanSwitch = confirm(
@@ -210,21 +212,28 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       // MERGE: add what is not here yet; never overwrite local work. Where the same item exists on both sides
       // with different content, the LOCAL version is kept and the item is listed (and logged) as a conflict.
       // Map backup doc IDs -> local doc IDs (a filename match keeps the LOCAL id, so PDF binaries and local constructs stay attached)
-      const mergeDocIdMap = {};
       const addedAnnoIds = new Set();
+      const findLocalDoc = d => state.docs.find(x => x.id === d.id) ||
+        state.docs.find(x => x.name && d.name && x.name.toLowerCase() === d.name.toLowerCase());
+      // First the whole map (a study may refer to one listed after it), then every study id in the backup goes through it:
+      // annotations, the companion study, each row's base study and empty-cell records, and study #1.
+      for (const rawD of data.docs) {
+        if (!rawD || !rawD.id) continue;
+        const existing = findLocalDoc(rawD);
+        mergeDocIdMap[rawD.id] = existing ? existing.id : rawD.id;
+      }
+      const toLocalDoc = id => (id && mergeDocIdMap[id]) || id;
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);
-        const existing = state.docs.find(x => x.id === d.id) ||
-          state.docs.find(x => x.name && d.name && x.name.toLowerCase() === d.name.toLowerCase());
+        if (d.companionOf) d.companionOf = toLocalDoc(d.companionOf);
+        const existing = findLocalDoc(d);
         if (existing) {
-          mergeDocIdMap[d.id] = existing.id;
           const r = mergeFillEmpty(existing, d, ['id', 'hasBinary', 'order']);
           if (r.conflicts.length) mergeReport.conflicts.push(`Study ${getDisplayName(existing)}: ${r.conflicts.join(', ')}`);
           if (r.filled.length) { mergeReport.filled++; await dbPut('docs', existing); }
         } else {
           d.hasBinary = false;
           d.order = state.docs.length;
-          mergeDocIdMap[d.id] = d.id;
           await dbPut('docs', d);
           state.docs.push(d);
           mergeReport.docs++;
@@ -244,6 +253,12 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         mergeReport.annotations++;
       }
       for (const rawC of (data.clusters || [])) {
+        if (rawC && rawC.baseDocId) rawC.baseDocId = toLocalDoc(rawC.baseDocId);
+        if (rawC && rawC.cellStatus && typeof rawC.cellStatus === 'object') {
+          const cs = {};
+          Object.keys(rawC.cellStatus).forEach(id => { cs[toLocalDoc(id)] = rawC.cellStatus[id]; });
+          rawC.cellStatus = cs;
+        }
         const c = normalizeCluster(rawC);
         const local = state.clusters.find(x => x.id === c.id);
         if (local) {
@@ -286,6 +301,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       await dbPut('meta', state.loa);
     } else if (data.loa) {
       // MERGE: the aim, model and narrative are only filled where they are empty here
+      if (data.loa.baselineDocId) data.loa.baselineDocId = mergeDocIdMap[data.loa.baselineDocId] || data.loa.baselineDocId;
       const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt']);
       if (r.conflicts.length) mergeReport.conflicts.push(`Research Aim & Overall Model: ${r.conflicts.join(', ')}`);
       if (r.filled.length) { state.loa.id = 'loa_main'; await dbPut('meta', state.loa); }
@@ -294,10 +310,10 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     updateHeaderProjectUI();
 
     state.docs.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+    state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0)); // same order as at startup
     if (!state.loa.baselineDocId) await checkBaselineChange();
     ensureDocFingerprints();
 
-    state.docs.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
     state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     updateAuditBadge();
     renderStudyList();
@@ -430,6 +446,7 @@ function refreshMissingPdfModal(unmatched = null) {
       unmatchedPdfFiles = unmatchedPdfFiles.filter(f => f !== file);
       renderStudyList();
       refreshMissingPdfModal();
+      switchStudy(doc.id); // show the PDF just connected (as when a file is matched by name)
     };
     list.appendChild(li);
   });

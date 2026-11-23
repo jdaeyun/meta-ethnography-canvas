@@ -83,11 +83,17 @@ function flashSaveStatus(status = 'saved') {
 
 const pendingSaveCleanups = new Set();
 
+// Starts every pending save / commit at once. The state changes are synchronous; the database writes and audit
+// entries finish later, so a caller that shows them (Audit Trail, exports, backup) awaits the returned promise.
+// Returns null when nothing was pending, so callers can render at once in the usual case.
 function flushAllPendingSaves() {
-  if (pendingSaveCleanups.size === 0) return;
+  if (pendingSaveCleanups.size === 0) return null;
+  const running = [];
   for (const flushFn of Array.from(pendingSaveCleanups)) {
-    try { flushFn(); } catch (e) { console.error('Flush save error:', e); }
+    try { running.push(Promise.resolve(flushFn()).catch(e => console.error('Flush save error:', e))); }
+    catch (e) { console.error('Flush save error:', e); }
   }
+  return Promise.all(running);
 }
 
 function createDebouncedSaver(fn, delay = 350) {
@@ -100,7 +106,7 @@ function createDebouncedSaver(fn, delay = 350) {
       pendingSaveCleanups.delete(flush);
       const argsToRun = latestArgs || [];
       latestArgs = null;
-      fn(...argsToRun);
+      return fn(...argsToRun);
     }
   };
   const debounced = (...args) => {
@@ -131,14 +137,20 @@ function bindPendingCommit(el, commitFn) {
     pendingSaveCleanups.delete(run);
     await commitFn();
   };
+  run.isCommit = true;
   el.addEventListener('input', () => { dirty = true; pendingSaveCleanups.add(run); });
   el.addEventListener('change', run);
   el.addEventListener('blur', run);
   return run;
 }
 
-window.addEventListener('beforeunload', () => {
+// The browser does not wait for asynchronous work while a page closes. If a text commit (save + audit entry) is still
+// pending, ask the browser to confirm leaving: the commit finishes while that dialog is shown. Saves without an audit
+// entry (debounced writes) are only started; they are tiny and normally complete.
+window.addEventListener('beforeunload', (e) => {
+  const hadCommit = Array.from(pendingSaveCleanups).some(f => f.isCommit);
   flushAllPendingSaves();
+  if (hadCommit) { e.preventDefault(); e.returnValue = ''; }
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {

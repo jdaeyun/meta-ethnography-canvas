@@ -95,6 +95,14 @@ async function performUndoStep() {
         }
       }
     }
+    // The deletion is in the trail, so its undoing is too (else Appendix A says "deleted" while Table 2 shows the row)
+    await recordAuditLog({
+      clusterIds: [last.cluster.id],
+      category: 'third_order',
+      action: 'Restored 3rd Order Row (Undo)',
+      toVal: last.cluster.thirdOrderTitle || '(Untitled Row)',
+      detail: `${(last.assignedSecIds || []).length} construct(s) placed in it again.`
+    });
     renderLoaClusterChips();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   } else if (last.type === 'delete_study') {

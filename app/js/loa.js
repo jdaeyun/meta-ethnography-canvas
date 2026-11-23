@@ -455,6 +455,8 @@ document.getElementById('saveMyModelBtn')?.addEventListener('click', async () =>
 });
 
 function renderLoaClusterChips() {
+  // Everything below lives in the drawer, which renders it again when it opens: nothing to redraw while it is closed
+  if (!state.isLoaOpen) return;
   renderLoaMap();
   renderTeamModels();
   const chipBox = document.getElementById('loaClusterChips');

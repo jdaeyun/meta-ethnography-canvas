@@ -137,7 +137,7 @@
       <div class="space-y-4 text-slate-700">
         <h3 class="text-lg font-bold text-slate-900">1.2 How Saving & Backups Work (Important)</h3>
         <p>
-          <strong>Auto-Save:</strong> All of your work—including uploaded PDFs, highlights, matrix rows, and notes—is saved automatically inside your web browser's local database (<em>IndexedDB</em>). A green <span class="text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded">Saved</span> badge appears in the top bar whenever you make a change.
+          <strong>Auto-Save:</strong> All of your work—including uploaded PDFs, highlights, matrix rows, and notes—is saved automatically inside your web browser's local database (<em>IndexedDB</em>). A green <span class="text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded">Saved</span> badge appears in the top bar whenever you make a change. A note is entered in the Audit Trail when you leave its box; if you close the tab while still typing in one, the browser asks you to confirm leaving, so that the entry can be written.
         </p>
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 text-base text-slate-800 space-y-2">
           <div class="font-bold text-amber-900 flex items-center space-x-2">
@@ -225,7 +225,7 @@
         </p>
         <figure class="my-4">
           <img src="img/01-extract.png" alt="Tab 1 with highlighted passages in the PDF, and in the right sidebar the box for how this study's concepts relate above the extracted cards" class="w-full rounded-lg border border-slate-200 shadow-xs" loading="lazy">
-          <figcaption class="text-xs text-slate-500 mt-1.5">Tab 1: select text in the PDF, then choose 1st Order or 2nd Order from the popup bar. Highlights appear in the PDF (green = 2nd Order, blue = 1st Order) and cards appear in the right sidebar. All screenshots show the AI-generated demo project.</figcaption>
+          <figcaption class="text-xs text-slate-500 mt-1.5">Tab 1: select text in the PDF, then choose 1st Order or 2nd Order from the popup bar. Highlights appear in the PDF (green = 2nd Order, blue = 1st Order) and cards appear in the right sidebar; click a highlight to show its card. All screenshots show the AI-generated demo project.</figcaption>
         </figure>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-3">
           <div class="p-4 rounded-xl bg-blue-50/70 border border-blue-200 space-y-1">
@@ -447,7 +447,7 @@
                 <li><strong>Team UI (top bar):</strong> tick it to show each construct's team status (<em>Pending</em>, <em>Discuss</em>, <em>Agreed (for now)</em>) and a team discussion note on every card in Tab 1 and Tab 2; when it is off, they show only on cards where a status or note has been set.</li>
                 <li><strong>Which study is which:</strong> the <strong>📚 Studies &amp; Order</strong> tab matches their studies to yours by identical PDF file, DOI, file name or title; a study with only the same first author and year is offered as a ★ suggestion for you to confirm.</li>
                 <li><strong>Translation order:</strong> both reviewers' orders are shown side by side. A different #1 or order is a difference to discuss, and you can record it in the Audit Trail. The pairing of constructs does not depend on the order of either file.</li>
-                <li><strong>Rows:</strong> an imported construct keeps its place in a 3rd Order row when you have that row too: the same row, or a row with the same title.</li>
+                <li><strong>Rows:</strong> an imported construct keeps its place in a 3rd Order row when you have that row too: the same row, or a row with the same title. If you import a construct before its row, its placement (with the judgement and cell note) waits and is made when you import that row in the “3rd Order, Model &amp; Logs” tab.</li>
                 <li><strong>Audit trails:</strong> the first time you adopt anything from your co-reviewer, their audit trail entries are merged into yours automatically, so the shared trail shows both reviewers. If you only compare and import nothing, use <strong>Merge Audit Logs</strong> in the “3rd Order, Model &amp; Logs” tab.</li>
               </ul>
             </li>
