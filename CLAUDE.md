@@ -126,6 +126,9 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   interpretations, map, Item 16, team models, line of argument; saved with its button). Fields that describe the method for the write-up
   (`WRITEUP_FIELDS` in loa.js) sit beside the Methods Summary in Tab 4 and commit one by one; a gap `PH(text, fieldKey)` links to its field.
 - Tab 2 rows are built lazily (`renderMatrixTable`): only rows near the viewport have content. Do not query row DOM across the whole table.
+  Per-row lookups (a row's constructs, a construct's quotes, a row's history) come from `getMatrixIndex()` (one pass per render);
+  `dbPut` / `dbDelete` / `dbClear` of annotations, clusters or logs drop it (`invalidateMatrixIndex()`): call that after changing
+  those in memory without writing them.
   Scroll position is kept by an anchor row (`data-cluster-id`) and corrected when a placeholder above the viewport is built; overflow-anchor is off on purpose.
 - Stance: this is a qualitative (Big Q) tool. Differences between reviewers are readings to discuss, not errors; agreement is provisional
   ("Agreed (for now)"); quality appraisal is never a ranking criterion; the Index Paper is a reasoned choice by the reviewer, not a sort result.
@@ -155,6 +158,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
   Appendix A shows the key decisions by default (`isKeyDecisionLog()`, repeated edits of one text folded by `APPENDIX_EDIT_SERIES`);
   a new kind of audit entry that is routine bookkeeping belongs in `APPENDIX_ROUTINE`. The trail itself is never filtered.
+  The rules match the action text, so the smoke test "Appendix A rules still match" fails when a reworded action leaves a rule
+  matching nothing: update the rule together with the wording.
 - UI text is English.
 - The app must fit laptop widths: no overlap in the header or the view toolbars from 1024 px up (smoke test "Layout at laptop widths").
   Toolbars wrap (`flex-wrap`, `gap-*`, not `space-x-*`); long labels shorten below `xl` / `2xl` and keep the full text in `title`.

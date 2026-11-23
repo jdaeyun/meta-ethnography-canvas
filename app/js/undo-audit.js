@@ -196,7 +196,10 @@ async function performUndoStep() {
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   } else if (last.type === 'unassign_cluster') {
     const sec = state.annotations.find(a => a.id === last.secId);
-    if (sec) {
+    // The row may have been deleted since (and that deletion not undone): never put a card back into a row that is gone
+    if (sec && !state.clusters.some(c => c.id === last.clusterId)) {
+      showSnackbar('That row no longer exists, so the card stays out of it.');
+    } else if (sec) {
       normalizeAnnotation(sec);
       if (!sec.clusterIds.includes(last.clusterId)) {
         sec.clusterIds.push(last.clusterId);
@@ -259,6 +262,7 @@ async function recordAuditLog({ category, action, detail, fromVal = '', toVal = 
   if (cids.length) entry.clusterIds = [...new Set(cids)];
   await dbPut('logs', entry);
   state.logs.unshift(entry);
+  invalidateMatrixIndex('logs'); // the entry joined the in-memory trail after the write
   updateAuditBadge();
   if (!divAudit.classList.contains('hidden')) renderAuditView();
   return entry;

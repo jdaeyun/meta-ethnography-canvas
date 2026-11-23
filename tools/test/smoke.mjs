@@ -1148,12 +1148,19 @@ await group('Review fixes 2: welcome buttons, awaited commits, peer rows importe
     await importPeerConstruct(state.peerComparison.peerOnlyAnnos.find(x => x.peerAnno.id === 'peer_sec_t'), 'discuss');
     const local = normalizeCluster({ id: 'local_t', thirdOrderTitle: 'made here TOO', order: 101 });
     state.clusters.push(local); await dbPut('clusters', local);
-    setCompareTab('clusters_logs'); renderComparisonTabContent();
+    // Rendering the tab changes nothing; opening it (the tab button) places the waiting construct, once
+    const nLogs = state.logs.length;
+    setCompareTab('clusters_logs'); renderComparisonTabContent(); renderComparisonTabContent();
+    await new Promise(r => setTimeout(r, 300));
+    const renderOnly = state.logs.length === nLogs && !state.annotations.find(a => a.text === 'Waiting for a row made here').clusterIds.includes('local_t');
+    document.querySelector('.cmp-tab-btn[data-cmptab="clusters_logs"]').click();
+    document.querySelector('.cmp-tab-btn[data-cmptab="clusters_logs"]').click();
     await new Promise(r => setTimeout(r, 600));
     const got = state.annotations.find(a => a.text === 'Waiting for a row made here');
-    return { ids: got.clusterIds, rel: got.clusterRelations.local_t, waiting: !!got._peerRows };
+    const placedLogs = state.logs.filter(l => /^Placed 1 construct\(s\) imported from @Peer in "made here TOO"/.test(l.action)).length;
+    return { ids: got.clusterIds, rel: got.clusterRelations.local_t, waiting: !!got._peerRows, renderOnly, placedLogs };
   });
-  check('a waiting construct is placed in a row with the same title made here', titled.ids.includes('local_t') && titled.rel === 'reciprocal' && !titled.waiting, JSON.stringify(titled));
+  check('a waiting construct is placed in a row with the same title made here (not by a render; logged once)', titled.renderOnly && titled.ids.includes('local_t') && titled.rel === 'reciprocal' && !titled.waiting && titled.placedLogs === 1, JSON.stringify(titled));
   // Clicking a highlight shows its card (the text layer lies above the highlights)
   await tab(p, 'extract'); await p.evaluate(() => switchStudy(state.docs[0].id));
   await p.waitForFunction(() => document.querySelector('#pdfPagesWrapper .hl-box'), null, { timeout: 15000 }); await p.waitForTimeout(800);
@@ -1482,6 +1489,102 @@ await group('Compare remembers what was set aside; the text sketch can be writte
   p.choiceAnswer = null;
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
+});
+
+await group('Review fixes 4: similarity, study info autosave, #1 by id, zoom without reload, merge of record lists, card text selection', async () => {
+  const p = await openDemo();
+  // Pure logic, checked directly
+  const sim = await p.evaluate(() => {
+    const long = 'Nurses described moral distress when staffing was short, and spoke of leaving the ward after night shifts because nobody listened to them or offered any support at all';
+    return {
+      fragment: computeTextSimilarity('moral distress', long),
+      same: computeTextSimilarity(long, long),
+      overlap: computeTextSimilarity('Nurses described moral distress when staffing was short, and spoke of leaving the ward', 'when staffing was short, and spoke of leaving the ward after night shifts because nobody listened'),
+      unrelated: computeTextSimilarity('the manager kept a list of who was on call', long),
+      cjk: computeTextSimilarity('夜勤の看護師は誰にも相談できず一人で判断を背負っていた', '病棟では人手が足りず、夜勤の看護師は誰にも相談できず一人で判断を背負っていたと語られた。管理者はそれを信頼と呼んだ。')
+    };
+  });
+  check('a two-word fragment does not pair with a long passage that contains both words', sim.fragment < 0.55, JSON.stringify(sim));
+  check('the same passage, and overlapping selections of one paragraph, still pair', sim.same === 1 && sim.overlap >= 0.55 && sim.unrelated < 0.55 && sim.cjk >= 0.55, JSON.stringify(sim));
+  // Study info: text typed in the dock is saved (and logged) when the reviewer moves to another study without clicking Save
+  await tab(p, 'extract'); await p.evaluate(() => switchStudy(state.docs[0].id)); await p.waitForTimeout(800);
+  await p.click('#activeDocHeader'); await p.waitForTimeout(200);
+  const d0 = await p.evaluate(() => state.docs[0].id);
+  await p.fill('#metaStudyOverview', 'An overview typed and never saved by hand.');
+  await p.evaluate(() => switchStudy(state.docs[1].id)); await p.waitForTimeout(800);
+  const ov = await p.evaluate(id => ({ v: state.docs.find(d => d.id === id).studyOverview, log: state.logs.some(l => /Study Overview/.test(l.action) && l.toVal === 'An overview typed and never saved by hand.') }), d0);
+  check('the study overview is saved and logged when the reviewer moves on without Save', ov.v === 'An overview typed and never saved by hand.' && ov.log, JSON.stringify(ov));
+  // #1 compared by id: two studies with the same display name
+  const sameName = await p.evaluate(async () => {
+    state.docs[1].author = state.docs[0].author; state.docs[1].year = state.docs[0].year; state.docs[1].etAl = state.docs[0].etAl;
+    const n = state.logs.length;
+    await moveStudyOrder(1, 0);
+    return { asked: state.logs.slice(0, state.logs.length - n).some(l => /Changed the #1 Study/.test(l.action)) };
+  });
+  check('changing #1 between two studies with the same display name is still recorded', sameName.asked);
+  // Zoom keeps the loaded PDF (no new parse)
+  await p.evaluate(() => switchStudy(state.docs[0].id)); await p.waitForTimeout(800);
+  const zoom = await p.evaluate(async () => { const before = state.activePdfDoc; await setPdfZoom(state.scale + 0.2); await new Promise(r => setTimeout(r, 400)); return { same: state.activePdfDoc === before, pages: document.querySelectorAll('#pdfPagesWrapper .page-container').length, hl: document.querySelectorAll('#pdfPagesWrapper .hl-box').length }; });
+  check('zooming keeps the loaded PDF and lays the pages out again (with their highlights)', zoom.same && zoom.pages > 0 && zoom.hl > 0, JSON.stringify(zoom));
+  // Merge: lists of separate records are merged as a union, not reported as a conflict
+  const json = await p.evaluate(() => {
+    const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode, formatVersion: PROJECT_FORMAT }));
+    const [a, b] = d.clusters; d.loa.links = [...(d.loa.links || []), { id: 'lk_backup_only', from: a.id, to: b.id, type: 'metaphor', note: '' }];
+    return JSON.stringify(d);
+  });
+  const nLinks = await p.evaluate(() => (state.loa.links || []).length);
+  p.choiceAnswer = 'merge'; p.notices = [];
+  await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await p.waitForTimeout(2500);
+  p.choiceAnswer = null;
+  const merged = await p.evaluate(() => ({ n: (state.loa.links || []).length, has: (state.loa.links || []).some(l => l.id === 'lk_backup_only') }));
+  check('a relation only in the backup is added to the map (no conflict)', merged.has && merged.n === nLinks + 1 && !p.notices.some(t => /Research Aim & Overall Model: [^\n]*links/.test(t)), JSON.stringify(merged));
+  // Text in a box inside a draggable matrix card can be selected (the card is not dragged)
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const drag = await p.evaluate(() => {
+    const box = document.querySelector('.matrix-cell-card input, .matrix-cell-card textarea');
+    if (!box) return { skip: true };
+    const card = box.closest('[draggable]');
+    box.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    const during = card.draggable;
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    return { during, after: card.draggable };
+  });
+  if (!drag.skip) check('a matrix card is not draggable while the mouse is down in one of its boxes', drag.during === false && drag.after === true, JSON.stringify(drag));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Appendix A rules still match the audit entries the app writes', async () => {
+  // Appendix A sorts entries by their action text (APPENDIX_EDIT_SERIES / APPENDIX_ROUTINE / APPENDIX_WRITEUP). If the wording of
+  // an entry changes, its rule would stop matching without any error: every rule must match some action the app can write.
+  const p = await openDemo();
+  const rules = await p.evaluate(() => ({
+    series: APPENDIX_EDIT_SERIES.map(x => x[0].source), routine: APPENDIX_ROUTINE.map(r => r.source), writeup: APPENDIX_WRITEUP.source,
+    labels: Object.values(LOA_FIELD_LABELS)
+  }));
+  await p.context().close();
+  // The actions the app writes: the literals on each "action:" line, with ${a ? 'P' : 'Q'} read both ways and other ${…} as "1";
+  // plus the drawer / write-up entries built from their labels
+  const literals = [];
+  const expand = t => {
+    const m = t.match(/\$\{[^{}]*?\?\s*'([^']*)'\s*:\s*'([^']*)'\s*\}/);
+    if (m) return [...expand(t.replace(m[0], m[1])), ...expand(t.replace(m[0], m[2]))];
+    return [t.replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}/g, '1')];
+  };
+  for (const f of fs.readdirSync(path.join(ROOT, 'app/js'))) {
+    for (const line of fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8').split('\n')) {
+      const at = line.indexOf('action:');
+      if (at < 0) continue;
+      for (const m of line.slice(at).matchAll(/`((?:[^`\\]|\\.)*)`|'((?:[^'\\]|\\.)*)'/g)) literals.push(...expand(m[1] ?? m[2]));
+    }
+  }
+  rules.labels.forEach(l => literals.push('Updated ' + l));
+  const dead = [];
+  const test = (src, name) => { const re = new RegExp(src); if (!literals.some(t => re.test(t))) dead.push(`${name}: /${src}/`); };
+  rules.series.forEach(r => test(r, 'series'));
+  rules.routine.forEach(r => test(r, 'routine'));
+  test(rules.writeup, 'writeup');
+  check('every Appendix A rule matches an action the app writes', dead.length === 0, dead.join('; '));
 });
 
 await group('No browser dialogs: alert(), confirm() and prompt() are not used', async () => {

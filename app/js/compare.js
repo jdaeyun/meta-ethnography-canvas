@@ -51,9 +51,14 @@ function computeTextSimilarity(strA, strB) {
   if (!a || !b) return 0;
   if (a === b) return 1.0;
   if (a.includes(b) || b.includes(a)) {
+    // One selection inside the other: the same passage, read with a shorter or longer span. Only when the shorter one is a
+    // passage of its own (8+ words, or 40% of the longer): a short phrase occurs in many unrelated quotes.
     const minLen = Math.min(a.length, b.length);
     const maxLen = Math.max(a.length, b.length);
-    if (minLen > 12) return Math.max(0.78, minLen / maxLen);
+    const shorter = a.length <= b.length ? a : b;
+    const shortWords = shorter.split(/\s+/).length;
+    const unspaced = shortWords === 1 && minLen >= 20; // Japanese / Chinese text has no spaces: count characters instead
+    if (minLen > 12 && (shortWords >= 8 || unspaced || minLen / maxLen >= 0.4)) return Math.max(0.78, minLen / maxLen);
   }
   // Word token overlap (including 2-char clinical/regional abbreviations like RN, UK, IV, ED)
   const wordsA = new Set(a.split(/\s+/).filter(w => w.length >= 2));
@@ -62,7 +67,12 @@ function computeTextSimilarity(strA, strB) {
   if (wordsA.size > 0 && wordsB.size > 0) {
     let inter = 0;
     wordsA.forEach(w => { if (wordsB.has(w)) inter++; });
-    wordScore = inter / Math.min(wordsA.size, wordsB.size);
+    // Dice, like the bigrams. The overlap with the shorter passage (inter / min) is used only when that passage is long
+    // enough to mean something: two readers selecting overlapping stretches of the same paragraph should still pair, but a
+    // two-word fragment ("moral distress") must not "match" any long quote that happens to contain both words.
+    const minSize = Math.min(wordsA.size, wordsB.size);
+    const dice = (2 * inter) / (wordsA.size + wordsB.size);
+    wordScore = minSize >= 8 ? Math.max(dice, inter / minSize) : dice;
   }
   // Character bigram overlap (handles CJK/Japanese text without spaces and minor OCR/hyphenation diffs)
   const noSpaceA = a.replace(/\s+/g, '');
@@ -301,6 +311,7 @@ async function processPeerJsonFile(file) {
     const { docMapPeerToLocal, matchedStudies, unmatchedPeerDocs } = matchPeerDocs(peerData);
     state.peerComparison = { peerReviewer, peerData, docMapPeerToLocal, matchedStudies, unmatchedPeerDocs };
     computePeerAnnotationMatches(state.peerComparison);
+    await reattachWaitingByTitle(state.peerComparison);
     // Start on the Studies & Order tab when there is something to settle or discuss there
     const firstDiffers = (peerData.docs[0] && state.docs[0]) && docMapPeerToLocal[(peerData.docs.slice().sort((a, b) => (a.order ?? 999) - (b.order ?? 999))[0] || {}).id] !== state.docs[0].id;
     if (unmatchedPeerDocs.length || firstDiffers) setCompareTab('studies');
@@ -321,8 +332,9 @@ async function processPeerJsonFile(file) {
 }
 
 document.querySelectorAll('.cmp-tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
     setCompareTab(btn.dataset.cmptab);
+    if (btn.dataset.cmptab === 'clusters_logs') await reattachWaitingByTitle(state.peerComparison);
     renderComparisonTabContent();
   });
 });
@@ -692,14 +704,6 @@ function renderComparisonTabContent() {
     } else {
       peerClusters.forEach(pc => {
         const exists = state.clusters.find(c => c.id === pc.id || sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
-        // Constructs imported before this row existed here wait for it: place them now that a matching row is here
-        if (exists && state.annotations.some(a => a._peerRows && a._peerRows[pc.id])) {
-          reattachPeerRowPlacements(pc.id, exists.id).then(async placed => {
-            if (!placed) return;
-            await recordAuditLog({ clusterIds: [exists.id], category: 'concordance', action: `Placed ${placed} construct(s) imported from @${cmp.peerReviewer} in "${exists.thirdOrderTitle || 'Untitled Row'}"`, detail: `The row matches @${cmp.peerReviewer}'s row "${pc.thirdOrderTitle || ''}"; their judgements and cell notes came with them.` });
-            showSnackbar(`Placed ${placed} construct(s) from @${cmp.peerReviewer} in "${exists.thirdOrderTitle || 'Untitled Row'}".`);
-          });
-        }
         const row = document.createElement('div');
         row.className = 'p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between text-xs';
         row.innerHTML = `
@@ -792,6 +796,27 @@ async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
     n++;
   }
   return n;
+}
+
+// Constructs waiting for a peer row that is now here under the same title (a row made here, not imported): placed when a
+// file is compared and when the "3rd Order, Model & Logs" tab is opened. Never from inside a render; one run at a time.
+async function reattachWaitingByTitle(cmp) {
+  if (!cmp || cmp.reattaching) return 0;
+  cmp.reattaching = true;
+  let total = 0;
+  try {
+    for (const pc of (cmp.peerData.clusters || [])) {
+      if (!state.annotations.some(a => a._peerRows && a._peerRows[pc.id])) continue;
+      const local = state.clusters.find(c => c.id === pc.id || sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
+      if (!local) continue;
+      const placed = await reattachPeerRowPlacements(pc.id, local.id);
+      if (!placed) continue;
+      total += placed;
+      await recordAuditLog({ clusterIds: [local.id], category: 'concordance', action: `Placed ${placed} construct(s) imported from @${cmp.peerReviewer} in "${local.thirdOrderTitle || 'Untitled Row'}"`, detail: `The row matches @${cmp.peerReviewer}'s row "${pc.thirdOrderTitle || ''}"; their judgements and cell notes came with them.` });
+    }
+  } finally { cmp.reattaching = false; }
+  if (total) showSnackbar(`Placed ${total} construct(s) from @${cmp.peerReviewer} in rows that are here now.`);
+  return total;
 }
 
 async function importPeerConstruct(item, status) {

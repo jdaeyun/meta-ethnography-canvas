@@ -276,6 +276,7 @@ async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
 
 async function moveStudyOrder(fromIdx, toIdx) {
   if (toIdx < 0 || toIdx >= state.docs.length || fromIdx === toIdx) return;
+  const oldFirstId = state.docs[0] && state.docs[0].id; // by id: two studies can share a display name (Smith et al. 2020)
   const oldIndexPaper = getDisplayName(state.docs[0]);
   const movedDoc = state.docs[fromIdx];
   const [moved] = state.docs.splice(fromIdx, 1);
@@ -283,7 +284,7 @@ async function moveStudyOrder(fromIdx, toIdx) {
   await persistDocOrder();
   const newIndexPaper = getDisplayName(state.docs[0]);
 
-  if (oldIndexPaper !== newIndexPaper) {
+  if (oldFirstId !== (state.docs[0] && state.docs[0].id)) {
     const idxWhy = await askReason({
       title: `The #1 study (${firstStudyMeta().long}) has changed`,
       context: `From ${oldIndexPaper} to ${newIndexPaper}. Rows established by study #1 are marked for re-reading.`,
@@ -415,6 +416,61 @@ function renderStudyList() {
   });
 }
 
+// Page placeholders at the current zoom, observed for lazy rendering. Used when a study opens and when the zoom changes
+// (the PDF stays loaded: a new zoom only lays the pages out again).
+async function layoutPdfPages(loadedPdf, isStale) {
+  const wrapper = document.getElementById('pdfPagesWrapper');
+  if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
+  const numPages = loadedPdf.numPages;
+  document.getElementById('pdfPageCountLabel').textContent = `${numPages} page${numPages > 1 ? 's' : ''}`;
+  document.getElementById('zoomPercentInput').value = Math.round(state.scale * 100);
+
+  // Fetch exact per-page viewport dimensions in parallel so landscape/portrait pages size accurately
+  const pageViewports = await Promise.all(
+    Array.from({ length: numPages }, (_, idx) =>
+      loadedPdf.getPage(idx + 1).then(p => p.getViewport({ scale: state.scale }))
+    )
+  );
+  if (isStale()) return false;
+  wrapper.innerHTML = '';
+
+  const scrollRoot = document.getElementById('pdfViewerContainer');
+  pageObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const container = entry.target;
+      const pageNum = parseInt(container.dataset.p, 10);
+      if (entry.isIntersecting) {
+        if (!container.dataset.rendered && !container.dataset.rendering) {
+          renderPageContent(container, pageNum);
+        }
+        // Memory guard: evict rendered canvases more than 10 pages away from current view
+        const allPages = wrapper.querySelectorAll('.page-container[data-rendered="true"]');
+        if (allPages.length > 16) {
+          allPages.forEach(other => {
+            const otherNum = parseInt(other.dataset.p, 10);
+            if (Math.abs(otherNum - pageNum) > 10) {
+              evictPageContent(other, otherNum);
+            }
+          });
+        }
+      }
+    });
+  }, {
+    root: scrollRoot,
+    rootMargin: '600px 0px 600px 0px',
+    threshold: 0.01
+  });
+
+  for (let i = 1; i <= numPages; i++) {
+    const vp = pageViewports[i - 1];
+    const container = createPagePlaceholder(i, vp.width, vp.height);
+    wrapper.appendChild(container);
+    pageObserver.observe(container);
+  }
+
+  return true;
+}
+
 let switchStudyToken = 0;
 async function switchStudy(id) {
   flushAllPendingSaves();
@@ -460,52 +516,7 @@ async function switchStudy(id) {
     state.activePdfDoc = loadedPdf;
     wrapper.innerHTML = '';
 
-    const numPages = state.activePdfDoc.numPages;
-    document.getElementById('pdfPageCountLabel').textContent = `${numPages} page${numPages > 1 ? 's' : ''}`;
-    document.getElementById('zoomPercentInput').value = Math.round(state.scale * 100);
-
-    // Fetch exact per-page viewport dimensions in parallel so landscape/portrait pages size accurately
-    const pageViewports = await Promise.all(
-      Array.from({ length: numPages }, (_, idx) =>
-        loadedPdf.getPage(idx + 1).then(p => p.getViewport({ scale: state.scale }))
-      )
-    );
-    if (isStale()) return;
-
-    const scrollRoot = document.getElementById('pdfViewerContainer');
-    pageObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        const container = entry.target;
-        const pageNum = parseInt(container.dataset.p, 10);
-        if (entry.isIntersecting) {
-          if (!container.dataset.rendered && !container.dataset.rendering) {
-            renderPageContent(container, pageNum);
-          }
-          // Memory guard: evict rendered canvases more than 10 pages away from current view
-          const allPages = wrapper.querySelectorAll('.page-container[data-rendered="true"]');
-          if (allPages.length > 16) {
-            allPages.forEach(other => {
-              const otherNum = parseInt(other.dataset.p, 10);
-              if (Math.abs(otherNum - pageNum) > 10) {
-                evictPageContent(other, otherNum);
-              }
-            });
-          }
-        }
-      });
-    }, {
-      root: scrollRoot,
-      rootMargin: '600px 0px 600px 0px',
-      threshold: 0.01
-    });
-
-    for (let i = 1; i <= numPages; i++) {
-      const vp = pageViewports[i - 1];
-      const container = createPagePlaceholder(i, vp.width, vp.height);
-      wrapper.appendChild(container);
-      pageObserver.observe(container);
-    }
-
+    if (!(await layoutPdfPages(loadedPdf, isStale))) return;
     renderHighlights();
     updateSidebar();
   } catch (err) {
@@ -538,7 +549,13 @@ async function setPdfZoom(newScale) {
   if (!state.activeDocId) return;
   const scrollContainer = document.getElementById('pdfViewerContainer');
   const scrollRatio = scrollContainer.scrollHeight > 0 ? scrollContainer.scrollTop / scrollContainer.scrollHeight : 0;
-  await switchStudy(state.activeDocId);
+  if (state.activePdfDoc) {
+    // Same PDF, new size: lay the pages out again without reading and parsing the file again
+    const myToken = ++switchStudyToken;
+    if (await layoutPdfPages(state.activePdfDoc, () => myToken !== switchStudyToken)) renderHighlights();
+  } else {
+    await switchStudy(state.activeDocId);
+  }
   scrollContainer.scrollTop = scrollContainer.scrollHeight * scrollRatio;
 }
 
@@ -872,6 +889,11 @@ document.getElementById('saveMetaBtn').addEventListener('click', async () => {
 ['metaEtAl', 'metaAppraisalTool', 'metaQuality', 'metaRichness', 'metaCompanionOf'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => saveCurrentMeta());
 });
+// Text fields are saved (and logged where they are) when left, or on a study / tab switch or page leave, like every other
+// text box: nothing typed here is lost if the reviewer moves on without clicking Save Info. saveCurrentMeta() reads the
+// fields into the active study before its first await, so a flush at the start of switchStudy() saves them to the right study.
+['metaAuthor', 'metaYear', 'metaTitle', 'metaDoi', 'metaSetting', 'metaParticipants', 'metaGroup', 'metaMethodology', 'metaFunder', 'metaContextNote', 'metaStudyOverview']
+  .forEach(id => { const el = document.getElementById(id); if (el) bindPendingCommit(el, () => saveCurrentMeta()); });
 
 document.querySelectorAll('.meta-drop-target').forEach(input => {
   input.addEventListener('dragover', e => {
@@ -1491,6 +1513,9 @@ function extractSurnameFromAuthorString(rawAuthor) {
   return { surname, hasEtAl: multiAuthors };
 }
 
+// Publication years 1980–2039, one pattern for every stage of the citation auto-fill
+const YEAR_CORE = '19[89]\\d|20[0-3]\\d';
+const YEAR_RE = new RegExp('(?:^|\\D)(' + YEAR_CORE + ')(?!\\d)');
 async function autoExtractCitationFromPdf() {
   const doc = state.docs.find(d => d.id === state.activeDocId);
   if (!doc || !state.activePdfDoc) {
@@ -1501,6 +1526,7 @@ async function autoExtractCitationFromPdf() {
   let detectedAuthor = '';
   let detectedEtAl = true;
   let detectedYear = '';
+  let yearFromPublicationDate = false;
 
   // Stage 1: Check embedded PDF Info Dict & XMP Metadata
   try {
@@ -1523,9 +1549,11 @@ async function autoExtractCitationFromPdf() {
       }
     }
 
-    const rawDate = (xmp && (xmp.get('prism:publicationDate') || xmp.get('dc:date') || xmp.get('xap:CreateDate'))) || info.CreationDate || '';
-    const dateMatch = String(rawDate).match(/(?:^|\D)(19[89]\d|20[0-3]\d)(?!\d)/);
-    if (dateMatch) detectedYear = dateMatch[1];
+    // A publication date in the metadata is trusted; a file creation date (often the download or typesetting date) is only a fallback
+    const pubDate = xmp && (xmp.get('prism:publicationDate') || xmp.get('dc:date'));
+    const rawDate = pubDate || (xmp && xmp.get('xap:CreateDate')) || info.CreationDate || '';
+    const dateMatch = String(rawDate).match(YEAR_RE);
+    if (dateMatch) { detectedYear = dateMatch[1]; yearFromPublicationDate = !!pubDate; }
   } catch (e) {
     console.warn('Metadata read warning:', e);
   }
@@ -1569,10 +1597,10 @@ async function autoExtractCitationFromPdf() {
 
     // 2a. Find Year from Page 1 header/footer text if not yet found (or refine)
     const fullPage1Text = lines.map(l => l.text).join(' ');
-    const yearMatches = (fullPage1Text.match(/(?:^|\D)(19[89]\d|20[0-2]\d)(?!\d)/g) || []).map(m => m.replace(/^\D/, ''));
-    if (yearMatches && yearMatches.length > 0) {
+    const yearMatches = (fullPage1Text.match(new RegExp(YEAR_RE.source, 'g')) || []).map(m => m.replace(/^\D/, ''));
+    if (!yearFromPublicationDate && yearMatches.length > 0) {
       // Prefer year near copyright/received/published keywords
-      const pubContextMatch = fullPage1Text.match(/(?:published|accepted|received|©|copyright|\()\s*(?:[a-z]+\s+\d{1,2},?\s*)?(19[89]\d|20[0-2]\d)/i);
+      const pubContextMatch = fullPage1Text.match(new RegExp('(?:published|accepted|received|©|copyright|\\()\\s*(?:[a-z]+\\s+\\d{1,2},?\\s*)?(' + YEAR_CORE + ')', 'i'));
       detectedYear = pubContextMatch ? pubContextMatch[1] : yearMatches[0];
     }
 
@@ -1620,7 +1648,7 @@ async function autoExtractCitationFromPdf() {
 
   // Stage 3: Filename fallback
   if (!detectedYear && doc.name) {
-    const fnYear = doc.name.match(/(?:^|\D)(19[89]\d|20[0-2]\d)(?!\d)/);
+    const fnYear = doc.name.match(YEAR_RE);
     if (fnYear) detectedYear = fnYear[1];
   }
   if (!detectedAuthor && doc.name) {

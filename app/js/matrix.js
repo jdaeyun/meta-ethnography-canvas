@@ -187,11 +187,34 @@ newClusterDropZone.addEventListener('drop', async e => {
   renderMatrixView();
 });
 
+// One pass over the constructs, quotes and audit trail for the whole matrix, instead of one per row and card
+function getMatrixIndex() {
+  if (matrixIndexCache) return matrixIndexCache;
+  const secsByRow = new Map(), quotesBySec = new Map(), logsByRow = new Map();
+  state.annotations.forEach(a => {
+    if (a.type === 'second_order') normalizeAnnotation(a).clusterIds.forEach(cid => { if (!secsByRow.has(cid)) secsByRow.set(cid, []); secsByRow.get(cid).push(a); });
+    else if (a.type === 'first_order') quoteParentIds(a).forEach(pid => { if (!quotesBySec.has(pid)) quotesBySec.set(pid, []); quotesBySec.get(pid).push(a); });
+  });
+  state.logs.forEach(l => (l.clusterIds || []).forEach(cid => { if (!logsByRow.has(cid)) logsByRow.set(cid, new Set()); logsByRow.get(cid).add(l); }));
+  matrixIndexCache = { secsByRow, quotesBySec, logsByRow };
+  return matrixIndexCache;
+}
+function rowSecsIndexed(clusterId) { return getMatrixIndex().secsByRow.get(clusterId) || []; }
+function quotesOfIndexed(secId) { return getMatrixIndex().quotesBySec.get(secId) || []; }
+// Entries in a row's history (its own and those of the rows it absorbed or was split from; see logIsForRow)
+function rowHistoryCount(cluster) {
+  const idx = getMatrixIndex(), seen = new Set();
+  rowHistoryIds(cluster).forEach(id => (idx.logsByRow.get(id) || []).forEach(l => seen.add(l)));
+  return seen.size;
+}
+
 function computeClusterEvidenceStats(clusterId) {
-  const mappedSecs = state.annotations.filter(a => a.type === 'second_order' && normalizeAnnotation(a).clusterIds.includes(clusterId));
+  const mappedSecs = rowSecsIndexed(clusterId);
   const docIds = [...new Set(mappedSecs.map(s => s.docId))];
   const contributingDocs = docIds.map(id => state.docs.find(d => d.id === id)).filter(Boolean);
-  const quoteCount = uniqueQuotesOf(mappedSecs).length; // a quote linked to two constructs in this row counts once
+  const seenQ = new Set();
+  mappedSecs.forEach(s => quotesOfIndexed(s.id).forEach(f => seenQ.add(f.id)));
+  const quoteCount = seenQ.size; // a quote linked to two constructs in this row counts once
 
   return {
     studiesCount: contributingDocs.length,
@@ -232,6 +255,26 @@ async function seedIndexPaperRows() {
       .filter(sec => !sec.indexSeeded)
       .sort((a, b) => ((a.firstPage || parseInt(a.page, 10) || 0) - (b.firstPage || parseInt(b.page, 10) || 0)) || String(a.id).localeCompare(String(b.id)));
     if (fresh.length === 0) return false;
+
+    // Study #1 has changed since rows were seeded (seeded rows come from another study): making rows from the new #1's
+    // constructs is a new decision about method, so ask; "leave them" marks them, so the question is not asked again
+    const seededFromOther = state.clusters.some(c => c.autoSeeded && c.seededFromId &&
+      (state.annotations.find(a => a.id === c.seededFromId) || {}).docId !== indexDoc.id);
+    const unplaced = fresh.filter(sec => liveClusterIds(sec).length === 0);
+    if (seededFromOther && unplaced.length) {
+      const how = await askChoice({
+        title: `Study #1 is now ${getDisplayName(indexDoc)}`,
+        body: `${unplaced.length} of its 2nd Order construct(s) are in no row. The rows so far were started from an earlier study #1.`,
+        choices: [
+          { value: 'leave', tone: 'primary', label: 'Leave them in the pool', hint: 'Place them yourself, by translating them into the existing rows or making rows for them.' },
+          { value: 'seed', tone: 'plain', label: `Make a provisional row for each of them`, hint: 'As for the first study #1: each becomes a row established by this study (◆).' }
+        ]
+      });
+      if (how !== 'seed') {
+        if (how === 'leave') for (const sec of fresh) { sec.indexSeeded = true; await dbPut('annotations', sec); }
+        return false;
+      }
+    }
 
     const created = [];
     const createdIds = [];
@@ -704,6 +747,7 @@ function buildEmptyCell(cluster, doc) {
 
 function renderMatrixTable() {
   if (matrixRowObserver) { matrixRowObserver.disconnect(); matrixRowObserver = null; }
+  invalidateMatrixIndex(); // state may have changed in memory since the last write
   const t = document.getElementById('matrixTable');
   const scrollParent = t ? t.parentElement : null;
   const prevTop = scrollParent ? scrollParent.scrollTop : 0;
@@ -898,13 +942,13 @@ function renderMatrixTable() {
             <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">3rd Order</span>
             <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
             <span class="cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
-            ${(() => { const n = state.logs.filter(l => logIsForRow(l, cluster)).length; return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
+            ${(() => { const n = rowHistoryCount(cluster); return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
             ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from the Index Paper's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
             <span class="cl-cerqual-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
           </div>
           <div class="flex items-center space-x-1">
-            <button type="button" class="move-cl-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${state.clusters.indexOf(cluster) === 0 ? 'disabled' : ''} title="Move row up">▲</button>
-            <button type="button" class="move-cl-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${state.clusters.indexOf(cluster) === state.clusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
+            <button type="button" class="move-cl-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === 0 ? 'disabled' : ''} title="Move row up">▲</button>
+            <button type="button" class="move-cl-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === visibleClusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
             <button type="button" class="cl-rowops text-slate-400 hover:text-indigo-600 cursor-pointer ml-1" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i></button>
             <button class="del-cluster text-slate-400 hover:text-rose-500 cursor-pointer ml-1" title="Delete Row"><i class="ph ph-trash"></i></button>
           </div>
@@ -912,7 +956,8 @@ function renderMatrixTable() {
         
         ${(() => {
           // Which study's construct established this row (◆). Its own cards are not judged in this row; every other study's are.
-          const rowDocs = state.docs.filter(d => state.annotations.some(a => a.type === 'second_order' && a.docId === d.id && (a.clusterIds || []).includes(cluster.id)));
+          const rowDocIds = new Set(rowSecsIndexed(cluster.id).map(a => a.docId));
+          const rowDocs = state.docs.filter(d => rowDocIds.has(d.id));
           const base = rowBaseDocId(cluster);
           if (!rowDocs.length && !base) return '';
           const opts = rowDocs.slice();
@@ -1367,7 +1412,7 @@ function renderMatrixTable() {
         cellWrap.className = 'space-y-2.5';
 
         cellConstructs.forEach(sec => {
-          const firsts = quotesOf(sec.id);
+          const firsts = quotesOfIndexed(sec.id);
           const otherClustersCount = sec.clusterIds.length - 1;
           const cellComment = (sec.clusterComments && sec.clusterComments[cluster.id]) || '';
           const cellRelation = secRelation(sec, cluster.id);

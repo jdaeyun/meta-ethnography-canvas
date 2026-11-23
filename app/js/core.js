@@ -183,7 +183,12 @@ function updateBackupReminder() {
 }
 
 // quiet: bookkeeping writes the user did not make (e.g. a PDF fingerprint) — no save badge, no backup reminder
+// Lookups the matrix builds once per render (rows' constructs, quotes per construct, history per row): dropped whenever the
+// data they come from is written, so a row built later (lazily) never reads an outdated index
+let matrixIndexCache = null;
+function invalidateMatrixIndex(store) { if (!store || store === 'annotations' || store === 'clusters' || store === 'logs') matrixIndexCache = null; }
 async function dbPut(store, item, { quiet = false } = {}) {
+  invalidateMatrixIndex(store);
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
@@ -227,6 +232,7 @@ async function dbGetAllKeys(store) {
   });
 }
 async function dbDelete(store, key) {
+  invalidateMatrixIndex(store);
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
@@ -236,6 +242,7 @@ async function dbDelete(store, key) {
   });
 }
 async function dbClear(store) {
+  invalidateMatrixIndex(store);
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');

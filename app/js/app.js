@@ -511,6 +511,17 @@ window.ondrop = async e => {
   });
 })();
 
+// ---- Selecting text in a box inside a draggable card (matrix cells, pool, sidebar) selects text, not the card ----
+// While the mouse button is down in an input / textarea / select, its draggable card stops being draggable.
+document.addEventListener('mousedown', e => {
+  const field = e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]');
+  const card = field && field.closest('[draggable="true"]');
+  if (!card) return;
+  card.draggable = false;
+  const restore = () => { card.draggable = true; document.removeEventListener('mouseup', restore, true); };
+  document.addEventListener('mouseup', restore, true);
+}, true);
+
 // ---- Icon-only buttons get an accessible name from their tooltip ----
 (function labelIconButtons() {
   const label = root => {

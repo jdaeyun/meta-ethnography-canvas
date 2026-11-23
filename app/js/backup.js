@@ -43,11 +43,25 @@ function isEmptyValue(v) {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0) ||
     (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
 }
+// Lists of separate records (relations, team models, within-study links, set-aside items) are merged as a union: what is only
+// in the backup is added, a record in both (same key) keeps the local version. Key per list field:
+const MERGE_UNION_KEYS = {
+  links: x => x.id || [x.from, x.to, x.type].join('|'),
+  conceptLinks: x => x.id || [x.from, x.to, x.type].join('|'),
+  teamModels: x => x.id || [x.reviewer, x.title, x.capturedAt].join('|'),
+  peerSetAside: x => [x.peerId, x.reviewer, x.textKey].join('|')
+};
 // Copy fields from `incoming` into `local` only where `local` is empty; report fields that differ
 function mergeFillEmpty(local, incoming, skip = []) {
   const filled = [], conflicts = [];
   Object.keys(incoming || {}).forEach(k => {
     if (skip.includes(k) || isEmptyValue(incoming[k])) return;
+    if (MERGE_UNION_KEYS[k] && Array.isArray(incoming[k]) && Array.isArray(local[k])) {
+      const keyOf = MERGE_UNION_KEYS[k], have = new Set(local[k].map(keyOf));
+      const add = incoming[k].filter(x => x && !have.has(keyOf(x)));
+      if (add.length) { local[k] = [...local[k], ...add]; filled.push(k); }
+      return;
+    }
     if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
     else if (stableJson(local[k]) !== stableJson(incoming[k])) conflicts.push(k); // same content in another key order is no conflict
   });
@@ -328,10 +342,10 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     }
     renderMatrixView();
     if (replaceCleanly) markBackupDone();
+    // One dialog at a time: the merge report first (worth reading), then the list of PDFs to reconnect
+    if (!replaceCleanly) await showNotice('Backup merged', mergeSummaryText(mergeReport));
+    else if (!state.docs.some(d => !d.hasBinary)) showSnackbar('Backup restored.');
     if (state.docs.some(d => !d.hasBinary)) showMissingPdfModal();
-    else if (replaceCleanly) showSnackbar('Backup restored.');
-    else showNotice('Backup merged', mergeSummaryText(mergeReport)); // the list of kept local versions is worth reading
-    if (!replaceCleanly && mergeReport.conflicts.length && state.docs.some(d => !d.hasBinary)) showNotice('Backup merged', mergeSummaryText(mergeReport));
   } catch (err) {
     showNotice('The backup could not be restored', err.message);
   }
