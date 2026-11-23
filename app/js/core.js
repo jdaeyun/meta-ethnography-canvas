@@ -21,8 +21,6 @@ const DB_VERSION = 6;
 // to upgradeProjectData() (and to normalize*() for the browser's own database). Files without the number are older
 // (before 1.4.7) and are opened on a best-effort basis.
 const PROJECT_FORMAT = 1;
-// Audit actions that other code reads back (row title history, Appendix A): written and matched from one place
-const LOG_ACTION = { rowTitle: 'Refined 3rd Order Construct Title' };
 function upgradeProjectData(data) {
   const f = Number(data && data.formatVersion) || 0;
   if (f > PROJECT_FORMAT) {
@@ -30,29 +28,6 @@ function upgradeProjectData(data) {
   }
   // Format 1 is the current one: nothing to upgrade yet. Later formats add their steps here, oldest first.
   return sanitizeProjectData(data);
-}
-// A project file can come from someone else (Compare) or be edited by hand: keys that would change an object's prototype
-// are removed at every depth, and records that are not objects with an id are left out (counted in data._droppedRecords).
-function sanitizeProjectData(data) {
-  if (!data || typeof data !== 'object') return data;
-  const strip = v => {
-    if (Array.isArray(v)) { v.forEach(strip); return v; }
-    if (v && typeof v === 'object' && !(v instanceof ArrayBuffer)) {
-      ['__proto__', 'constructor', 'prototype'].forEach(k => { if (Object.prototype.hasOwnProperty.call(v, k)) delete v[k]; });
-      Object.keys(v).forEach(k => strip(v[k]));
-    }
-    return v;
-  };
-  strip(data);
-  let dropped = 0;
-  ['docs', 'annotations', 'clusters', 'logs'].forEach(k => {
-    if (!Array.isArray(data[k])) return;
-    const ok = data[k].filter(r => r && typeof r === 'object' && !Array.isArray(r) && (typeof r.id === 'string' || typeof r.id === 'number'));
-    dropped += data[k].length - ok.length;
-    data[k] = ok;
-  });
-  if (dropped) data._droppedRecords = dropped;
-  return data;
 }
 let dbInstancePromise = null;
 

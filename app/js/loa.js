@@ -67,10 +67,6 @@ const LINK_TYPES = {
   encompasses: { sym: '⊃', label: 'encompasses', color: '#b45309', dash: '' },
   metaphor: { sym: '≈', label: 'is understood through the metaphor of', color: '#0369a1', dash: '2 3' }
 };
-// Relations with a direction (A → B); the others are symmetric. Not every line of argument is a causal flow:
-// themes can also nest in one another (encompasses) or be read through a metaphor.
-const DIRECTED_LINK_TYPES = ['leads', 'encompasses', 'metaphor'];
-function isDirectedLink(type) { return DIRECTED_LINK_TYPES.includes(type); }
 function getLoaLinks() {
   const ids = new Set(state.clusters.map(c => c.id));
   return (Array.isArray(state.loa.links) ? state.loa.links : []).filter(l => ids.has(l.from) && ids.has(l.to));
@@ -145,19 +141,6 @@ function buildConceptMapSvg(prefix, width, height, layout = getLoaMapLayout()) {
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="100%" style="max-width:${width}px; height:auto;" role="img" aria-label="Concept relationship map"><defs>${defs}</defs>${lines}${boxes}</svg>`;
 }
-// Several relations between the same two constructs (e.g. A ➔ B and A ⚡ B) are drawn side by side, not on top of each other:
-// each gets an offset across the line between them (0 when it is the only one). Keyed by link id.
-function linkPairOffsets(links, step = 22) {
-  const groups = {};
-  links.forEach(l => { const k = [l.from, l.to].sort().join('|'); (groups[k] = groups[k] || []).push(l); });
-  const off = {};
-  Object.values(groups).forEach(g => g.forEach((l, i) => {
-    // Measured against the pair's sorted direction, so A→B and B→A also part
-    const sign = [l.from, l.to].sort()[0] === l.from ? 1 : -1;
-    off[l.id] = (i - (g.length - 1) / 2) * step * sign;
-  }));
-  return off;
-}
 // Left → right process layout: columns follow "leads to" relations (longest path from the starting constructs);
 // "mutually related" and "in tension" relations do not create steps and are drawn as curved links.
 function buildFlowMapSvg(prefix) {
@@ -167,36 +150,7 @@ function buildFlowMapSvg(prefix) {
   const nodes = state.clusters.filter(c => usedIds.has(c.id));
   if (nodes.length === 0) return '';
   const ids = nodes.map(c => c.id);
-  // Every directed relation (leads to, encompasses, is understood through) sets the columns, left to right; a model built only
-  // of ⊃ or ≈ would otherwise stack every construct in one column
-  const leads = links.filter(l => isDirectedLink(l.type));
-  // Drop back-edges (cycles) for ranking only
-  const out = {}; ids.forEach(id => out[id] = []);
-  const state3 = {}; const forward = new Set();
-  leads.forEach(l => out[l.from].push(l));
-  const dfs = id => {
-    state3[id] = 1;
-    out[id].forEach(l => {
-      if (state3[l.to] === 1) return;           // back-edge
-      forward.add(l.id);
-      if (!state3[l.to]) dfs(l.to);
-    });
-    state3[id] = 2;
-  };
-  const hasIncoming = new Set(leads.map(l => l.to));
-  [...ids.filter(id => !hasIncoming.has(id)), ...ids].forEach(id => { if (!state3[id]) dfs(id); });
-  const rank = {}; ids.forEach(id => rank[id] = 0);
-  for (let i = 0; i < ids.length; i++) {
-    let changed = false;
-    leads.filter(l => forward.has(l.id)).forEach(l => { if (rank[l.to] < rank[l.from] + 1) { rank[l.to] = rank[l.from] + 1; changed = true; } });
-    if (!changed) break;
-  }
-  // Constructs joined only by ⇄ / ⚡ sit in the same column as their partner
-  const leadNodes = new Set(leads.flatMap(l => [l.from, l.to]));
-  links.filter(l => !isDirectedLink(l.type)).forEach(l => {
-    if (!leadNodes.has(l.from) && leadNodes.has(l.to)) rank[l.from] = rank[l.to];
-    else if (!leadNodes.has(l.to) && leadNodes.has(l.from)) rank[l.to] = rank[l.from];
-  });
+  const { rank, leads } = flowColumnRanks(ids, links);
   const nCols = Math.max(...ids.map(id => rank[id])) + 1;
   const cols = Array.from({ length: nCols }, () => []);
   nodes.forEach(c => cols[rank[c.id]].push(c.id));

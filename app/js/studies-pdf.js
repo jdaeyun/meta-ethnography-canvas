@@ -1069,16 +1069,6 @@ async function renderPageContentNow(container, num) {
   }
 }
 
-// Chinese / Japanese text has no spaces between words: where two text items meet between such characters, nothing is added
-const CJK_CHAR = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
-function joinSeparator(prev, next) {
-  return CJK_CHAR.test(String(prev).slice(-1)) && CJK_CHAR.test(String(next).charAt(0)) ? '' : ' ';
-}
-function joinTextItems(strs) {
-  let out = '';
-  strs.forEach(t => { if (!t) return; out += (out ? joinSeparator(out, t) : '') + t; });
-  return out;
-}
 // Text of a selection in the PDF text layer. Range.toString() joins the last word of one line to the first word
 // of the next ("againstthe") because PDF.js text items usually have no trailing space at a line end.
 // Here a space is added whenever the next text item starts on a new line or column (hyphen at line end: no space).
@@ -1545,36 +1535,6 @@ document.addEventListener('keydown', (e) => {
 });
 
 // --- E. Hybrid Citation Auto-Extractor (PDF Metadata + Page 1 Font/Position Heuristics) ---
-function extractSurnameFromAuthorString(rawAuthor) {
-  if (!rawAuthor) return { surname: '', hasEtAl: true };
-  const cleaned = String(rawAuthor)
-    .replace(/[\d*†‡§¶✉]/g, '')
-    .replace(/\b(MD|PhD|RN|PharmD|MSc|MPH|BSc|Prof|Dr)\b\.?/gi, '')
-    .trim();
-  // Chinese / Japanese names put the family name first ("山田 太郎"), and authors are separated by 、 ， or ・: take the first
-  // token of the first author; a name written without a space is kept whole (family and given name cannot be told apart)
-  if (CJK_CHAR.test(cleaned)) {
-    const authors = cleaned.split(/[、，,;・／/]|\band\b|&/).map(x => x.trim()).filter(Boolean);
-    const first = authors[0] || '';
-    return { surname: first.split(/[\s\u3000]+/)[0], hasEtAl: authors.length > 1 };
-  }
-  const multiAuthors = /;|,|\band\b|&/i.test(cleaned);
-  const firstChunk = cleaned.split(/;|\band\b|&/i)[0].trim();
-  if (firstChunk.includes(',')) {
-    // "Surname, GivenName" format
-    const surname = firstChunk.split(',')[0].trim().replace(/\s+[A-Z]{1,3}\.?$/, ''); // "Hernandez M" -> "Hernandez"
-    return { surname, hasEtAl: multiAuthors || cleaned.split(',').length > 2 };
-  }
-  const parts = firstChunk.split(/\s+/).filter(Boolean);
-  // Vancouver style ("Hamdan A"): trailing initials -> surname is the first token
-  const initialsLast = parts.length > 1 && /^[A-Z]{1,3}\.?$/.test(parts[parts.length - 1]);
-  const surname = parts.length > 0 ? (initialsLast ? parts[0] : parts[parts.length - 1]) : '';
-  return { surname, hasEtAl: multiAuthors };
-}
-
-// Publication years 1940–2039 (classic qualitative studies of the 1960s and 1970s included), one pattern for every stage
-const YEAR_CORE = '19[4-9]\\d|20[0-3]\\d';
-const YEAR_RE = new RegExp('(?:^|\\D)(' + YEAR_CORE + ')(?!\\d)');
 async function autoExtractCitationFromPdf() {
   const doc = state.docs.find(d => d.id === state.activeDocId);
   if (!doc || !state.activePdfDoc) {
@@ -1611,8 +1571,8 @@ async function autoExtractCitationFromPdf() {
     // A publication date in the metadata is trusted; a file creation date (often the download or typesetting date) is only a fallback
     const pubDate = xmp && (xmp.get('prism:publicationDate') || xmp.get('dc:date'));
     const rawDate = pubDate || (xmp && xmp.get('xap:CreateDate')) || info.CreationDate || '';
-    const dateMatch = String(rawDate).match(YEAR_RE);
-    if (dateMatch) { detectedYear = dateMatch[1]; yearFromPublicationDate = !!pubDate; }
+    const metaYear = yearFromPdfDate(rawDate);
+    if (metaYear) { detectedYear = metaYear; yearFromPublicationDate = !!pubDate; }
   } catch (e) {
     console.warn('Metadata read warning:', e);
   }

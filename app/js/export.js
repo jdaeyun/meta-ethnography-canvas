@@ -403,62 +403,6 @@ function buildNotTranslatedHtml() {
 const APPENDIX_MODES = { key: 'Key decisions', full: 'Full audit trail' };
 function getAppendixMode() { const m = lsGet('me_appendix_mode'); return APPENDIX_MODES[m] ? m : 'key'; }
 
-// Edits of one text that are shown as one line in Appendix A (family name; same row for row texts)
-const APPENDIX_EDIT_SERIES = [
-  [new RegExp('^' + LOG_ACTION.rowTitle + '$'), 'Row title refined'],
-  [/^Updated Step A Translation Summary for /, 'Step A translation summary revised'],
-  [/^Updated Step B 3rd Order Definition & Interpretation for /, 'Step B third-order interpretation revised'],
-  [/^Reflexive note on /, 'Reflexive note on the row revised'],
-  [/^3rd Order Team Perspective Updated /, 'Team perspective on the row revised'],
-  [/^Updated GRADE-CERQual Assessment for /, 'GRADE-CERQual assessment revised'],
-  [/^Updated Phase 1 Research Aim$/, 'Research aim revised'],
-  [/^Updated Review question \(Item 3\)$/, 'Review question revised'],
-  [/^Updated Line of Argument Synthesis/, 'Line of argument revised'],
-  [/^Updated Phase 4: Outcome of Relating Studies/, 'Outcome of relating studies (Item 12) revised'],
-  [/^Updated Alternative interpretations/, 'Alternative interpretations revised'],
-  [/^Updated Context where the model applies/, 'Context where the model applies (Item 16) revised']
-];
-function appendixSeries(l) {
-  const hit = APPENDIX_EDIT_SERIES.find(([re]) => re.test(l.action || ''));
-  if (!hit) return null;
-  // Same row by id; entries from older versions without row ids are kept apart by their action text (it names the row)
-  return { label: hit[1], key: hit[1] + '|' + ((l.clusterIds || [])[0] || l.action || '') };
-}
-function isMemoLog(l) { return /^\[[^\]]+\]/.test(l.action || '') && !/^\[Reviewer-wrapped\]/.test(l.action || ''); }
-// Routine bookkeeping: shown in the full trail; in Appendix A only when a reason was recorded with it
-const APPENDIX_ROUTINE = [
-  /^Linked 1st Order Quote/, /^Unlinked 1st Order Quote/, /^Switched (1st|2nd) Order/, /^\[Reviewer-wrapped\]/, /^Set 2nd Order label source/,
-  /^Updated 2nd Order Summary Label/, /^Placed 2nd Order Construct/, /^Removed 2nd Order Construct from/,
-  /^Added a further passage/, /^Recorded p\..* as a further passage/, /^Split p\..* off/, /^Recorded how two concepts relate within/, /^Removed a relationship between concepts within/,
-  /^Edited the extracted text of/, /^Wrote Study Overview/, /^Revised Study Overview/, /^Deleted a 1st Order quote/, /^Restored a deleted 1st Order quote/,
-  /^Imported Peer Construct from/, /^Merged \d+ audit trail entries from/, /^Recorded provisional agreement/, /^2nd Order Team Perspective Updated/,
-  /^Reordered 3rd Order Theme Row/, /^Updated note on how a concept fits/, /^Noted why a 2nd Order construct was not translated/,
-  /^Set subgroup for/, /^Appraisal \(/, /^Updated Critical Appraisal/, /^(Linked|Unlinked) .* companion paper/,
-  /^Changed the reviewer attributed to an item/
-];
-// Write-up wording of the Methods (Tab 4 fields) is the Methods text itself, not a decision
-const APPENDIX_WRITEUP = /^Updated (Reading & extraction process|Extracted from|Units of synthesis|Working definitions|Translation process|Quality appraisal policy|How appraisal was used|Process of relating studies|Studies synthesized into the line of argument)/;
-function isKeyDecisionLog(l) {
-  if ((l.rationale || '').trim()) return true;
-  if (isMemoLog(l)) return true;
-  const a = l.action || '';
-  // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
-  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false; // undoing a passage step is routine like the step
-  // Restoring a deleted construct is a key decision when the construct is placed in rows (as its deletion is)
-  if (/^Restored a deleted 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
-  // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
-  if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
-  if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
-  if (l.category === 'linking' || l.category === 'matrix_mapping' && !/^Auto-placed/.test(a)) return false;
-  if (l.category === 'context_appraisal') return false; // reported per study in Table 1 / 1b
-  // Empty-cell statuses are shown in Table 2b; a first judgement of a placement is shown in Tables 2 / 2b: only a CHANGED judgement is a decision here
-  if (l.category === 'relating_studies' && !/^Updated Phase 4/.test(a)) return false;
-  if (/^Judged construct as /.test(a)) return !/Not yet judged/.test(l.fromVal || '');
-  // Deleting a construct is part of the reading; it is a decision about the synthesis only when it was placed in a row
-  if (/^Deleted a 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
-  return true;
-}
-
 function getAppendixASpec(mode = getAppendixMode()) {
   const all = [...state.logs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
   const fmt = t => new Date(t).toLocaleString();

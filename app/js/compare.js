@@ -44,53 +44,6 @@ function stripWrapPrefix(anno) {
   return t.replace(/^\[Concept derived from 1st Order Quote[^\]]*\]:\s*/, '').replace(/^["“”]+|["“”]+$/g, '');
 }
 
-function computeTextSimilarity(strA, strB) {
-  const clean = s => String(s || '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-  const a = clean(strA);
-  const b = clean(strB);
-  if (!a || !b) return 0;
-  if (a === b) return 1.0;
-  if (a.includes(b) || b.includes(a)) {
-    // One selection inside the other: the same passage, read with a shorter or longer span. Only when the shorter one is a
-    // passage of its own (8+ words, or 40% of the longer): a short phrase occurs in many unrelated quotes.
-    const minLen = Math.min(a.length, b.length);
-    const maxLen = Math.max(a.length, b.length);
-    const shorter = a.length <= b.length ? a : b;
-    const shortWords = shorter.split(/\s+/).length;
-    const unspaced = shortWords === 1 && minLen >= 20; // Japanese / Chinese text has no spaces: count characters instead
-    if (minLen > 12 && (shortWords >= 8 || unspaced || minLen / maxLen >= 0.4)) return Math.max(0.78, minLen / maxLen);
-  }
-  // Word token overlap (including 2-char clinical/regional abbreviations like RN, UK, IV, ED)
-  const wordsA = new Set(a.split(/\s+/).filter(w => w.length >= 2));
-  const wordsB = new Set(b.split(/\s+/).filter(w => w.length >= 2));
-  let wordScore = 0;
-  if (wordsA.size > 0 && wordsB.size > 0) {
-    let inter = 0;
-    wordsA.forEach(w => { if (wordsB.has(w)) inter++; });
-    // Dice, like the bigrams. The overlap with the shorter passage (inter / min) is used only when that passage is long
-    // enough to mean something: two readers selecting overlapping stretches of the same paragraph should still pair, but a
-    // two-word fragment ("moral distress") must not "match" any long quote that happens to contain both words.
-    const minSize = Math.min(wordsA.size, wordsB.size);
-    const dice = (2 * inter) / (wordsA.size + wordsB.size);
-    wordScore = minSize >= 8 ? Math.max(dice, inter / minSize) : dice;
-  }
-  // Character bigram overlap (handles CJK/Japanese text without spaces and minor OCR/hyphenation diffs)
-  const noSpaceA = a.replace(/\s+/g, '');
-  const noSpaceB = b.replace(/\s+/g, '');
-  let bigramScore = 0;
-  if (noSpaceA.length >= 2 && noSpaceB.length >= 2) {
-    const bgA = new Set();
-    const bgB = new Set();
-    for (let i = 0; i < noSpaceA.length - 1; i++) bgA.add(noSpaceA.slice(i, i + 2));
-    for (let i = 0; i < noSpaceB.length - 1; i++) bgB.add(noSpaceB.slice(i, i + 2));
-    let bgInter = 0;
-    bgA.forEach(g => { if (bgB.has(g)) bgInter++; });
-    // Dice coefficient: normalising by the shorter string alone let short fragments "match" unrelated long quotes
-    bigramScore = (2 * bgInter) / (bgA.size + bgB.size);
-  }
-  return Math.max(wordScore, bigramScore);
-}
-
 // ---- Which of the peer's studies is which of mine ----
 // Certain: same id, identical file (sha256), same DOI, same file name, same title. Same first author + year is only a
 // SUGGESTION (two papers by one author in one year are common) and is confirmed by hand in the Studies & Order tab.

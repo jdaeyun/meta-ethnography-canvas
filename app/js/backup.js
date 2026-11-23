@@ -39,67 +39,6 @@ document.getElementById('backupJsonBtn').addEventListener('click', async () => {
 });
 
 // ---- MERGE helpers: local work is never overwritten ----
-// Empty at every depth: an object counts as empty when all of its values are (e.g. appraisalItems { CASP: {} }, which the app
-// creates as soon as a study's appraisal is looked at)
-function isEmptyValue(v) {
-  if (v === undefined || v === null || v === '') return true;
-  if (Array.isArray(v)) return v.length === 0;
-  if (typeof v === 'object') return Object.keys(v).every(k => isEmptyValue(v[k]));
-  return false;
-}
-const isPlainObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
-// Lists of separate records (relations, team models, within-study links, set-aside items) are merged as a union: what is only
-// in the backup is added, a record in both (same key) keeps the local version. Key per list field:
-const MERGE_UNION_KEYS = {
-  links: x => x.id || [x.from, x.to, x.type].join('|'),
-  conceptLinks: x => x.id || [x.from, x.to, x.type].join('|'),
-  teamModels: x => x.id || [x.reviewer, x.title, x.capturedAt].join('|'),
-  peerSetAside: x => [x.peerId, x.reviewer, x.textKey].join('|')
-};
-// Copy fields from `incoming` into `local` only where `local` is empty; report fields that differ
-// Keys that would change an object's prototype instead of a field (a JSON file from someone else can contain them)
-const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-function mergeFillEmpty(local, incoming, skip = []) {
-  const filled = [], conflicts = [];
-  Object.keys(incoming || {}).forEach(k => {
-    if (UNSAFE_KEYS.has(k) || skip.includes(k) || isEmptyValue(incoming[k])) return;
-    if (MERGE_UNION_KEYS[k] && Array.isArray(incoming[k]) && Array.isArray(local[k])) {
-      const keyOf = MERGE_UNION_KEYS[k], have = new Set(local[k].map(keyOf));
-      const add = incoming[k].filter(x => x && !have.has(keyOf(x)));
-      if (add.length) { local[k] = [...local[k], ...add]; filled.push(k); }
-      return;
-    }
-    if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
-    else if (isPlainObject(local[k]) && isPlainObject(incoming[k])) {
-      // Both have something (e.g. answers to some appraisal questions each): fill what is empty here, one level down
-      const r = mergeFillEmpty(local[k], incoming[k]);
-      if (r.filled.length) filled.push(k);
-      r.conflicts.forEach(c => conflicts.push(`${k}.${c}`));
-    }
-    else if (stableJson(local[k]) !== stableJson(incoming[k])) conflicts.push(k); // same content in another key order is no conflict
-  });
-  return { filled, conflicts };
-}
-// Same item on both sides with different content: texts that are empty here are filled from the backup (a note or a Step B
-// written on another computer); placements, judgements and ratings are not, since an empty value may be a decision made here.
-const MERGE_FILL_TEXT = {
-  annotations: ['note', 'nuanceNote', 'concordanceNote', 'notTranslatedNote'],
-  clusters: ['thirdOrderTitle', 'translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation', 'cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote']
-};
-function mergeFillTexts(local, incoming, fields) {
-  const filled = [];
-  fields.forEach(k => {
-    const v = incoming[k];
-    if (typeof v === 'string' && v.trim() && !(typeof local[k] === 'string' && local[k].trim())) { local[k] = v; filled.push(k); }
-  });
-  return filled;
-}
-function stableJson(v) {
-  if (Array.isArray(v)) return '[' + v.map(stableJson).join(',') + ']';
-  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableJson(v[k])).join(',') + '}';
-  return JSON.stringify(v);
-}
-function sameRecord(a, b) { return stableJson(a) === stableJson(b); }
 function mergeSummaryText(r) {
   let t = `Backup merged.\n\nAdded: ${r.docs} studies, ${r.annotations} constructs/quotes, ${r.clusters} 3rd Order rows, ${r.logs} audit entries.`
     + (r.filled ? `\nFilled empty fields (notes, texts) of ${r.filled} item(s) from the backup.` : '');
