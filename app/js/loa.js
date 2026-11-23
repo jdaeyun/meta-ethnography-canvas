@@ -67,16 +67,28 @@ const LINK_TYPES = {
   encompasses: { sym: '⊃', label: 'encompasses', color: '#b45309', dash: '' },
   metaphor: { sym: '≈', label: 'is understood through the metaphor of', color: '#0369a1', dash: '2 3' }
 };
-// Relations with a direction (A → B); the others are symmetric. Not every line of argument is a causal flow:
-// themes can also nest in one another (encompasses) or be read through a metaphor.
-const DIRECTED_LINK_TYPES = ['leads', 'encompasses', 'metaphor'];
-function isDirectedLink(type) { return DIRECTED_LINK_TYPES.includes(type); }
 function getLoaLinks() {
   const ids = new Set(state.clusters.map(c => c.id));
   return (Array.isArray(state.loa.links) ? state.loa.links : []).filter(l => ids.has(l.from) && ids.has(l.to));
 }
 function clusterLabel(c) { return (c && c.thirdOrderTitle && c.thirdOrderTitle.trim()) || '(Untitled row)'; }
 function getLoaMapLayout() { return state.loa && state.loa.mapLayout === 'flow' ? 'flow' : 'circle'; }
+// Where the reviewer has dragged the boxes (optional, one set per layout, in map units):
+// state.loa.mapPositions = { circle: { rowId: { x, y } }, flow: { ... } }. A box without one keeps its computed place;
+// the downloaded .svg uses the same places. "Reset layout" removes the set of the current layout.
+function savedMapPos(layout, id) {
+  const m = state.loa && state.loa.mapPositions && state.loa.mapPositions[layout];
+  const p = m && typeof m === 'object' && Object.prototype.hasOwnProperty.call(m, id) ? m[id] : null;
+  return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? p : null;
+}
+function hasSavedMapPositions(layout = getLoaMapLayout()) {
+  return getLoaLinks().some(l => savedMapPos(layout, l.from) || savedMapPos(layout, l.to));
+}
+// The attributes that make a box of the drawer's map movable (by pointer, or by Tab + arrow keys); none in the download
+function mapNodeAttrs(prefix, id, label) {
+  if (prefix !== 'drw') return '';
+  return ` class="loa-map-node" data-node="${escapeHtml(id)}" tabindex="0" role="button" aria-label="${escapeHtml(label)}: drag, or use the arrow keys, to move" style="cursor:move; touch-action:none;"`;
+}
 function buildConceptMapSvg(prefix, width, height, layout = getLoaMapLayout()) {
   if (layout === 'flow') return buildFlowMapSvg(prefix);
   const links = getLoaLinks();
@@ -93,6 +105,8 @@ function buildConceptMapSvg(prefix, width, height, layout = getLoaMapLayout()) {
     const ang = nodes.length === 1 ? 0 : (-Math.PI / 2 + (2 * Math.PI * i) / nodes.length);
     const w = Math.min(200, short.length * 6.4 + 18), h = 26;
     pos[c.id] = { x: nodes.length === 1 ? cx : cx + rx * Math.cos(ang), y: nodes.length === 1 ? cy : cy + ry * Math.sin(ang), w, h, short, label };
+    const sp = savedMapPos('circle', c.id); // moved by the reviewer: kept inside the map
+    if (sp) { pos[c.id].x = Math.min(width - w / 2 - 2, Math.max(w / 2 + 2, sp.x)); pos[c.id].y = Math.min(height - h / 2 - 2, Math.max(h / 2 + 2, sp.y)); }
   });
   const edge = (a, b) => {
     let dx = b.x - a.x, dy = b.y - a.y;
@@ -104,17 +118,26 @@ function buildConceptMapSvg(prefix, width, height, layout = getLoaMapLayout()) {
   Object.entries(LINK_TYPES).forEach(([k, v]) => {
     defs += `<marker id="${prefix}-ah-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${v.color}"/></marker>`;
   });
+  const offsets = linkPairOffsets(links);
   links.forEach(l => {
     const m = LINK_TYPES[l.type] || LINK_TYPES.leads;
     const e = edge(pos[l.from], pos[l.to]);
     const markers = isDirectedLink(l.type) ? `marker-end="url(#${prefix}-ah-${l.type})"`
                   : `marker-start="url(#${prefix}-ah-${l.type})" marker-end="url(#${prefix}-ah-${l.type})"`;
-    lines += `<line x1="${e.x1.toFixed(1)}" y1="${e.y1.toFixed(1)}" x2="${e.x2.toFixed(1)}" y2="${e.y2.toFixed(1)}" stroke="${m.color}" stroke-width="1.8" ${m.dash ? `stroke-dasharray="${m.dash}"` : ''} ${markers}><title>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.from)))} ${m.label} ${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.to)))}${l.note ? ' — ' + escapeHtml(l.note) : ''}</title></line>`;
+    const title = `<title>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.from)))} ${m.label} ${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.to)))}${l.note ? ' — ' + escapeHtml(l.note) : ''}</title>`;
+    const style = `fill="none" stroke="${m.color}" stroke-width="1.8" ${m.dash ? `stroke-dasharray="${m.dash}"` : ''} ${markers}`;
+    const o = offsets[l.id] || 0;
+    if (!o) { lines += `<line x1="${e.x1.toFixed(1)}" y1="${e.y1.toFixed(1)}" x2="${e.x2.toFixed(1)}" y2="${e.y2.toFixed(1)}" ${style}>${title}</line>`; return; }
+    // A curve bowed to one side of the straight line, by the offset of this relation in its pair
+    const mx = (e.x1 + e.x2) / 2, my = (e.y1 + e.y2) / 2, len = Math.hypot(e.x2 - e.x1, e.y2 - e.y1) || 1;
+    const nx = -(e.y2 - e.y1) / len, ny = (e.x2 - e.x1) / len;
+    const qx = mx + nx * o * 2, qy = my + ny * o * 2;
+    lines += `<path d="M${e.x1.toFixed(1)},${e.y1.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${e.x2.toFixed(1)},${e.y2.toFixed(1)}" ${style}>${title}</path>`;
   });
   let boxes = '';
   nodes.forEach(c => {
     const p = pos[c.id];
-    boxes += `<g><title>${escapeHtml(p.label)}</title><rect x="${(p.x - p.w / 2).toFixed(1)}" y="${(p.y - p.h / 2).toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h}" rx="6" fill="#ffffff" stroke="#475569" stroke-width="1.2"/><text x="${p.x.toFixed(1)}" y="${(p.y + 4).toFixed(1)}" text-anchor="middle" font-size="11" font-family="Georgia, serif" fill="#0f172a">${escapeHtml(p.short)}</text></g>`;
+    boxes += `<g${mapNodeAttrs(prefix, c.id, p.label)}><title>${escapeHtml(p.label)}</title><rect x="${(p.x - p.w / 2).toFixed(1)}" y="${(p.y - p.h / 2).toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h}" rx="6" fill="#ffffff" stroke="#475569" stroke-width="1.2"/><text x="${p.x.toFixed(1)}" y="${(p.y + 4).toFixed(1)}" text-anchor="middle" font-size="11" font-family="Georgia, serif" fill="#0f172a">${escapeHtml(p.short)}</text></g>`;
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="100%" style="max-width:${width}px; height:auto;" role="img" aria-label="Concept relationship map"><defs>${defs}</defs>${lines}${boxes}</svg>`;
 }
@@ -127,34 +150,7 @@ function buildFlowMapSvg(prefix) {
   const nodes = state.clusters.filter(c => usedIds.has(c.id));
   if (nodes.length === 0) return '';
   const ids = nodes.map(c => c.id);
-  const leads = links.filter(l => l.type === 'leads');
-  // Drop back-edges (cycles) for ranking only
-  const out = {}; ids.forEach(id => out[id] = []);
-  const state3 = {}; const forward = new Set();
-  leads.forEach(l => out[l.from].push(l));
-  const dfs = id => {
-    state3[id] = 1;
-    out[id].forEach(l => {
-      if (state3[l.to] === 1) return;           // back-edge
-      forward.add(l.id);
-      if (!state3[l.to]) dfs(l.to);
-    });
-    state3[id] = 2;
-  };
-  const hasIncoming = new Set(leads.map(l => l.to));
-  [...ids.filter(id => !hasIncoming.has(id)), ...ids].forEach(id => { if (!state3[id]) dfs(id); });
-  const rank = {}; ids.forEach(id => rank[id] = 0);
-  for (let i = 0; i < ids.length; i++) {
-    let changed = false;
-    leads.filter(l => forward.has(l.id)).forEach(l => { if (rank[l.to] < rank[l.from] + 1) { rank[l.to] = rank[l.from] + 1; changed = true; } });
-    if (!changed) break;
-  }
-  // Constructs joined only by ⇄ / ⚡ sit in the same column as their partner
-  const leadNodes = new Set(leads.flatMap(l => [l.from, l.to]));
-  links.filter(l => l.type !== 'leads').forEach(l => {
-    if (!leadNodes.has(l.from) && leadNodes.has(l.to)) rank[l.from] = rank[l.to];
-    else if (!leadNodes.has(l.to) && leadNodes.has(l.from)) rank[l.to] = rank[l.from];
-  });
+  const { rank, leads } = flowColumnRanks(ids, links);
   const nCols = Math.max(...ids.map(id => rank[id])) + 1;
   const cols = Array.from({ length: nCols }, () => []);
   nodes.forEach(c => cols[rank[c.id]].push(c.id));
@@ -182,11 +178,11 @@ function buildFlowMapSvg(prefix) {
   const boxW = 158, colGap = 70, rowGap = 26, padX = 24, padY = 24;
   const pos = {};
   const colHeights = cols.map(col => col.reduce((h, id) => h + (wrap(clusterLabel(state.clusters.find(c => c.id === id))).length * 14 + 14) + rowGap, -rowGap));
-  const H = Math.max(160, Math.max(...colHeights) + padY * 2 + 20);
+  let H = Math.max(160, Math.max(...colHeights) + padY * 2 + 20);
   // Same-column relations loop out to the right of their column (see below): leave room for the loops of the last column
   const loopReach = l => 0.75 * (22 + 10 * Math.abs((orderIdx[l.to] || 0) - (orderIdx[l.from] || 0))) + 10;
   const lastColLoop = Math.max(0, ...links.filter(l => rank[l.from] === nCols - 1 && rank[l.to] === nCols - 1).map(loopReach));
-  const W = padX * 2 + nCols * boxW + (nCols - 1) * colGap + Math.max(0, lastColLoop - padX);
+  let W = padX * 2 + nCols * boxW + (nCols - 1) * colGap + Math.max(0, lastColLoop - padX);
   cols.forEach((col, ci) => {
     let y = (H - colHeights[ci]) / 2;
     col.forEach(id => {
@@ -197,32 +193,48 @@ function buildFlowMapSvg(prefix) {
       y += h + rowGap;
     });
   });
+  // Boxes the reviewer moved keep their place (never off the top or left edge); the map grows to hold them and their links
+  const moved = new Set();
+  Object.entries(pos).forEach(([id, p]) => {
+    const sp = savedMapPos('flow', id);
+    if (!sp) return;
+    p.x = Math.max(p.w / 2 + 4, sp.x); p.y = Math.max(p.h / 2 + 4, sp.y); moved.add(id);
+  });
+  if (moved.size) {
+    W = Math.max(W, ...Object.values(pos).map(p => p.x + p.w / 2 + 70));
+    H = Math.max(H, ...Object.values(pos).map(p => p.y + p.h / 2 + 50));
+  }
   let defs = '', paths = '';
   Object.entries(LINK_TYPES).forEach(([k, v]) => {
     defs += `<marker id="${prefix}-fl-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${v.color}"/></marker>`;
   });
+  const flowOffsets = linkPairOffsets(links, 16);
   links.forEach(l => {
     const m = LINK_TYPES[l.type] || LINK_TYPES.leads;
     const a = pos[l.from], b = pos[l.to];
     let d;
-    if (b.col > a.col) {                       // forward step: right edge → left edge
+    const po = flowOffsets[l.id] || 0; // parallel relations of one pair: their curves part by this much
+    // Read from where the boxes are, so a moved box is joined the same way as one in its column
+    const ahead = b.x - b.w / 2 >= a.x + a.w / 2 + 10, behind = b.x + b.w / 2 <= a.x - a.w / 2 - 10;
+    if (ahead) {                               // forward step: right edge → left edge
       const x1 = a.x + a.w / 2, x2 = b.x - b.w / 2 - 2, mx = (x1 + x2) / 2;
-      d = `M${x1.toFixed(1)},${a.y.toFixed(1)} C${mx.toFixed(1)},${a.y.toFixed(1)} ${mx.toFixed(1)},${b.y.toFixed(1)} ${x2.toFixed(1)},${b.y.toFixed(1)}`;
-    } else if (b.col < a.col) {                // feedback loop: arc below the boxes
+      d = `M${x1.toFixed(1)},${(a.y + po / 3).toFixed(1)} C${mx.toFixed(1)},${(a.y + po).toFixed(1)} ${mx.toFixed(1)},${(b.y + po).toFixed(1)} ${x2.toFixed(1)},${(b.y + po / 3).toFixed(1)}`;
+    } else if (behind) {                       // feedback loop: arc below the boxes
       const x1 = a.x, x2 = b.x, y1 = a.y + a.h / 2, y2 = b.y + b.h / 2 + 2, low = Math.max(y1, y2) + 34;
       d = `M${x1.toFixed(1)},${y1.toFixed(1)} C${x1.toFixed(1)},${low.toFixed(1)} ${x2.toFixed(1)},${low.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
     } else {                                   // same column: loop out to the right so boxes in between are not crossed
       const x1 = a.x + a.w / 2, x2 = b.x + b.w / 2 + 2;
-      const cx = x1 + 22 + 10 * Math.abs(orderIdx[l.to] - orderIdx[l.from]);
+      const apart = moved.has(l.from) || moved.has(l.to) ? Math.round(Math.abs(b.y - a.y) / 50) : Math.abs(orderIdx[l.to] - orderIdx[l.from]);
+      const cx = Math.max(x1, x2) + 22 + 10 * apart;
       d = `M${x1.toFixed(1)},${a.y.toFixed(1)} C${cx.toFixed(1)},${a.y.toFixed(1)} ${cx.toFixed(1)},${b.y.toFixed(1)} ${x2.toFixed(1)},${b.y.toFixed(1)}`;
     }
     const markers = isDirectedLink(l.type) ? `marker-end="url(#${prefix}-fl-${l.type})"` : `marker-start="url(#${prefix}-fl-${l.type})" marker-end="url(#${prefix}-fl-${l.type})"`;
     paths += `<path d="${d}" fill="none" stroke="${m.color}" stroke-width="1.8" ${m.dash ? `stroke-dasharray="${m.dash}"` : ''} ${markers}><title>${escapeHtml(a.label)} ${m.label} ${escapeHtml(b.label)}${l.note ? ' — ' + escapeHtml(l.note) : ''}</title></path>`;
   });
   let boxes = '';
-  Object.values(pos).forEach(p => {
+  Object.entries(pos).forEach(([id, p]) => {
     const top = p.y - p.h / 2;
-    boxes += `<g><title>${escapeHtml(p.label)}</title><rect x="${(p.x - p.w / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${p.w}" height="${p.h}" rx="6" fill="#ffffff" stroke="#475569" stroke-width="1.2"/>` +
+    boxes += `<g${mapNodeAttrs(prefix, id, p.label)}><title>${escapeHtml(p.label)}</title><rect x="${(p.x - p.w / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${p.w}" height="${p.h}" rx="6" fill="#ffffff" stroke="#475569" stroke-width="1.2"/>` +
       p.lines.map((ln, i) => `<text x="${p.x.toFixed(1)}" y="${(top + 17 + i * 14).toFixed(1)}" text-anchor="middle" font-size="11" font-family="Georgia, serif" fill="#0f172a">${escapeHtml(ln)}</text>`).join('') + `</g>`;
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}" width="100%" style="max-width:${W.toFixed(0)}px; height:auto;" role="img" aria-label="Concept relationship map (left to right flow)"><defs>${defs}</defs><rect x="0" y="0" width="${W.toFixed(0)}" height="${H.toFixed(0)}" fill="#ffffff"/>${paths}${boxes}</svg>`;
@@ -259,6 +271,7 @@ document.addEventListener('click', async ev => {
     return;
   }
   if (ev.target && ev.target.closest && ev.target.closest('#loaMapSvgBtn')) downloadConceptMapSvg();
+  if (ev.target && ev.target.closest && ev.target.closest('#loaMapResetBtn')) resetLoaMapLayout();
 });
 // ◇ cells of the matrix (a study addresses a different aspect of the topic): the material of a line of argument
 // (Noblit & Hare). The reviewer ticks the ones the line of argument draws on; only those are reported as used.
@@ -347,8 +360,7 @@ function renderLoaMap() {
     };
     list.appendChild(row);
   });
-  const svg = buildConceptMapSvg('drw', 640, 360);
-  document.getElementById('loaMapBox').innerHTML = svg || '<div class="p-6 text-center text-[11px] text-purple-400 italic">The map appears here once you add a relation.</div>';
+  const svg = drawLoaMapBox();
   const layout = getLoaMapLayout();
   document.querySelectorAll('.loa-layout-btn').forEach(b => {
     const on = b.dataset.layout === layout;
@@ -356,6 +368,103 @@ function renderLoaMap() {
   });
   const dlBtn = document.getElementById('loaMapSvgBtn');
   if (dlBtn) dlBtn.disabled = !svg;
+}
+// Only the drawing (while a box is dragged, the rest of the drawer stays as it is)
+function drawLoaMapBox() {
+  const box = document.getElementById('loaMapBox');
+  if (!box) return '';
+  const svg = buildConceptMapSvg('drw', 640, 360);
+  box.innerHTML = svg || '<div class="p-6 text-center text-[11px] text-purple-400 italic">The map appears here once you add a relation.</div>';
+  const resetBtn = document.getElementById('loaMapResetBtn');
+  if (resetBtn) resetBtn.disabled = !svg || !hasSavedMapPositions();
+  return svg;
+}
+// Moving the boxes: the places are layout, not interpretation (no audit entry), but each move can be undone with Ctrl+Z
+function mapPositionsCopy(layout) {
+  const m = state.loa.mapPositions && state.loa.mapPositions[layout];
+  return m && typeof m === 'object' ? JSON.parse(JSON.stringify(m)) : null;
+}
+function setMapPos(layout, id, x, y) {
+  state.loa.mapPositions = { ...(state.loa.mapPositions || {}) };
+  state.loa.mapPositions[layout] = { ...(state.loa.mapPositions[layout] || {}), [id]: { x: Math.round(x), y: Math.round(y) } };
+}
+async function saveMapPositions(layout, before, label) {
+  // Only boxes still in the map keep a place
+  const inMap = new Set(getLoaLinks().flatMap(l => [l.from, l.to]));
+  const m = state.loa.mapPositions && state.loa.mapPositions[layout];
+  if (m) Object.keys(m).forEach(id => { if (!inMap.has(id)) delete m[id]; });
+  await dbPut('meta', state.loa);
+  pushUndoAction({ type: 'map_layout', layout, before, label });
+  const resetBtn = document.getElementById('loaMapResetBtn');
+  if (resetBtn) resetBtn.disabled = !hasSavedMapPositions();
+}
+function mapNodeCenter(g) {
+  const r = g.querySelector('rect');
+  return { x: +r.getAttribute('x') + +r.getAttribute('width') / 2, y: +r.getAttribute('y') + +r.getAttribute('height') / 2 };
+}
+(function bindLoaMapMoves() {
+  const box = document.getElementById('loaMapBox');
+  if (!box) return;
+  const toSvg = ev => {
+    const svg = box.querySelector('svg'), m = svg && svg.getScreenCTM();
+    return m ? new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m.inverse()) : null;
+  };
+  let drag = null, frame = 0;
+  box.addEventListener('pointerdown', ev => {
+    const g = ev.button === 0 && ev.target.closest && ev.target.closest('.loa-map-node');
+    const p = g && toSvg(ev);
+    if (!p) return;
+    const c = mapNodeCenter(g), layout = getLoaMapLayout();
+    drag = { id: g.dataset.node, layout, dx: p.x - c.x, dy: p.y - c.y, sx: ev.clientX, sy: ev.clientY, moved: false, before: mapPositionsCopy(layout) };
+    box.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+  box.addEventListener('pointermove', ev => {
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(ev.clientX - drag.sx, ev.clientY - drag.sy) < 3) return;
+    drag.moved = true;
+    const p = toSvg(ev);
+    if (!p) return;
+    setMapPos(drag.layout, drag.id, p.x - drag.dx, p.y - drag.dy);
+    if (!frame) frame = requestAnimationFrame(() => { frame = 0; drawLoaMapBox(); });
+  });
+  const end = async () => {
+    const d = drag; drag = null;
+    if (!d || !d.moved) return;
+    if (frame) { cancelAnimationFrame(frame); frame = 0; }
+    drawLoaMapBox();
+    await saveMapPositions(d.layout, d.before, 'Moved a box in the map');
+  };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+  // Keyboard: Tab to a box, arrow keys move it (Shift: in small steps); a series of presses is one move
+  let keyMove = null;
+  const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  box.addEventListener('keydown', ev => {
+    const g = ev.target.closest && ev.target.closest('.loa-map-node');
+    const dir = ARROWS[ev.key];
+    if (!g || !dir) return;
+    ev.preventDefault();
+    const layout = getLoaMapLayout(), id = g.dataset.node, step = ev.shiftKey ? 2 : 10, c = mapNodeCenter(g);
+    if (!keyMove || keyMove.layout !== layout) keyMove = { layout, before: mapPositionsCopy(layout) };
+    setMapPos(layout, id, c.x + dir[0] * step, c.y + dir[1] * step);
+    drawLoaMapBox();
+    box.querySelector(`.loa-map-node[data-node="${CSS.escape(id)}"]`)?.focus();
+    clearTimeout(keyMove.timer);
+    const km = keyMove;
+    km.timer = setTimeout(() => { if (keyMove === km) keyMove = null; saveMapPositions(km.layout, km.before, 'Moved a box in the map'); }, 600);
+  });
+})();
+async function resetLoaMapLayout() {
+  const layout = getLoaMapLayout();
+  const before = mapPositionsCopy(layout);
+  if (!before) return;
+  state.loa.mapPositions = { ...(state.loa.mapPositions || {}) };
+  delete state.loa.mapPositions[layout];
+  await dbPut('meta', state.loa);
+  pushUndoAction({ type: 'map_layout', layout, before, label: 'Reset the map layout' });
+  drawLoaMapBox();
+  showUndoSnackbar('The boxes are back in their computed places');
 }
 document.addEventListener('click', async (ev) => {
   if (!ev.target || ev.target.id !== 'loaLinkAddBtn') return;
@@ -594,7 +703,13 @@ const commitLoaDrawer = async () => {
 commitLoaDrawer.isCommit = true;
 function markLoaDrawerDirty() { loaDrawerDirty = true; pendingSaveCleanups.add(commitLoaDrawer); }
 LOA_DRAWER_FIELD_IDS().forEach(id => document.getElementById(id)?.addEventListener('input', markLoaDrawerDirty));
-loaDrawer.addEventListener('focusout', e => { if (!e.relatedTarget || !loaDrawer.contains(e.relatedTarget)) commitLoaDrawer(); });
+// Focus leaving the drawer commits it; the window losing focus (another window or app) does not (see bindPendingCommit)
+// A dialog opened from the drawer (From the map, Load a model) is part of working in it: focus moving there does not commit
+loaDrawer.addEventListener('focusout', e => {
+  const to = e.relatedTarget;
+  if (!document.hasFocus() || (to && (loaDrawer.contains(to) || to.closest('[role="dialog"]')))) return;
+  commitLoaDrawer();
+});
 document.getElementById('saveLoaBtn').addEventListener('click', async () => {
   loaDrawerDirty = false; pendingSaveCleanups.delete(commitLoaDrawer);
   await saveLoaDrawer();

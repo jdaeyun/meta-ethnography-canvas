@@ -1,0 +1,305 @@
+// Pure logic: no DOM, no `state`, no IndexedDB. Loaded right after core.js, so every later file can use it; the unit tests
+// (tools/test/unit.test.mjs, `npm run test:unit`) load this file alone in Node. Keep it that way: what needs the page or
+// the project goes in the other files, and takes what it needs from here as arguments.
+
+// ======================= Audit actions and Appendix A selection (export.js) =======================
+// Audit actions that other code reads back (row title history, Appendix A): written and matched from one place
+const LOG_ACTION = { rowTitle: 'Refined 3rd Order Construct Title' };
+
+// Edits of one text that are shown as one line in Appendix A (family name; same row for row texts)
+const APPENDIX_EDIT_SERIES = [
+  [new RegExp('^' + LOG_ACTION.rowTitle + '$'), 'Row title refined'],
+  [/^Updated Step A Translation Summary for /, 'Step A translation summary revised'],
+  [/^Updated Step B 3rd Order Definition & Interpretation for /, 'Step B third-order interpretation revised'],
+  [/^Reflexive note on /, 'Reflexive note on the row revised'],
+  [/^3rd Order Team Perspective Updated /, 'Team perspective on the row revised'],
+  [/^Updated GRADE-CERQual Assessment for /, 'GRADE-CERQual assessment revised'],
+  [/^Updated Phase 1 Research Aim$/, 'Research aim revised'],
+  [/^Updated Review question \(Item 3\)$/, 'Review question revised'],
+  [/^Updated Line of Argument Synthesis/, 'Line of argument revised'],
+  [/^Updated Phase 4: Outcome of Relating Studies/, 'Outcome of relating studies (Item 12) revised'],
+  [/^Updated Alternative interpretations/, 'Alternative interpretations revised'],
+  [/^Updated Context where the model applies/, 'Context where the model applies (Item 16) revised']
+];
+function appendixSeries(l) {
+  const hit = APPENDIX_EDIT_SERIES.find(([re]) => re.test(l.action || ''));
+  if (!hit) return null;
+  // Same row by id; entries from older versions without row ids are kept apart by their action text (it names the row)
+  return { label: hit[1], key: hit[1] + '|' + ((l.clusterIds || [])[0] || l.action || '') };
+}
+function isMemoLog(l) { return /^\[[^\]]+\]/.test(l.action || '') && !/^\[Reviewer-wrapped\]/.test(l.action || ''); }
+// Routine bookkeeping: shown in the full trail; in Appendix A only when a reason was recorded with it
+const APPENDIX_ROUTINE = [
+  /^Linked 1st Order Quote/, /^Unlinked 1st Order Quote/, /^Switched (1st|2nd) Order/, /^\[Reviewer-wrapped\]/, /^Set 2nd Order label source/,
+  /^Updated 2nd Order Summary Label/, /^Placed 2nd Order Construct/, /^Removed 2nd Order Construct from/,
+  /^Added a further passage/, /^Recorded p\..* as a further passage/, /^Split p\..* off/, /^Recorded how two concepts relate within/, /^Removed a relationship between concepts within/,
+  /^Edited the extracted text of/, /^Wrote Study Overview/, /^Revised Study Overview/, /^Deleted a 1st Order quote/, /^Restored a deleted 1st Order quote/,
+  /^Imported Peer Construct from/, /^Merged \d+ audit trail entries from/, /^Recorded provisional agreement/, /^2nd Order Team Perspective Updated/,
+  /^Reordered 3rd Order Theme Row/, /^Updated note on how a concept fits/, /^Noted why a 2nd Order construct was not translated/,
+  /^Set subgroup for/, /^Appraisal \(/, /^Updated Critical Appraisal/, /^(Linked|Unlinked) .* companion paper/,
+  /^Changed the reviewer attributed to an item/
+];
+// Write-up wording of the Methods (Tab 4 fields) is the Methods text itself, not a decision
+const APPENDIX_WRITEUP = /^Updated (Reading & extraction process|Extracted from|Units of synthesis|Working definitions|Translation process|Quality appraisal policy|How appraisal was used|Process of relating studies|Studies synthesized into the line of argument)/;
+function isKeyDecisionLog(l) {
+  if ((l.rationale || '').trim()) return true;
+  if (isMemoLog(l)) return true;
+  const a = l.action || '';
+  // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
+  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false; // undoing a passage step is routine like the step
+  // Restoring a deleted construct is a key decision when the construct is placed in rows (as its deletion is)
+  if (/^Restored a deleted 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
+  // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
+  if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
+  if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
+  if (l.category === 'linking' || l.category === 'matrix_mapping' && !/^Auto-placed/.test(a)) return false;
+  if (l.category === 'context_appraisal') return false; // reported per study in Table 1 / 1b
+  // Empty-cell statuses are shown in Table 2b; a first judgement of a placement is shown in Tables 2 / 2b: only a CHANGED judgement is a decision here
+  if (l.category === 'relating_studies' && !/^Updated Phase 4/.test(a)) return false;
+  if (/^Judged construct as /.test(a)) return !/Not yet judged/.test(l.fromVal || '');
+  // Deleting a construct is part of the reading; it is a decision about the synthesis only when it was placed in a row
+  if (/^Deleted a 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
+  return true;
+}
+
+// ======================= Project files (core.js: upgradeProjectData) =======================
+// A project file can come from someone else (Compare) or be edited by hand: keys that would change an object's prototype
+// are removed at every depth, and records that are not objects with an id are left out (counted in data._droppedRecords).
+function sanitizeProjectData(data) {
+  if (!data || typeof data !== 'object') return data;
+  const strip = v => {
+    if (Array.isArray(v)) { v.forEach(strip); return v; }
+    if (v && typeof v === 'object' && !(v instanceof ArrayBuffer)) {
+      ['__proto__', 'constructor', 'prototype'].forEach(k => { if (Object.prototype.hasOwnProperty.call(v, k)) delete v[k]; });
+      Object.keys(v).forEach(k => strip(v[k]));
+    }
+    return v;
+  };
+  strip(data);
+  let dropped = 0;
+  ['docs', 'annotations', 'clusters', 'logs'].forEach(k => {
+    if (!Array.isArray(data[k])) return;
+    const ok = data[k].filter(r => r && typeof r === 'object' && !Array.isArray(r) && (typeof r.id === 'string' || typeof r.id === 'number'));
+    dropped += data[k].length - ok.length;
+    data[k] = ok;
+  });
+  if (dropped) data._droppedRecords = dropped;
+  return data;
+}
+
+// ======================= Merge of a backup into the open project (backup.js) =======================
+// Empty at every depth: an object counts as empty when all of its values are (e.g. appraisalItems { CASP: {} }, which the app
+// creates as soon as a study's appraisal is looked at)
+function isEmptyValue(v) {
+  if (v === undefined || v === null || v === '') return true;
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === 'object') return Object.keys(v).every(k => isEmptyValue(v[k]));
+  return false;
+}
+const isPlainObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
+// Lists of separate records (relations, team models, within-study links, set-aside items) are merged as a union: what is only
+// in the backup is added, a record in both (same key) keeps the local version. Key per list field:
+const MERGE_UNION_KEYS = {
+  links: x => x.id || [x.from, x.to, x.type].join('|'),
+  conceptLinks: x => x.id || [x.from, x.to, x.type].join('|'),
+  teamModels: x => x.id || [x.reviewer, x.title, x.capturedAt].join('|'),
+  peerSetAside: x => [x.peerId, x.reviewer, x.textKey].join('|')
+};
+// Copy fields from `incoming` into `local` only where `local` is empty; report fields that differ
+// Keys that would change an object's prototype instead of a field (a JSON file from someone else can contain them)
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+function mergeFillEmpty(local, incoming, skip = []) {
+  const filled = [], conflicts = [];
+  Object.keys(incoming || {}).forEach(k => {
+    if (UNSAFE_KEYS.has(k) || skip.includes(k) || isEmptyValue(incoming[k])) return;
+    if (MERGE_UNION_KEYS[k] && Array.isArray(incoming[k]) && Array.isArray(local[k])) {
+      const keyOf = MERGE_UNION_KEYS[k], have = new Set(local[k].map(keyOf));
+      const add = incoming[k].filter(x => x && !have.has(keyOf(x)));
+      if (add.length) { local[k] = [...local[k], ...add]; filled.push(k); }
+      return;
+    }
+    if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
+    else if (isPlainObject(local[k]) && isPlainObject(incoming[k])) {
+      // Both have something (e.g. answers to some appraisal questions each): fill what is empty here, one level down
+      const r = mergeFillEmpty(local[k], incoming[k]);
+      if (r.filled.length) filled.push(k);
+      r.conflicts.forEach(c => conflicts.push(`${k}.${c}`));
+    }
+    else if (stableJson(local[k]) !== stableJson(incoming[k])) conflicts.push(k); // same content in another key order is no conflict
+  });
+  return { filled, conflicts };
+}
+// Same item on both sides with different content: texts that are empty here are filled from the backup (a note or a Step B
+// written on another computer); placements, judgements and ratings are not, since an empty value may be a decision made here.
+const MERGE_FILL_TEXT = {
+  annotations: ['note', 'nuanceNote', 'concordanceNote', 'notTranslatedNote'],
+  clusters: ['thirdOrderTitle', 'translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation', 'cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote']
+};
+function mergeFillTexts(local, incoming, fields) {
+  const filled = [];
+  fields.forEach(k => {
+    const v = incoming[k];
+    if (typeof v === 'string' && v.trim() && !(typeof local[k] === 'string' && local[k].trim())) { local[k] = v; filled.push(k); }
+  });
+  return filled;
+}
+function stableJson(v) {
+  if (Array.isArray(v)) return '[' + v.map(stableJson).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableJson(v[k])).join(',') + '}';
+  return JSON.stringify(v);
+}
+function sameRecord(a, b) { return stableJson(a) === stableJson(b); }
+
+// ======================= Similarity of two readers' extracts (compare.js) =======================
+function computeTextSimilarity(strA, strB) {
+  const clean = s => String(s || '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const a = clean(strA);
+  const b = clean(strB);
+  if (!a || !b) return 0;
+  if (a === b) return 1.0;
+  if (a.includes(b) || b.includes(a)) {
+    // One selection inside the other: the same passage, read with a shorter or longer span. Only when the shorter one is a
+    // passage of its own (8+ words, or 40% of the longer): a short phrase occurs in many unrelated quotes.
+    const minLen = Math.min(a.length, b.length);
+    const maxLen = Math.max(a.length, b.length);
+    const shorter = a.length <= b.length ? a : b;
+    const shortWords = shorter.split(/\s+/).length;
+    const unspaced = shortWords === 1 && minLen >= 20; // Japanese / Chinese text has no spaces: count characters instead
+    if (minLen > 12 && (shortWords >= 8 || unspaced || minLen / maxLen >= 0.4)) return Math.max(0.78, minLen / maxLen);
+  }
+  // Word token overlap (including 2-char clinical/regional abbreviations like RN, UK, IV, ED)
+  const wordsA = new Set(a.split(/\s+/).filter(w => w.length >= 2));
+  const wordsB = new Set(b.split(/\s+/).filter(w => w.length >= 2));
+  let wordScore = 0;
+  if (wordsA.size > 0 && wordsB.size > 0) {
+    let inter = 0;
+    wordsA.forEach(w => { if (wordsB.has(w)) inter++; });
+    // Dice, like the bigrams. The overlap with the shorter passage (inter / min) is used only when that passage is long
+    // enough to mean something: two readers selecting overlapping stretches of the same paragraph should still pair, but a
+    // two-word fragment ("moral distress") must not "match" any long quote that happens to contain both words.
+    const minSize = Math.min(wordsA.size, wordsB.size);
+    const dice = (2 * inter) / (wordsA.size + wordsB.size);
+    wordScore = minSize >= 8 ? Math.max(dice, inter / minSize) : dice;
+  }
+  // Character bigram overlap (handles CJK/Japanese text without spaces and minor OCR/hyphenation diffs)
+  const noSpaceA = a.replace(/\s+/g, '');
+  const noSpaceB = b.replace(/\s+/g, '');
+  let bigramScore = 0;
+  if (noSpaceA.length >= 2 && noSpaceB.length >= 2) {
+    const bgA = new Set();
+    const bgB = new Set();
+    for (let i = 0; i < noSpaceA.length - 1; i++) bgA.add(noSpaceA.slice(i, i + 2));
+    for (let i = 0; i < noSpaceB.length - 1; i++) bgB.add(noSpaceB.slice(i, i + 2));
+    let bgInter = 0;
+    bgA.forEach(g => { if (bgB.has(g)) bgInter++; });
+    // Dice coefficient: normalising by the shorter string alone let short fragments "match" unrelated long quotes
+    bigramScore = (2 * bgInter) / (bgA.size + bgB.size);
+  }
+  return Math.max(wordScore, bigramScore);
+}
+
+// ======================= Line-of-argument map (loa.js) =======================
+// Relations with a direction (A → B); the others are symmetric. Not every line of argument is a causal flow:
+// themes can also nest in one another (encompasses) or be read through a metaphor.
+const DIRECTED_LINK_TYPES = ['leads', 'encompasses', 'metaphor'];
+function isDirectedLink(type) { return DIRECTED_LINK_TYPES.includes(type); }
+// Several relations between the same two constructs (e.g. A ➔ B and A ⚡ B) are drawn side by side, not on top of each other:
+// each gets an offset across the line between them (0 when it is the only one). Keyed by link id.
+function linkPairOffsets(links, step = 22) {
+  const groups = {};
+  links.forEach(l => { const k = [l.from, l.to].sort().join('|'); (groups[k] = groups[k] || []).push(l); });
+  const off = {};
+  Object.values(groups).forEach(g => g.forEach((l, i) => {
+    // Measured against the pair's sorted direction, so A→B and B→A also part
+    const sign = [l.from, l.to].sort()[0] === l.from ? 1 : -1;
+    off[l.id] = (i - (g.length - 1) / 2) * step * sign;
+  }));
+  return off;
+}
+// Columns of the left → right map: each construct's column is the longest chain of directed relations leading to it
+// (cycles are broken for the ranking only); constructs joined only by ⇄ / ⚡ sit in their partner's column.
+// ids: the constructs in the map; links: { id, from, to, type }. Returns { rank: { id: column }, leads: the directed links }.
+function flowColumnRanks(ids, links) {
+  // Every directed relation (leads to, encompasses, is understood through) sets the columns, left to right; a model built only
+  // of ⊃ or ≈ would otherwise stack every construct in one column
+  const leads = links.filter(l => isDirectedLink(l.type));
+  // Drop back-edges (cycles) for ranking only
+  const out = {}; ids.forEach(id => out[id] = []);
+  const state3 = {}; const forward = new Set();
+  leads.forEach(l => out[l.from].push(l));
+  const dfs = id => {
+    state3[id] = 1;
+    out[id].forEach(l => {
+      if (state3[l.to] === 1) return;           // back-edge
+      forward.add(l.id);
+      if (!state3[l.to]) dfs(l.to);
+    });
+    state3[id] = 2;
+  };
+  const hasIncoming = new Set(leads.map(l => l.to));
+  [...ids.filter(id => !hasIncoming.has(id)), ...ids].forEach(id => { if (!state3[id]) dfs(id); });
+  const rank = {}; ids.forEach(id => rank[id] = 0);
+  for (let i = 0; i < ids.length; i++) {
+    let changed = false;
+    leads.filter(l => forward.has(l.id)).forEach(l => { if (rank[l.to] < rank[l.from] + 1) { rank[l.to] = rank[l.from] + 1; changed = true; } });
+    if (!changed) break;
+  }
+  // Constructs joined only by ⇄ / ⚡ sit in the same column as their partner
+  const leadNodes = new Set(leads.flatMap(l => [l.from, l.to]));
+  links.filter(l => !isDirectedLink(l.type)).forEach(l => {
+    if (!leadNodes.has(l.from) && leadNodes.has(l.to)) rank[l.from] = rank[l.to];
+    else if (!leadNodes.has(l.to) && leadNodes.has(l.from)) rank[l.to] = rank[l.from];
+  });
+  return { rank, leads };
+}
+
+// ======================= Text from PDFs and citations (studies-pdf.js) =======================
+// Chinese / Japanese text has no spaces between words: where two text items meet between such characters, nothing is added
+const CJK_CHAR = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+function joinSeparator(prev, next) {
+  return CJK_CHAR.test(String(prev).slice(-1)) && CJK_CHAR.test(String(next).charAt(0)) ? '' : ' ';
+}
+function joinTextItems(strs) {
+  let out = '';
+  strs.forEach(t => { if (!t) return; out += (out ? joinSeparator(out, t) : '') + t; });
+  return out;
+}
+function extractSurnameFromAuthorString(rawAuthor) {
+  if (!rawAuthor) return { surname: '', hasEtAl: true };
+  const cleaned = String(rawAuthor)
+    .replace(/[\d*†‡§¶✉]/g, '')
+    .replace(/\b(MD|PhD|RN|PharmD|MSc|MPH|BSc|Prof|Dr)\b\.?/gi, '')
+    .trim();
+  // Chinese / Japanese names put the family name first ("山田 太郎"), and authors are separated by 、 ， or ・: take the first
+  // token of the first author; a name written without a space is kept whole (family and given name cannot be told apart)
+  if (CJK_CHAR.test(cleaned)) {
+    const authors = cleaned.split(/[、，,;・／/]|\band\b|&/).map(x => x.trim()).filter(Boolean);
+    const first = authors[0] || '';
+    return { surname: first.split(/[\s\u3000]+/)[0], hasEtAl: authors.length > 1 };
+  }
+  const multiAuthors = /;|,|\band\b|&/i.test(cleaned);
+  const firstChunk = cleaned.split(/;|\band\b|&/i)[0].trim();
+  if (firstChunk.includes(',')) {
+    // "Surname, GivenName" format
+    const surname = firstChunk.split(',')[0].trim().replace(/\s+[A-Z]{1,3}\.?$/, ''); // "Hernandez M" -> "Hernandez"
+    return { surname, hasEtAl: multiAuthors || cleaned.split(',').length > 2 };
+  }
+  const parts = firstChunk.split(/\s+/).filter(Boolean);
+  // Vancouver style ("Hamdan A"): trailing initials -> surname is the first token
+  const initialsLast = parts.length > 1 && /^[A-Z]{1,3}\.?$/.test(parts[parts.length - 1]);
+  const surname = parts.length > 0 ? (initialsLast ? parts[0] : parts[parts.length - 1]) : '';
+  return { surname, hasEtAl: multiAuthors };
+}
+
+// Publication years 1940–2039 (classic qualitative studies of the 1960s and 1970s included), one pattern for every stage
+const YEAR_CORE = '19[4-9]\\d|20[0-3]\\d';
+const YEAR_RE = new RegExp('(?:^|\\D)(' + YEAR_CORE + ')(?!\\d)');
+// Year of a date in PDF metadata: ISO / XMP dates ("2021-03-01") and the PDF Info form ("D:20210301120000", where more
+// digits follow the year, so YEAR_RE alone would not find it)
+function yearFromPdfDate(raw) {
+  const s = String(raw || '').trim();
+  const pdf = s.match(new RegExp('^D:(' + YEAR_CORE + ')'));
+  if (pdf) return pdf[1];
+  const m = s.match(YEAR_RE);
+  return m ? m[1] : '';
+}

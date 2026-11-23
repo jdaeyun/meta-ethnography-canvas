@@ -148,7 +148,7 @@
           <button id="resetProjectBtn" class="w-full text-left px-3 py-2 text-xs hover:bg-rose-50 text-rose-700 flex items-center space-x-2 transition">
             <i class="ph ph-trash"></i><span>New / Reset</span>
           </button>
-          <div class="px-3 py-1.5 text-[10px] text-slate-400 border-t border-slate-100">Version <span data-mec="version">1.4.8</span></div>
+          <div class="px-3 py-1.5 text-[10px] text-slate-400 border-t border-slate-100">Version <span data-mec="version">1.4.9</span></div>
         </div>
       </div>
       <input type="file" id="jsonFileInput" accept=".json" style="display: none;">
@@ -544,9 +544,13 @@
                     <button type="button" data-layout="circle" class="loa-layout-btn px-2 py-0.5 cursor-pointer">◯ Circular</button>
                     <button type="button" data-layout="flow" class="loa-layout-btn px-2 py-0.5 cursor-pointer border-l border-purple-200">➔ Left → right flow</button>
                   </div>
-                  <button type="button" id="loaMapSvgBtn" class="px-2 py-0.5 bg-white hover:bg-purple-50 border border-purple-300 text-purple-800 font-semibold rounded cursor-pointer disabled:opacity-40" title="Download the map as an SVG (editable in PowerPoint, Illustrator, Inkscape…)"><i class="ph ph-download-simple"></i> Download .svg</button>
+                  <div class="flex items-center gap-1">
+                    <button type="button" id="loaMapResetBtn" class="px-2 py-0.5 bg-white hover:bg-purple-50 border border-purple-300 text-purple-800 font-semibold rounded cursor-pointer disabled:opacity-40" title="Put the boxes you moved back where the layout places them (Ctrl+Z undoes it)" disabled><i class="ph ph-arrow-counter-clockwise"></i> Reset layout</button>
+                    <button type="button" id="loaMapSvgBtn" class="px-2 py-0.5 bg-white hover:bg-purple-50 border border-purple-300 text-purple-800 font-semibold rounded cursor-pointer disabled:opacity-40" title="Download the map as an SVG (editable in PowerPoint, Illustrator, Inkscape…)"><i class="ph ph-download-simple"></i> Download .svg</button>
+                  </div>
                 </div>
                 <div id="loaMapBox" class="bg-white border border-purple-100 rounded overflow-auto"></div>
+                <div class="text-[10px] text-purple-500">Drag a box to move it (or Tab to it and use the arrow keys). Each layout keeps its own places, and the .svg uses them.</div>
               </div>
             </div>
           </div>
@@ -1173,6 +1177,7 @@
   <!-- App scripts: classic scripts sharing one global scope. core.js must come first; keep this order. -->
   <script src="app/version.js"></script>
   <script src="app/js/core.js"></script>
+  <script src="app/js/logic.js"></script>
   <script src="app/checklists/casp-qualitative-2024.js"></script>
   <script src="app/js/app.js"></script>
   <script src="app/js/undo-audit.js"></script>

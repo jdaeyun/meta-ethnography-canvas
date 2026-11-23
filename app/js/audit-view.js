@@ -18,7 +18,7 @@ function clusterTitleHistory(cluster) {
   const titles = [];
   const add = t => { t = (t || '').trim(); if (t && !/^\(untitled/i.test(t) && !titles.includes(t)) titles.push(t); };
   state.logs
-    .filter(l => l.action === 'Refined 3rd Order Construct Title' && logIsForRow(l, cluster))
+    .filter(l => l.action === LOG_ACTION.rowTitle && logIsForRow(l, cluster))
     .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
     .forEach(l => { add(l.fromVal); add(l.toVal); });
   add(cluster.thirdOrderTitle);
@@ -107,8 +107,22 @@ function rationaleExportText(log) {
   return (log.rationale || '-') + (stamp ? ` [${stamp}]` : '');
 }
 
+// While a reason is being typed in the timeline, a redraw (e.g. an entry logged by something else) waits until that box is left,
+// so the box and what is typed in it stay put; the reason is then committed as usual
+let auditRedrawWaiting = false;
 function renderAuditTimeline() {
   const container = document.getElementById('auditTimelineList');
+  // Only a box with text not yet committed holds the redraw back (focus merely resting in a box, e.g. returned there after
+  // a dialog closed, does not)
+  const ae = document.activeElement;
+  const typing = ae && ae.classList.contains('rationale-input') && container.contains(ae) && ae.value !== ae.defaultValue;
+  if (typing) {
+    if (!auditRedrawWaiting) {
+      auditRedrawWaiting = true;
+      document.activeElement.addEventListener('blur', () => { auditRedrawWaiting = false; setTimeout(renderAuditTimeline, 0); }, { once: true });
+    }
+    return;
+  }
   container.innerHTML = '';
   const filter = document.getElementById('auditFilterCategory').value;
   const rowFilter = document.getElementById('auditFilterRow')?.value || 'all';
@@ -161,7 +175,7 @@ function renderAuditTimeline() {
         </div>
         <div class="flex items-center space-x-2">
           <span class="text-xs text-slate-400 font-mono">${escapeHtml(dateStr)}</span>
-          <button class="del-log text-slate-300 hover:text-rose-500 cursor-pointer" title="Delete log entry"><i class="ph ph-trash"></i></button>
+          ${log.category === 'audit_edit' ? '' : '<button class="del-log text-slate-300 hover:text-rose-500 cursor-pointer" title="Delete log entry"><i class="ph ph-trash"></i></button>'}
         </div>
       </div>
       ${log.detail ? `<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(log.detail)}</div>` : ''}
@@ -191,7 +205,8 @@ function renderAuditTimeline() {
       if (stamp) { stamp.textContent = rationaleStampText(log); stamp.classList.remove('hidden'); }
     });
 
-    card.querySelector('.del-log').onclick = async () => {
+    // Entries about the trail itself (a deletion, a restored entry, a changed attribution) cannot be deleted: the trail keeps its own history
+    if (card.querySelector('.del-log')) card.querySelector('.del-log').onclick = async () => {
       pushUndoAction({
         type: 'delete_log',
         label: `Audit Log (${log.action.slice(0, 30)})`,

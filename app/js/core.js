@@ -27,7 +27,7 @@ function upgradeProjectData(data) {
     throw new Error(`This file was saved by a newer version of Meta-Ethnography Canvas (${(data && data.appVersion) || 'unknown version'}, data format ${f}; this app reads format ${PROJECT_FORMAT}). Update the app, or download the latest offline edition, to open it. Nothing was changed.`);
   }
   // Format 1 is the current one: nothing to upgrade yet. Later formats add their steps here, oldest first.
-  return data;
+  return sanitizeProjectData(data);
 }
 let dbInstancePromise = null;
 
@@ -139,8 +139,11 @@ function bindPendingCommit(el, commitFn) {
   };
   run.isCommit = true;
   el.addEventListener('input', () => { dirty = true; pendingSaveCleanups.add(run); });
-  el.addEventListener('change', run);
-  el.addEventListener('blur', run);
+  // Leaving the box commits; the window losing focus (a look at the PDF in another window, another app) does not, so a text
+  // being written is not logged in pieces. It is still committed on the next real leave, a tab switch or the page closing.
+  const onLeave = () => { if (document.hasFocus()) run(); };
+  el.addEventListener('change', onLeave);
+  el.addEventListener('blur', onLeave);
   return run;
 }
 
@@ -182,6 +185,15 @@ function updateBackupReminder() {
     + ' Click Backup to save a JSON file.';
 }
 
+// A write the browser refused (storage full, private mode limits, a damaged database): the change is on screen but not stored.
+// Said plainly, at most once a minute, with what to do; the save badge shows "Save Error" as well.
+let lastStorageNotice = 0;
+function reportStorageError(err) {
+  if (Date.now() - lastStorageNotice < 60000) return;
+  lastStorageNotice = Date.now();
+  const what = (err && (err.name || err.message)) || 'unknown error';
+  if (typeof showNotice === 'function') showNotice('A change could not be saved', `The browser did not store the last change (${what}). What you see may differ from what is saved.\n\nMake a Backup now (the backup is made from what you see). If the browser's storage is full, free space (e.g. remove PDFs of studies you no longer need), then reload and restore the backup if anything is missing.`);
+}
 // quiet: bookkeeping writes the user did not make (e.g. a PDF fingerprint) — no save badge, no backup reminder
 // Lookups the matrix builds once per render (rows' constructs, quotes per construct, history per row): dropped whenever the
 // data they come from is written, so a row built later (lazily) never reads an outdated index
@@ -200,8 +212,8 @@ async function dbPut(store, item, { quiet = false } = {}) {
       markUnbackedChange();
       resolve();
     };
-    tx.onerror = () => { flashSaveStatus('error'); reject(tx.error); };
-    tx.onabort = () => { flashSaveStatus('error'); reject(tx.error || new Error('IndexedDB transaction aborted')); };
+    tx.onerror = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error); };
+    tx.onabort = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error || new Error('IndexedDB transaction aborted')); };
   });
 }
 // Several writes across stores in ONE transaction: all of them are stored, or none (a crash, a full disk or an error part way
@@ -220,12 +232,13 @@ async function dbBatch(ops) {
       // A write that cannot even be queued (e.g. a record without its key) aborts the whole transaction: nothing is stored
       try { tx.abort(); } catch (e) { /* already finished */ }
       flashSaveStatus('error');
+      reportStorageError(err);
       reject(err);
       return;
     }
     tx.oncomplete = () => { flashSaveStatus('saved'); markUnbackedChange(); resolve(); };
-    tx.onerror = () => { flashSaveStatus('error'); reject(tx.error); };
-    tx.onabort = () => { flashSaveStatus('error'); reject(tx.error || new Error('IndexedDB transaction aborted')); };
+    tx.onerror = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error); };
+    tx.onabort = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error || new Error('IndexedDB transaction aborted')); };
   });
 }
 async function dbGet(store, key) {
@@ -299,6 +312,7 @@ const state = {
   showContextRow: true,
   isLoaOpen: false,
   clusterActiveTabs: {}, // { [clusterId]: 'synthesis' | 'cerqual' | 'concordance' }
+  rowToolsOpen: new Set(), // rows whose ⋯ tools (reviewer, history, ◆ base, merge / split, delete) are open
   activePubTable: 'method', // 'method' | 'table1' | 'table2' | 'table2_grid' | 'table3' | 'appendix'
   peerComparison: null,
   activeCompareTab: 'divergent',
@@ -479,12 +493,6 @@ function unlinkQuote(f, secId) {
   f.parentIds = quoteParentIds(f).filter(id => id !== secId);
 }
 function clearQuoteLinks(f) { f.parentIds = []; }
-// Quotes linked to any of the given constructs, each counted once (a quote may illustrate several constructs)
-function uniqueQuotesOf(secs) {
-  const seen = new Set(), out = [];
-  secs.forEach(s => quotesOf(s.id).forEach(f => { if (!seen.has(f.id)) { seen.add(f.id); out.push(f); } }));
-  return out;
-}
 // Evidence of a 2nd order construct = primary passage + additional passages
 function secAllPassages(s) {
   return [{ text: s.text, page: s.page }, ...((s.passages || []).map(p => ({ text: p.text, page: p.page })))];

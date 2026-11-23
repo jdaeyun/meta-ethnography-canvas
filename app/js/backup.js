@@ -39,54 +39,6 @@ document.getElementById('backupJsonBtn').addEventListener('click', async () => {
 });
 
 // ---- MERGE helpers: local work is never overwritten ----
-function isEmptyValue(v) {
-  return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0) ||
-    (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
-}
-// Lists of separate records (relations, team models, within-study links, set-aside items) are merged as a union: what is only
-// in the backup is added, a record in both (same key) keeps the local version. Key per list field:
-const MERGE_UNION_KEYS = {
-  links: x => x.id || [x.from, x.to, x.type].join('|'),
-  conceptLinks: x => x.id || [x.from, x.to, x.type].join('|'),
-  teamModels: x => x.id || [x.reviewer, x.title, x.capturedAt].join('|'),
-  peerSetAside: x => [x.peerId, x.reviewer, x.textKey].join('|')
-};
-// Copy fields from `incoming` into `local` only where `local` is empty; report fields that differ
-function mergeFillEmpty(local, incoming, skip = []) {
-  const filled = [], conflicts = [];
-  Object.keys(incoming || {}).forEach(k => {
-    if (skip.includes(k) || isEmptyValue(incoming[k])) return;
-    if (MERGE_UNION_KEYS[k] && Array.isArray(incoming[k]) && Array.isArray(local[k])) {
-      const keyOf = MERGE_UNION_KEYS[k], have = new Set(local[k].map(keyOf));
-      const add = incoming[k].filter(x => x && !have.has(keyOf(x)));
-      if (add.length) { local[k] = [...local[k], ...add]; filled.push(k); }
-      return;
-    }
-    if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
-    else if (stableJson(local[k]) !== stableJson(incoming[k])) conflicts.push(k); // same content in another key order is no conflict
-  });
-  return { filled, conflicts };
-}
-// Same item on both sides with different content: texts that are empty here are filled from the backup (a note or a Step B
-// written on another computer); placements, judgements and ratings are not, since an empty value may be a decision made here.
-const MERGE_FILL_TEXT = {
-  annotations: ['note', 'nuanceNote', 'concordanceNote', 'notTranslatedNote'],
-  clusters: ['thirdOrderTitle', 'translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation', 'cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote']
-};
-function mergeFillTexts(local, incoming, fields) {
-  const filled = [];
-  fields.forEach(k => {
-    const v = incoming[k];
-    if (typeof v === 'string' && v.trim() && !(typeof local[k] === 'string' && local[k].trim())) { local[k] = v; filled.push(k); }
-  });
-  return filled;
-}
-function stableJson(v) {
-  if (Array.isArray(v)) return '[' + v.map(stableJson).join(',') + ']';
-  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableJson(v[k])).join(',') + '}';
-  return JSON.stringify(v);
-}
-function sameRecord(a, b) { return stableJson(a) === stableJson(b); }
 function mergeSummaryText(r) {
   let t = `Backup merged.\n\nAdded: ${r.docs} studies, ${r.annotations} constructs/quotes, ${r.clusters} 3rd Order rows, ${r.logs} audit entries.`
     + (r.filled ? `\nFilled empty fields (notes, texts) of ${r.filled} item(s) from the backup.` : '');
@@ -135,12 +87,13 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       replaceCleanly = choice === 'clean';
     }
 
+    // Validate the backup BEFORE touching the current workspace (clean restore and merge alike)
+    if (!Array.isArray(data.docs) || !Array.isArray(data.annotations) ||
+        (data.clusters && !Array.isArray(data.clusters)) || (data.logs && !Array.isArray(data.logs)) ||
+        (data.loa && typeof data.loa !== 'object')) {
+      throw new Error('Backup file structure is invalid (docs / annotations / clusters / logs must be arrays). Nothing was changed.');
+    }
     if (replaceCleanly) {
-      // Validate the backup BEFORE touching the current workspace
-      if (!Array.isArray(data.docs) || !Array.isArray(data.annotations) ||
-          (data.clusters && !Array.isArray(data.clusters)) || (data.logs && !Array.isArray(data.logs))) {
-        throw new Error('Backup file structure is invalid (docs / annotations / clusters / logs must be arrays). Nothing was changed.');
-      }
       // Snapshot the project data (NOT the PDFs) so a failed restore can be rolled back.
       // PDFs stay untouched in IndexedDB during the restore and are matched by id / file name below,
       // so memory use does not depend on how many PDFs are stored.
@@ -203,6 +156,11 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         await dbPut('logs', l);
         state.logs.push(l);
       }
+      // The research aim, model and the other project fields are part of what a failed restore rolls back
+      if (data.loa) {
+        state.loa = { projectCode: incomingProjCode || state.projectCode || '', aim: '', ...state.loa, ...data.loa, id: 'loa_main' };
+        await dbPut('meta', state.loa);
+      }
       } catch (restoreErr) {
         // Roll back to the workspace as it was before the restore started
         console.error('Restore failed, rolling back:', restoreErr);
@@ -220,6 +178,12 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         }
         throw new Error(`${restoreErr.message}\n\nYour previous workspace has been restored unchanged.`);
       }
+      // Another project's view settings do not carry over: open sub-tabs, a comparison in progress, hidden studies
+      state.clusterActiveTabs = {};
+      state.rowToolsOpen = new Set();
+      state.peerComparison = null;
+      state.hiddenStudyIds = new Set();
+      lsRemove('me_hidden_studies');
       // Success: drop PDFs that no restored study refers to (id-based; one key at a time)
       try {
         const keep = new Set(state.docs.map(d => d.id));
@@ -300,7 +264,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         if (a.type === 'second_order') {
           const keep = a.clusterIds.filter(id => liveRows.has(id));
           if (keep.length !== a.clusterIds.length) { a.clusterIds = keep; changed = true; }
-          ['clusterRelations', 'clusterComments'].forEach(k => Object.keys(a[k] || {}).forEach(id => { if (!liveRows.has(id)) { delete a[k][id]; changed = true; } }));
+          ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'].forEach(k => Object.keys(a[k] || {}).forEach(id => { if (!liveRows.has(id)) { delete a[k][id]; changed = true; } }));
         } else if (a.type === 'first_order') {
           const keep = quoteParentIds(a).filter(id => liveSecs.has(id));
           if (keep.length !== a.parentIds.length) { a.parentIds = keep; changed = true; }
@@ -319,10 +283,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       state.projectCode = incomingProjCode;
       lsSet('me_project_code', incomingProjCode);
     }
-    if (data.loa && replaceCleanly) {
-      state.loa = { projectCode: state.projectCode || '', aim: '', ...state.loa, ...data.loa, id: 'loa_main' };
-      await dbPut('meta', state.loa);
-    } else if (data.loa) {
+    if (data.loa && !replaceCleanly) {
       // MERGE: the aim, model and narrative are only filled where they are empty here
       if (data.loa.baselineDocId) data.loa.baselineDocId = mergeDocIdMap[data.loa.baselineDocId] || data.loa.baselineDocId;
       const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt']);
@@ -351,12 +312,12 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     // The restore / merge itself belongs in the trail (after the restored logs, so a clean restore keeps it)
     const src = `${file.name}${data.exportedAt ? ' (exported ' + new Date(data.exportedAt).toLocaleString() + (data.reviewerId ? ' by @' + data.reviewerId : '') + ')' : ''}`;
     if (replaceCleanly) {
-      await recordAuditLog({ category: 'project_data', action: 'Restored the project from a JSON backup (clean restore)', detail: `Backup file: ${src}. ${state.docs.length} studies, ${state.annotations.length} constructs/quotes, ${state.clusters.length} 3rd Order rows.` });
+      await recordAuditLog({ category: 'project_data', action: 'Restored the project from a JSON backup (clean restore)', detail: `Backup file: ${src}.${data._droppedRecords ? ` ${data._droppedRecords} malformed record(s) in the file were left out.` : ''} ${state.docs.length} studies, ${state.annotations.length} constructs/quotes, ${state.clusters.length} 3rd Order rows.` });
     } else {
       await recordAuditLog({
         category: 'project_data',
         action: 'Merged a JSON backup into the project',
-        detail: `Backup file: ${src}. Added ${mergeReport.docs} studies, ${mergeReport.annotations} constructs/quotes, ${mergeReport.clusters} 3rd Order rows, ${mergeReport.logs} audit entries.`
+        detail: `Backup file: ${src}.${data._droppedRecords ? ` ${data._droppedRecords} malformed record(s) in the file were left out.` : ''} Added ${mergeReport.docs} studies, ${mergeReport.annotations} constructs/quotes, ${mergeReport.clusters} 3rd Order rows, ${mergeReport.logs} audit entries.`
           + (mergeReport.filled ? ` Filled empty fields of ${mergeReport.filled} item(s) from the backup.` : '')
           + (mergeReport.tidied ? ` ${mergeReport.tidied} added item(s) pointed to rows or constructs not in this project; those links were dropped.` : '')
           + (mergeReport.conflicts.length ? `\nKept the local version of ${mergeReport.conflicts.length} item(s) that differ in the backup:\n` + mergeReport.conflicts.map(x => '• ' + x).join('\n') : '')
@@ -409,7 +370,10 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
   state.loa = { id: 'loa_main', projectCode: '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null };
   state.activeDocId = null;
   state.clusterActiveTabs = {};
+  state.rowToolsOpen = new Set();
   state.peerComparison = null;
+  state.hiddenStudyIds = new Set();
+  lsRemove('me_hidden_studies');
   clearUndoStack();
 
   populateLoaInputs();

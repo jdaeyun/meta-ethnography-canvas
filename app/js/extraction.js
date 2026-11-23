@@ -6,10 +6,54 @@
 // ========================================================
 // EXTRACTION SIDEBAR (With Clickable Reviewer Badge)
 // ========================================================
+// The sidebar is rebuilt after most changes: what the reviewer had open (folded sections) and where the cursor was are put back,
+// so a link or a deletion elsewhere does not close what they were reading or move them out of a box.
+// An element is identified by the chain of cards it sits in (a quote can appear under several constructs) and its position.
+function sidebarKey(el, list) {
+  const chain = [];
+  for (let n = el.parentElement; n && n !== list; n = n.parentElement) if (n.dataset && n.dataset.sidebarAnno) chain.unshift(n.dataset.sidebarAnno);
+  let scope = el.parentElement;
+  while (scope && scope !== list && !(scope.dataset && scope.dataset.sidebarAnno)) scope = scope.parentElement;
+  const sel = el.tagName === 'DETAILS' ? 'details' : (el.tagName.toLowerCase() + (el.classList[0] ? '.' + CSS.escape(el.classList[0]) : ''));
+  const same = [...(scope || list).querySelectorAll(sel)].filter(x => {
+    // only those whose nearest card is the same scope (not those of a nested card)
+    let s2 = x.parentElement; while (s2 && s2 !== list && !(s2.dataset && s2.dataset.sidebarAnno)) s2 = s2.parentElement;
+    return (s2 || list) === (scope || list);
+  });
+  return `${chain.join('>') || 'root'}|${sel}|${same.indexOf(el)}`;
+}
+let sidebarStateDocId = null;
+function snapshotSidebarState(list) {
+  const open = new Set(), closed = new Set();
+  list.querySelectorAll('details').forEach(d => (d.open ? open : closed).add(sidebarKey(d, list)));
+  const a = document.activeElement;
+  const focus = a && list.contains(a) && a !== list ? { key: sidebarKey(a, list), start: a.selectionStart, end: a.selectionEnd, top: a.scrollTop } : null;
+  return { docId: sidebarStateDocId, open, closed, focus };
+}
+function restoreSidebarState(list, snap) {
+  if (!snap) return;
+  const sameDoc = snap.docId === state.activeDocId;
+  list.querySelectorAll('details').forEach(d => {
+    const k = sidebarKey(d, list);
+    if (!sameDoc && !k.startsWith('root|')) return; // another study: only the study-wide boxes keep their state
+    if (snap.open.has(k)) d.open = true; else if (snap.closed.has(k)) d.open = false;
+  });
+  if (sameDoc && snap.focus) {
+    const el = [...list.querySelectorAll('input, textarea, select, button, summary, [tabindex]')].find(x => sidebarKey(x, list) === snap.focus.key);
+    if (el && el.offsetParent !== null) {
+      el.focus({ preventScroll: true });
+      try { if (typeof snap.focus.start === 'number' && el.setSelectionRange) el.setSelectionRange(snap.focus.start, snap.focus.end); } catch (e) { /* not a text box */ }
+      if (snap.focus.top) el.scrollTop = snap.focus.top;
+    }
+  }
+}
+
 function updateSidebar() {
   flushAllPendingSaves(); // a label or note being typed is committed (saved + logged) before its box is rebuilt
   const list = document.getElementById('annotationsList');
   const prevScrollTop = list ? list.scrollTop : 0;
+  const sidebarSnap = list ? snapshotSidebarState(list) : null;
+  sidebarStateDocId = state.activeDocId;
   list.innerHTML = '';
   const annos = state.annotations.filter(a => a.docId === state.activeDocId).map(normalizeAnnotation);
   const firsts = annos.filter(a => a.type === 'first_order');
@@ -25,6 +69,7 @@ function updateSidebar() {
       </div>
     `;
     prependStudyOverviewNudge(list, activeDoc);
+    restoreSidebarState(list, sidebarSnap);
     return;
   }
 
@@ -76,7 +121,7 @@ function updateSidebar() {
           <span>🟩 2nd Order</span>
           ${sec.passages.length ? `<span class="text-[10.5px] px-1.5 py-0.2 rounded border border-violet-300 bg-violet-50 text-violet-800 font-semibold" title="Stated in ${sec.passages.length + 1} places in the paper">📑 ${sec.passages.length + 1} passages</span>` : ''}
           ${sec.origin === 'wrapped_first_order' ? `<span class="text-[10.5px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold" title="No author-stated interpretation was captured. The reviewer wrapped a 1st order quote (participant data) in a 2nd order construct and wrote the label themselves (@${escapeHtml(sec.by || '')}).">🏷 Reviewer-wrapped from 1st-order quote</span>` : ''}
-          <button type="button" class="jump-pdf-btn text-xs bg-emerald-200/80 hover:bg-emerald-300 text-emerald-950 px-1.5 py-0.2 rounded-full font-bold cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${sec.page}"><i class="ph ph-crosshair"></i><span>p.${sec.page}</span></button>
+          <button type="button" class="jump-pdf-btn text-xs bg-emerald-200/80 hover:bg-emerald-300 text-emerald-950 px-1.5 py-0.2 rounded-full font-bold cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(sec.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(sec.page)}</span></button>
           <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1.5 py-0.2 rounded font-mono cursor-pointer transition" title="Click to change reviewer for this construct">@${escapeHtml(sec.by || 'Unknown')}</button>
           <span class="text-xs bg-white border border-emerald-200 px-1.5 rounded-full">${linked.length} quotes</span>
           <span class="concordance-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
@@ -254,18 +299,31 @@ function updateSidebar() {
 
     w.querySelector('.del').onclick = async () => {
       const unlinkedIds = linked.map(f => f.id);
+      // Its within-study relationships (Appendix C) go with it; Ctrl+Z puts them back
+      const ownDoc = state.docs.find(d => d.id === sec.docId);
+      const removedConceptLinks = ((ownDoc && ownDoc.conceptLinks) || []).filter(l => l.from === sec.id || l.to === sec.id);
       pushUndoAction({
         type: 'delete_annotation',
         label: `2nd Order Construct (${sec.note || sec.text.slice(0, 30)})`,
         annotations: [{ ...sec }],
         unlinkedChildrenIds: unlinkedIds,
-        parentId: sec.id
+        parentId: sec.id,
+        removedConceptLinks, conceptLinksDocId: ownDoc ? ownDoc.id : null
       });
-      for (let f of linked) { unlinkQuote(f, sec.id); await dbPut('annotations', f); }
-      await dbDelete('annotations', sec.id);
+      const ops = linked.map(f => { unlinkQuote(f, sec.id); return { store: 'annotations', put: f }; });
+      if (removedConceptLinks.length) { ownDoc.conceptLinks = ownDoc.conceptLinks.filter(l => !removedConceptLinks.includes(l)); ops.push({ store: 'docs', put: ownDoc }); }
+      ops.push({ store: 'annotations', del: sec.id });
+      await dbBatch(ops); // the construct, its quotes' links and its within-study relationships in one transaction
       state.annotations = state.annotations.filter(x => x.id !== sec.id);
       updateSidebar();
       renderHighlights();
+      // Deleting a construct is part of the reading (and of the matrix, if it was placed): the trail records it, like its undoing
+      await recordAuditLog({
+        category: 'reading_extraction',
+        action: `Deleted a 2nd Order construct (${getDisplayName(state.docs.find(d => d.id === sec.docId))}, p.${sec.page})`,
+        detail: `${sec.note ? sec.note + ': ' : ''}"${String(sec.text || '').slice(0, 80)}..."${(sec.clusterIds || []).length ? `\nIt was placed in ${sec.clusterIds.length} 3rd Order row(s).` : ''}${unlinkedIds.length ? `\n${unlinkedIds.length} linked quote(s) unlinked.` : ''}`,
+        clusterIds: (sec.clusterIds || []).length ? sec.clusterIds : null
+      });
       showUndoSnackbar(`Deleted the 2nd Order construct${unlinkedIds.length ? ` (${unlinkedIds.length} quote(s) unlinked)` : ''}`);
     };
 
@@ -287,6 +345,7 @@ function updateSidebar() {
   const overviewBox = prependStudyOverviewNudge(list, activeDoc);
   const linksBox = buildStudyConceptLinksBox(activeDoc, seconds);
   if (linksBox && overviewBox) overviewBox.after(linksBox);
+  restoreSidebarState(list, sidebarSnap);
   if (list) list.scrollTop = prevScrollTop;
 }
 
@@ -599,7 +658,7 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
     <div class="flex justify-between items-center text-blue-800 font-bold text-[13px]">
       <span class="flex items-center space-x-1">
         <span>🟦 1st Order</span>
-        <button type="button" class="jump-pdf-btn font-bold text-xs bg-blue-100 hover:bg-blue-200 text-blue-900 px-1.5 py-0.2 rounded-full cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${f.page}"><i class="ph ph-crosshair"></i><span>p.${f.page}</span></button>
+        <button type="button" class="jump-pdf-btn font-bold text-xs bg-blue-100 hover:bg-blue-200 text-blue-900 px-1.5 py-0.2 rounded-full cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(f.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(f.page)}</span></button>
         <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1 py-0.2 rounded font-mono cursor-pointer transition" title="Click to change reviewer">@${escapeHtml(f.by || 'Unknown')}</button>
       </span>
       <div class="flex items-center space-x-1">
@@ -685,6 +744,11 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
     state.annotations = state.annotations.filter(x => x.id !== f.id);
     updateSidebar();
     renderHighlights();
+    await recordAuditLog({
+      category: 'reading_extraction',
+      action: `Deleted a 1st Order quote (${getDisplayName(state.docs.find(d => d.id === f.docId))}, p.${f.page})`,
+      detail: `"${String(f.text || '').slice(0, 80)}..."`
+    });
     showUndoSnackbar('Deleted the 1st Order quote');
   };
   if (isLinked) {
@@ -816,9 +880,19 @@ async function submitManualAddForm() {
     clusterComments: {},
     clusterRelations: {}
   });
-  // Clear the form before the (async) save, so typing the next entry right away is never wiped
+  // Clear the form before the (async) save, so typing the next entry right away is never wiped; if the save fails (e.g. the
+  // browser's storage is full), what was typed is put back into the form, so nothing typed by hand is lost
+  const typed = { text: textInput.value, note: document.getElementById('manualAddNoteInput').value, type: activeManualAddType };
   closeManualAddDrawer();
-  await dbPut('annotations', a);
+  try {
+    await dbPut('annotations', a);
+  } catch (err) {
+    openManualAddDrawer(typed.type);
+    textInput.value = typed.text;
+    document.getElementById('manualAddNoteInput').value = typed.note;
+    showNotice('The entry was not saved', `${err && err.message ? err.message : err}\n\nWhat you typed is back in the form. Free some space (e.g. make a Backup and remove PDFs you no longer need), then add it again.`);
+    return;
+  }
   state.annotations.push(a);
   updateSidebar();
   showSnackbar(`Added manual ${activeManualAddType === 'second_order' ? '2nd Order Construct' : '1st Order Quote'} (p.${cleanPage})`);

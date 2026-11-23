@@ -339,6 +339,11 @@ function renderWelcomeGuideIfNeeded() {
         <div>• <b>Bird's-Eye Matrix Overview:</b> Toggle <b>🔭 Compact View</b> in Tab 2 to collapse long quotes and view 15+ studies at a glance.</div>
       </div>
 
+      ${location.protocol === 'file:' ? `<div class="mt-4 rounded-xl p-3 border border-amber-200 bg-amber-50 text-[13px] text-amber-900">
+        <b>Offline edition:</b> your project is stored in this browser. In Firefox and Safari it is tied to the location of this
+        folder: if you move the folder or open a new version from another folder, an earlier project is not shown (it is not lost:
+        open the app from the old location). To move or update, use <b>Backup</b> and <b>Restore Project</b>.
+      </div>` : ''}
       <div class="mt-5 flex items-center justify-center space-x-3">
         <button type="button" id="welcomeSelectPdfBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow cursor-pointer flex items-center space-x-1.5 transition">
           <i class="ph ph-plus-circle text-base"></i><span>Select PDF Files to Begin</span>
@@ -523,6 +528,8 @@ document.addEventListener('mousedown', e => {
 }, true);
 
 // ---- Icon-only buttons get an accessible name from their tooltip ----
+// Elements the two body observers (icon labels, growing text boxes) never need to look into
+const SKIP_OBSERVED = new Set(['SPAN', 'BR', 'CANVAS', 'I', 'B', 'svg', 'path']);
 (function labelIconButtons() {
   const label = root => {
     const btns = root.matches && root.matches('button') ? [root] : [];
@@ -534,7 +541,8 @@ document.addEventListener('mousedown', e => {
     });
   };
   label(document.body);
-  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) label(n); })))
+  // Text spans, line breaks and canvases (thousands of them when PDF.js lays out a page) hold no buttons: skipped at once
+  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1 && !SKIP_OBSERVED.has(n.tagName)) label(n); })))
     .observe(document.body, { childList: true, subtree: true });
 })();
 
@@ -567,7 +575,7 @@ document.addEventListener('mousedown', e => {
     schedule(el);
   };
   const initIn = root => {
-    if (root.nodeType !== 1) return;
+    if (root.nodeType !== 1 || SKIP_OBSERVED.has(root.tagName)) return;
     // .lazy-grow boxes (e.g. the many audit-trail reason boxes) start growing only once they are focused
     if (root.tagName === 'TEXTAREA' && !root.classList.contains('lazy-grow')) init(root);
     root.querySelectorAll && root.querySelectorAll('textarea:not(.lazy-grow)').forEach(init);

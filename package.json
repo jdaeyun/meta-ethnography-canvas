@@ -8,7 +8,9 @@
     "build": "npm run vendor && npm run css && npm run css:site",
     "serve": "http-server . -p 8080 -c-1",
     "sync-version": "node tools/sync-version.mjs",
-    "test": "node tools/test/smoke.mjs",
+    "test": "node --test tools/test/unit.test.mjs && node tools/test/smoke.mjs",
+    "test:unit": "node --test tools/test/unit.test.mjs",
+    "test:smoke": "node tools/test/smoke.mjs",
     "css:site": "node node_modules/@tailwindcss/cli/dist/index.mjs -i tools/site/tailwind.site.css -o site/css/tailwind.css --minify"
   },
   "devDependencies": {

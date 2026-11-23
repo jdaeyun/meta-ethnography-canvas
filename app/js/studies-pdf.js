@@ -383,10 +383,17 @@ function renderStudyList() {
           doc: JSON.parse(JSON.stringify(doc)),
           binary: binRec && binRec.data ? binRec.data : null,
           annotations: toDel.map(a => JSON.parse(JSON.stringify(a))),
-          position: idx
+          position: idx,
+          // References to the study elsewhere are removed with it and put back by Ctrl+Z: empty-cell records in rows and
+          // "same primary study as". (A row's ◆ base is kept: it tells which rows study #1 established, see checkBaselineChange.)
+          cellStatus: state.clusters.filter(c => c.cellStatus && doc.id in c.cellStatus).map(c => ({ id: c.id, v: c.cellStatus[doc.id] })),
+          companions: state.docs.filter(d => d.companionOf === doc.id).map(d => d.id)
         });
-        // The study, its PDF and its constructs go in one transaction (see dbBatch)
-        await dbBatch([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id }))]);
+        const refOps = [];
+        state.clusters.forEach(c => { if (c.cellStatus && doc.id in c.cellStatus) { c.cellStatus = { ...c.cellStatus }; delete c.cellStatus[doc.id]; refOps.push({ store: 'clusters', put: c }); } });
+        state.docs.forEach(d => { if (d.companionOf === doc.id) { d.companionOf = ''; refOps.push({ store: 'docs', put: d }); } });
+        // The study, its PDF, its constructs and the references to it go in one transaction (see dbBatch)
+        await dbBatch([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refOps]);
         state.docs = state.docs.filter(d => d.id !== doc.id);
         state.annotations = state.annotations.filter(a => a.docId !== doc.id);
         await persistDocOrder();
@@ -470,12 +477,15 @@ async function layoutPdfPages(loadedPdf, isStale) {
 
 let switchStudyToken = 0;
 async function switchStudy(id) {
-  flushAllPendingSaves();
-  const doc = state.docs.find(d => d.id === id);
-  if (!doc) return;
-  // Each call gets a token; an older call that resumes after a newer one started simply stops (prevents duplicated pages on rapid clicks/zoom)
+  // Each call gets a token, taken BEFORE any wait: an older call that resumes after a newer one started simply stops
+  // (prevents duplicated pages on rapid clicks / zoom, and an earlier click winning over a later one)
   const myToken = ++switchStudyToken;
   const isStale = () => myToken !== switchStudyToken;
+  // What was typed for the study being left is saved (and logged) before the next one opens
+  await flushAllPendingSaves();
+  if (isStale()) return;
+  const doc = state.docs.find(d => d.id === id);
+  if (!doc) return;
   state.activeDocId = id;
   renderStudyList();
   updateDocHeaderUI();
@@ -778,8 +788,11 @@ async function saveCurrentMeta() {
   }
 
   renderStudyList();
-  updateDocHeaderUI();
-  if (prevOverview !== doc.studyOverview) updateSidebar();
+  // Only the open study's header and sidebar are drawn: if another study was opened meanwhile, they already show it
+  if (doc.id === state.activeDocId) {
+    updateDocHeaderUI();
+    if (prevOverview !== doc.studyOverview) updateSidebar();
+  }
 }
 
 // ---- Domain judgements for checklists with built-in questions (CASP; eMERGe Part 3). Saved and logged as they change, independently of "Save Info". ----
@@ -871,10 +884,13 @@ function companionText(d) {
 }
 function funderLinkedText(d) {
   const parts = [];
-  parts.push(d.funder ? 'Funder: ' + d.funder : 'Funder: not recorded');
+  // "not recorded" only says something when funders are recorded for other studies; with none recorded the gap is in the
+  // eMERGe mapping (Item 10), not repeated on every row of Table 1
+  if (d.funder) parts.push('Funder: ' + d.funder);
+  else if (state.docs.some(x => x.funder)) parts.push('Funder: not recorded');
   const c = companionText(d);
   if (c) parts.push('Same study as: ' + c);
-  return parts.join(' | ');
+  return parts.join(' | ') || '-';
 }
 
 document.getElementById('saveMetaBtn').addEventListener('click', async () => {
@@ -904,7 +920,7 @@ commitMeta.isCommit = true;
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('input', () => { metaDirty = true; pendingSaveCleanups.add(commitMeta); });
-    el.addEventListener('change', commitMeta);
+    el.addEventListener('change', () => { if (document.hasFocus()) commitMeta(); }); // not when only the window lost focus
   });
 
 document.querySelectorAll('.meta-drop-target').forEach(input => {
@@ -1002,8 +1018,13 @@ function renderPageContent(container, num) {
 }
 async function renderPageContentNow(container, num) {
   container.dataset.rendering = 'true';
+  // Bound to the PDF it started with: if the study is switched or the pages are laid out again (zoom) meanwhile, the
+  // container is gone or the PDF replaced, and the render stops quietly instead of drawing into a detached page
+  const pdfDoc = state.activePdfDoc;
+  const stale = () => !container.isConnected || state.activePdfDoc !== pdfDoc;
   try {
-    const page = await state.activePdfDoc.getPage(num);
+    const page = await pdfDoc.getPage(num);
+    if (stale()) { delete container.dataset.rendering; return; }
     const vp = page.getViewport({ scale: state.scale });
     container.style.width = vp.width + 'px';
     container.style.height = vp.height + 'px';
@@ -1031,6 +1052,7 @@ async function renderPageContentNow(container, num) {
     container.appendChild(txtLayer);
 
     await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
+    if (stale()) { delete container.dataset.rendering; return; }
     const textContent = await page.getTextContent();
     await pdfjsLib.renderTextLayer({
       textContentSource: textContent,
@@ -1043,20 +1065,10 @@ async function renderPageContentNow(container, num) {
     delete container.dataset.rendering;
   } catch (e) {
     delete container.dataset.rendering;
-    console.error('Error rendering page ' + num, e);
+    if (!stale()) console.error('Error rendering page ' + num, e); // a destroyed PDF (study switched) is not an error
   }
 }
 
-// Chinese / Japanese text has no spaces between words: where two text items meet between such characters, nothing is added
-const CJK_CHAR = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
-function joinSeparator(prev, next) {
-  return CJK_CHAR.test(String(prev).slice(-1)) && CJK_CHAR.test(String(next).charAt(0)) ? '' : ' ';
-}
-function joinTextItems(strs) {
-  let out = '';
-  strs.forEach(t => { if (!t) return; out += (out ? joinSeparator(out, t) : '') + t; });
-  return out;
-}
 // Text of a selection in the PDF text layer. Range.toString() joins the last word of one line to the first word
 // of the next ("againstthe") because PDF.js text items usually have no trailing space at a line end.
 // Here a space is added whenever the next text item starts on a new line or column (hyphen at line end: no space).
@@ -1325,13 +1337,16 @@ function focusSidebarCard(annoId) {
 function hlBoxAtPoint(target, x, y) {
   const pageContainer = target && target.closest ? target.closest('#pdfPagesWrapper .page-container') : null;
   if (!pageContainer) return null;
-  // The smallest box under the pointer: a short highlight inside a longer one stays reachable
+  // The smallest box under the pointer: a short highlight inside a longer one stays reachable. Boxes are placed in percent of
+  // the page, so one measurement of the page is enough (no layout read per box on every mouse move)
+  const pr = pageContainer.getBoundingClientRect();
+  if (!pr.width || !pr.height) return null;
+  const px = (x - pr.left) / pr.width * 100, py = (y - pr.top) / pr.height * 100;
   let best = null, bestArea = Infinity;
   pageContainer.querySelectorAll('.hl-box').forEach(b => {
-    const r = b.getBoundingClientRect();
-    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return;
-    const area = r.width * r.height;
-    if (area < bestArea) { best = b; bestArea = area; }
+    const l = parseFloat(b.style.left), t = parseFloat(b.style.top), w = parseFloat(b.style.width), h = parseFloat(b.style.height);
+    if (!(px >= l && px <= l + w && py >= t && py <= t + h)) return;
+    if (w * h < bestArea) { best = b; bestArea = w * h; }
   });
   return best;
 }
@@ -1386,7 +1401,8 @@ async function ensurePdfTextIndex() {
       if (state.activePdfDoc !== pdfDoc) return null;
       const page = await pdfDoc.getPage(i);
       const tc = await page.getTextContent();
-      const joined = joinTextItems(tc.items.map(item => item.str)).normalize('NFC').toLowerCase();
+      // Runs of spaces and line breaks count as one space, here, in the query and in the highlight (the same text everywhere)
+      const joined = joinTextItems(tc.items.map(item => item.str)).normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
       pageTexts.push({ pageNum: i, text: joined });
     }
   } catch (e) {
@@ -1404,7 +1420,7 @@ async function runPdfSearch(query, direction = 1) {
   const prevBtn = document.getElementById('pdfSearchPrevBtn');
   const nextBtn = document.getElementById('pdfSearchNextBtn');
   const clearBtn = document.getElementById('pdfSearchClearBtn');
-  const q = (query || '').normalize('NFC').trim().toLowerCase();
+  const q = (query || '').normalize('NFC').trim().toLowerCase().replace(/\s+/g, ' ');
 
   if (!q || !state.activePdfDoc) {
     pdfSearchState.matches = [];
@@ -1519,29 +1535,6 @@ document.addEventListener('keydown', (e) => {
 });
 
 // --- E. Hybrid Citation Auto-Extractor (PDF Metadata + Page 1 Font/Position Heuristics) ---
-function extractSurnameFromAuthorString(rawAuthor) {
-  if (!rawAuthor) return { surname: '', hasEtAl: true };
-  const cleaned = String(rawAuthor)
-    .replace(/[\d*†‡§¶✉]/g, '')
-    .replace(/\b(MD|PhD|RN|PharmD|MSc|MPH|BSc|Prof|Dr)\b\.?/gi, '')
-    .trim();
-  const multiAuthors = /;|,|\band\b|&/i.test(cleaned);
-  const firstChunk = cleaned.split(/;|\band\b|&/i)[0].trim();
-  if (firstChunk.includes(',')) {
-    // "Surname, GivenName" format
-    const surname = firstChunk.split(',')[0].trim().replace(/\s+[A-Z]{1,3}\.?$/, ''); // "Hernandez M" -> "Hernandez"
-    return { surname, hasEtAl: multiAuthors || cleaned.split(',').length > 2 };
-  }
-  const parts = firstChunk.split(/\s+/).filter(Boolean);
-  // Vancouver style ("Hamdan A"): trailing initials -> surname is the first token
-  const initialsLast = parts.length > 1 && /^[A-Z]{1,3}\.?$/.test(parts[parts.length - 1]);
-  const surname = parts.length > 0 ? (initialsLast ? parts[0] : parts[parts.length - 1]) : '';
-  return { surname, hasEtAl: multiAuthors };
-}
-
-// Publication years 1980–2039, one pattern for every stage of the citation auto-fill
-const YEAR_CORE = '19[89]\\d|20[0-3]\\d';
-const YEAR_RE = new RegExp('(?:^|\\D)(' + YEAR_CORE + ')(?!\\d)');
 async function autoExtractCitationFromPdf() {
   const doc = state.docs.find(d => d.id === state.activeDocId);
   if (!doc || !state.activePdfDoc) {
@@ -1578,8 +1571,8 @@ async function autoExtractCitationFromPdf() {
     // A publication date in the metadata is trusted; a file creation date (often the download or typesetting date) is only a fallback
     const pubDate = xmp && (xmp.get('prism:publicationDate') || xmp.get('dc:date'));
     const rawDate = pubDate || (xmp && xmp.get('xap:CreateDate')) || info.CreationDate || '';
-    const dateMatch = String(rawDate).match(YEAR_RE);
-    if (dateMatch) { detectedYear = dateMatch[1]; yearFromPublicationDate = !!pubDate; }
+    const metaYear = yearFromPdfDate(rawDate);
+    if (metaYear) { detectedYear = metaYear; yearFromPublicationDate = !!pubDate; }
   } catch (e) {
     console.warn('Metadata read warning:', e);
   }

@@ -134,6 +134,19 @@ function cellStatusLines(c) {
   }).filter(Boolean);
 }
 
+// Notes on a row that every renderer shows (preview, Markdown, Word): provisional (seeded from study #1, not yet confirmed)
+// and "study #1 changed, not yet re-read"
+function rowStatusNotes(c, { short = false } = {}) {
+  const out = [];
+  if (c.autoSeeded && !c.seedConfirmed) out.push(short ? 'provisional' : `provisional: seeded from ${firstStudyMeta().long}, not yet confirmed`);
+  if (c.baselineChange) out.push('study #1 changed; translation not yet re-read');
+  return out;
+}
+// Pages of every passage of a cell's constructs (Table 2b)
+function cellPagesLabel(docSecs) {
+  return [...new Set(docSecs.flatMap(s => secAllPassages(s).map(ps => String(ps.page)).filter(Boolean)))].map(pg => 'p.' + pg).join(', ');
+}
+
 function buildTable2Html() {
   let rowsHtml = '';
   const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
@@ -164,7 +177,7 @@ function buildTable2Html() {
       const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
       firsts.forEach(f => {
         const attrTag = f.note ? ` <b>[${escapeHtml(f.note)}]</b>` : '';
-        linkedQuotesList.push(`<div style="margin-bottom:5px;">• <i>"${escapeHtml(f.text)}"</i>${attrTag} (${escapeHtml(dName)}, p.${f.page})</div>`);
+        linkedQuotesList.push(`<div style="margin-bottom:5px;">• <i>"${escapeHtml(f.text)}"</i>${attrTag} (${escapeHtml(dName)}, p.${escapeHtml(f.page)})</div>`);
       });
     });
 
@@ -173,7 +186,7 @@ function buildTable2Html() {
     rowsHtml += `
       <tr>
         <td>
-          <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Construct)')}</b>${c.autoSeeded && !c.seedConfirmed ? ' <span style="font-size:10px; color:#b45309;">(provisional: seeded from Index Paper, not yet confirmed)</span>' : ''}${c.baselineChange ? ' <span style="font-size:10px; color:#b45309;">(study #1 changed; translation not yet re-read)</span>' : ''}
+          <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Construct)')}</b>${rowStatusNotes(c).map(n => ` <span style="font-size:10px; color:#b45309;">(${escapeHtml(n)})</span>`).join('')}
           <div style="font-size:10.5px; color:#475569; margin-top:4px;"><b>Type:</b> ${escapeHtml(transLabel)}</div>
           <div style="font-size:10px; color:#64748b; margin-top:2px;"><b>Team status:</b> ${escapeHtml(concordanceLabel(c.concordanceStatus))}</div>
         </td>
@@ -390,58 +403,6 @@ function buildNotTranslatedHtml() {
 const APPENDIX_MODES = { key: 'Key decisions', full: 'Full audit trail' };
 function getAppendixMode() { const m = lsGet('me_appendix_mode'); return APPENDIX_MODES[m] ? m : 'key'; }
 
-// Edits of one text that are shown as one line in Appendix A (family name; same row for row texts)
-const APPENDIX_EDIT_SERIES = [
-  [/^Refined 3rd Order Construct Title$/, 'Row title refined'],
-  [/^Updated Step A Translation Summary for /, 'Step A translation summary revised'],
-  [/^Updated Step B 3rd Order Definition & Interpretation for /, 'Step B third-order interpretation revised'],
-  [/^Reflexive note on /, 'Reflexive note on the row revised'],
-  [/^3rd Order Team Perspective Updated /, 'Team perspective on the row revised'],
-  [/^Updated GRADE-CERQual Assessment for /, 'GRADE-CERQual assessment revised'],
-  [/^Updated Phase 1 Research Aim$/, 'Research aim revised'],
-  [/^Updated Review question \(Item 3\)$/, 'Review question revised'],
-  [/^Updated Line of Argument Synthesis/, 'Line of argument revised'],
-  [/^Updated Phase 4: Outcome of Relating Studies/, 'Outcome of relating studies (Item 12) revised'],
-  [/^Updated Alternative interpretations/, 'Alternative interpretations revised'],
-  [/^Updated Context where the model applies/, 'Context where the model applies (Item 16) revised']
-];
-function appendixSeries(l) {
-  const hit = APPENDIX_EDIT_SERIES.find(([re]) => re.test(l.action || ''));
-  if (!hit) return null;
-  // Same row by id; entries from older versions without row ids are kept apart by their action text (it names the row)
-  return { label: hit[1], key: hit[1] + '|' + ((l.clusterIds || [])[0] || l.action || '') };
-}
-function isMemoLog(l) { return /^\[[^\]]+\]/.test(l.action || '') && !/^\[Reviewer-wrapped\]/.test(l.action || ''); }
-// Routine bookkeeping: shown in the full trail; in Appendix A only when a reason was recorded with it
-const APPENDIX_ROUTINE = [
-  /^Linked 1st Order Quote/, /^Unlinked 1st Order Quote/, /^Switched (1st|2nd) Order/, /^\[Reviewer-wrapped\]/, /^Set 2nd Order label source/,
-  /^Updated 2nd Order Summary Label/, /^Placed 2nd Order Construct/, /^Removed 2nd Order Construct from/,
-  /^Added a further passage/, /^Recorded p\..* as a further passage/, /^Split p\..* off/, /^Recorded how two concepts relate within/, /^Removed a relationship between concepts within/,
-  /^Edited the extracted text of/, /^Wrote Study Overview/, /^Revised Study Overview/,
-  /^Imported Peer Construct from/, /^Merged \d+ audit trail entries from/, /^Recorded provisional agreement/, /^2nd Order Team Perspective Updated/,
-  /^Reordered 3rd Order Theme Row/, /^Updated note on how a concept fits/, /^Noted why a 2nd Order construct was not translated/,
-  /^Set subgroup for/, /^Appraisal \(/, /^Updated Critical Appraisal/, /^(Linked|Unlinked) .* companion paper/,
-  /^Changed the reviewer attributed to an item/
-];
-// Write-up wording of the Methods (Tab 4 fields) is the Methods text itself, not a decision
-const APPENDIX_WRITEUP = /^Updated (Reading & extraction process|Extracted from|Units of synthesis|Working definitions|Translation process|Quality appraisal policy|How appraisal was used|Process of relating studies|Studies synthesized into the line of argument)/;
-function isKeyDecisionLog(l) {
-  if ((l.rationale || '').trim()) return true;
-  if (isMemoLog(l)) return true;
-  const a = l.action || '';
-  // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
-  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false;
-  // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
-  if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
-  if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
-  if (l.category === 'linking' || l.category === 'matrix_mapping' && !/^Auto-placed/.test(a)) return false;
-  if (l.category === 'context_appraisal') return false; // reported per study in Table 1 / 1b
-  // Empty-cell statuses are shown in Table 2b; a first judgement of a placement is shown in Tables 2 / 2b: only a CHANGED judgement is a decision here
-  if (l.category === 'relating_studies' && !/^Updated Phase 4/.test(a)) return false;
-  if (/^Judged construct as /.test(a)) return !/Not yet judged/.test(l.fromVal || '');
-  return true;
-}
-
 function getAppendixASpec(mode = getAppendixMode()) {
   const all = [...state.logs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
   const fmt = t => new Date(t).toLocaleString();
@@ -457,8 +418,16 @@ function getAppendixASpec(mode = getAppendixMode()) {
   // same row (so the line stays in its place in the story), and an edit with a reason is never folded.
   const rows = [], open = new Map(); // series key -> row being built
   let nKey = 0;
+  // An audit trail entry deleted by mistake and restored with Ctrl+Z: the two cancel out (the full trail keeps both)
+  const cancelled = new Set();
+  all.forEach((l, i) => {
+    const m = /^Deleted an audit trail entry: ([\s\S]*)$/.exec(l.action || '');
+    if (!m) return;
+    const back = all.slice(i + 1).find(x => !cancelled.has(x) && x.action === `Restored a deleted audit trail entry (Undo): ${m[1]}`);
+    if (back) { cancelled.add(l); cancelled.add(back); }
+  });
   for (const l of all) {
-    if (!isKeyDecisionLog(l)) continue;
+    if (cancelled.has(l) || !isKeyDecisionLog(l)) continue;
     nKey++;
     const ser = !(l.rationale || '').trim() ? appendixSeries(l) : null;
     const rowIds = l.clusterIds || [];
@@ -554,7 +523,7 @@ function buildTable2GridHtml() {
       }
       const hasRefut = docSecs.some(s => isSecRefutational(s, c.id));
       const symbol = contribSymbol(docSecs, c.id);
-      const pages = [...new Set(docSecs.flatMap(s => secAllPassages(s).map(ps => String(ps.page)).filter(Boolean)))].map(pg => 'p.' + pg).join(', ');
+      const pages = cellPagesLabel(docSecs);
       return `<td style="text-align:center; font-weight:bold; color:${hasRefut ? '#be123c' : '#0f172a'};">${symbol}<div style="font-size:9.5px; font-weight:normal; color:#64748b;">${escapeHtml(pages)}</div></td>`;
     }).join('');
 
@@ -563,7 +532,7 @@ function buildTable2GridHtml() {
     rowsHtml += `
       <tr>
         <td>
-          <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Theme)')}</b>${c.autoSeeded && !c.seedConfirmed ? ' <span style="font-size:10px; color:#b45309;">(provisional)</span>' : ''}
+          <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Theme)')}</b>${rowStatusNotes(c, { short: true }).map(n => ` <span style="font-size:10px; color:#b45309;">(${escapeHtml(n)})</span>`).join('')}
           <div style="font-size:10.5px; color:#475569;">${escapeHtml(transLabel)}</div>
         </td>
         ${studyCells}
@@ -1056,7 +1025,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
         const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
         firsts.forEach(f => quotes.push(`"${f.text}"${f.note ? ' [' + f.note + ']' : ''} (p.${f.page})`));
       });
-      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cleanMd(clusterTranslationLabel(c))} | ${cleanMd(concordanceLabel(c.concordanceStatus))} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
+      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}**${rowStatusNotes(c).length ? ' (' + cleanMd(rowStatusNotes(c).join('; ')) + ')' : ''} | ${cleanMd(clusterTranslationLabel(c))} | ${cleanMd(concordanceLabel(c.concordanceStatus))} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
     });
     // Line of Argument block (same content as the HTML preview and the Word export)
     const L = state.loa || {};
@@ -1094,9 +1063,11 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       const cells = state.docs.map(d => {
         const docSecs = mappedSecs.filter(s => s.docId === d.id);
         if (!docSecs.length) { const info = emptyCellInfo(c, d.id); return info ? info.symbol : ' '; }
-        return contribSymbol(docSecs, c.id).replace(/ \/ /g, '/');
+        const pg = cellPagesLabel(docSecs);
+        return contribSymbol(docSecs, c.id).replace(/ \/ /g, '/') + (pg ? ' (' + pg + ')' : '');
       });
-      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}** | ${cells.join(' | ')} | **${cleanMd(c.cerqualConfidence)}** |\n`;
+      const notes = rowStatusNotes(c, { short: true });
+      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}**${notes.length ? ' (' + cleanMd(notes.join('; ')) + ')' : ''} | ${cells.join(' | ')} | **${cleanMd(c.cerqualConfidence)}** |\n`;
     });
   } else if (state.activePubTable === 'table3') {
     getTable3Specs().forEach(spec => {
@@ -1278,7 +1249,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
       t2Rows.push(new TableRow({
         children: [
-          makeCell(`${c.thirdOrderTitle || '(Untitled)'}\n[Type: ${transLabel} | Team status: ${concordanceLabel(c.concordanceStatus)}]`, { isLastRow: isLast, bold: true }),
+          makeCell(`${c.thirdOrderTitle || '(Untitled)'}${rowStatusNotes(c).map(n => ` (${n})`).join('')}\n[Type: ${transLabel} | Team status: ${concordanceLabel(c.concordanceStatus)}]`, { isLastRow: isLast, bold: true }),
           makeCell([c.translationSummary ? 'Translation: ' + c.translationSummary : '', c.synthesisNote ? '3rd order interpretation: ' + c.synthesisNote : ''].filter(Boolean).join('\n\n') || '-', { isLastRow: isLast }),
           makeCell([...secParagraphs, ...cellStatusLines(c).map(l => new Paragraph({ children: [new TextRun({ text: l, italics: true, font: "Times New Roman", size: 18 })], spacing: { after: 60 } }))], { isLastRow: isLast }),
           makeCell(quoteParagraphs, { isLastRow: isLast }),
@@ -1309,11 +1280,12 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
         const docSecs = mappedSecs.filter(s => s.docId === d.id);
         if (docSecs.length === 0) { const info = emptyCellInfo(c, d.id); return makeCell(info ? info.symbol : '', { isLastRow: isLast }); }
         const sym = contribSymbol(docSecs, c.id);
-        return makeCell(sym, { isLastRow: isLast, bold: true });
+        const pg = cellPagesLabel(docSecs);
+        return makeCell(pg ? `${sym}\n${pg}` : sym, { isLastRow: isLast, bold: true });
       });
       t2bRows.push(new TableRow({
         children: [
-          makeCell(c.thirdOrderTitle || '(Untitled)', { isLastRow: isLast, bold: true }),
+          makeCell((c.thirdOrderTitle || '(Untitled)') + rowStatusNotes(c, { short: true }).map(n => ` (${n})`).join(''), { isLastRow: isLast, bold: true }),
           ...studyCells,
           makeCell(c.cerqualConfidence || 'Not assessed', { isLastRow: isLast, bold: true })
         ]

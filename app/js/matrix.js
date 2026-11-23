@@ -81,6 +81,8 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
     createdAt: Date.now(),
     baseDocId: opts.baseDocId || '' // '' = the study of the first construct placed establishes the row
   });
+  // deferWrite: the caller writes the row in its own transaction (dbBatch) together with what else it changes
+  if (opts.deferWrite) return cluster;
   await dbPut('clusters', cluster);
   state.clusters.push(cluster);
   if (!opts.silent) {
@@ -530,7 +532,7 @@ function renderSecondOrderPool() {
       <details class="mt-1.5 bg-blue-50/50 rounded border border-blue-100 p-1.5">
         <summary class="text-xs font-semibold text-blue-700 cursor-pointer select-none">🟦 Preview ${linkedQuotes.length} 1st Order Quote(s)</summary>
         <ul class="pl-3 mt-1 list-disc text-xs text-slate-600 space-y-1">
-          ${linkedQuotes.map(q => `<li>"${escapeHtml(q.text)}" <span class="text-slate-400">(p.${q.page})</span></li>`).join('')}
+          ${linkedQuotes.map(q => `<li>"${escapeHtml(q.text)}" <span class="text-slate-400">(p.${escapeHtml(q.page)})</span></li>`).join('')}
         </ul>
       </details>
     ` : '';
@@ -541,7 +543,7 @@ function renderSecondOrderPool() {
         <div class="flex items-center space-x-1 shrink-0">
           <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
           <span class="text-[11px] px-1 py-0.2 rounded border ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
-          <button type="button" class="jump-pdf-btn text-xs bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-700 px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition transform hover:-translate-y-0.5" title="Open study & jump to PDF page ${sec.page}"><i class="ph ph-file-pdf"></i><span>PDF p.${sec.page}</span><i class="ph ph-arrow-square-out"></i></button>
+          <button type="button" class="jump-pdf-btn text-xs bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-700 px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition transform hover:-translate-y-0.5" title="Open study & jump to PDF page ${escapeHtml(sec.page)}"><i class="ph ph-file-pdf"></i><span>PDF p.${escapeHtml(sec.page)}</span><i class="ph ph-arrow-square-out"></i></button>
         </div>
       </div>
       ${sec.origin === 'wrapped_first_order' ? `<div class="text-[10px] font-semibold text-amber-800 mb-0.5">🏷 Reviewer-wrapped (1st-order quote)</div>` : ''}
@@ -549,6 +551,11 @@ function renderSecondOrderPool() {
       <div class="text-[13px] text-slate-600 italic line-clamp-3 leading-snug">"${escapeHtml(sec.text)}"</div>
       ${sec.nuanceNote ? `<div class="mt-1 text-xs text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 truncate" title="${escapeHtml(sec.nuanceNote)}">🌐 ${escapeHtml(sec.nuanceNote)}</div>` : ''}
       ${poolQuotesPreviewHtml}
+      ${(() => {
+        // Imported in Compare before the other reviewer's row was here: shown, so the waiting placement is not a hidden state
+        const waiting = Object.values(sec._peerRows || {}).map(w => w && w._title).filter(Boolean);
+        return waiting.length ? `<div class="pool-waiting mt-1 text-[11px] text-teal-900 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200" title="Imported in Compare, where the other reviewer placed it in this row. It is placed here, with their judgement and cell note, when a row of that name is here: import the row in Compare, or name a row so.">⏳ Waits for the other reviewer's row: ${waiting.map(t => '“' + escapeHtml(t) + '”').join(', ')}</div>` : '';
+      })()}
       ${count === 0 ? `<details class="pool-nt mt-1.5 rounded border border-slate-200 bg-slate-50 p-1.5" ${sec.notTranslatedNote ? 'open' : ''}>
         <summary class="text-[11px] font-semibold text-slate-600 cursor-pointer select-none">${sec.notTranslatedNote ? '✎ Why not translated (Appendix B)' : '+ Why not translated? (optional, reported in Appendix B)'}</summary>
         <textarea rows="2" class="pool-nt-input mt-1 w-full text-xs border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-indigo-500 resize-y" placeholder="e.g., outside the review question; contradicts the rows but does not translate into any; too thin to interpret…">${escapeHtml(sec.notTranslatedNote)}</textarea>
@@ -559,11 +566,34 @@ function renderSecondOrderPool() {
           ? `<span class="text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded font-semibold">✓ Placed in ${count} row${count > 1 ? 's' : ''}</span>`
           : '<span class="text-indigo-600 font-medium">Drag to Matrix ➔</span>'}
       </div>
+      ${(() => {
+        // Placing without dragging (many rows, a trackpad, the keyboard): choose the row
+        const rows = state.clusters.filter(c => !sec.clusterIds.includes(c.id));
+        return rows.length ? `<select class="pool-place mt-1 w-full text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white text-slate-700" title="Place this construct in a row (it can be in several rows)" aria-label="Place in a 3rd Order row">
+          <option value="">${count > 0 ? '+ Also place in row…' : 'Place in row…'}</option>
+          ${rows.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(clusterLabel(c))}</option>`).join('')}
+        </select>` : '';
+      })()}
     `;
     card.querySelector('.jump-pdf-btn').onclick = (e) => {
       e.stopPropagation();
       jumpToPdfAnnotation(sec.id);
     };
+    const placeSel = card.querySelector('.pool-place');
+    if (placeSel) {
+      placeSel.addEventListener('mousedown', e => e.stopPropagation());
+      placeSel.onchange = async () => {
+        const target = state.clusters.find(c => c.id === placeSel.value);
+        if (!target) return;
+        await assignSecondOrderToCluster(sec, target);
+        renderLoaClusterChips();
+        renderMatrixView();
+        // Show where it went (rows are built lazily: scroll to the row, which builds it)
+        const tr = document.querySelector(`#matrixTable tr[data-cluster-id="${CSS.escape(target.id)}"]`);
+        if (tr) { tr.scrollIntoView({ block: 'center', behavior: 'smooth' }); tr.classList.add('drag-over'); setTimeout(() => tr.classList.remove('drag-over'), 1500); }
+        showSnackbar(`Placed in "${clusterLabel(target)}" (not yet judged).`);
+      };
+    }
     card.querySelector('.rev-badge-btn').onclick = (e) => {
       e.stopPropagation();
       promptReassignItemReviewer(sec, 'annotations', renderMatrixView);
@@ -644,7 +674,7 @@ function renderSecondOrderPool() {
 
       fCard.innerHTML = `
         <div class="flex items-center justify-between text-xs font-bold text-blue-800">
-          <button type="button" class="jump-pdf-btn truncate bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition" title="Jump to PDF page ${f.page}"><i class="ph ph-file-pdf"></i><span class="truncate">${escapeHtml(docName)} (p.${f.page})</span><i class="ph ph-arrow-square-out"></i></button>
+          <button type="button" class="jump-pdf-btn truncate bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition" title="Jump to PDF page ${escapeHtml(f.page)}"><i class="ph ph-file-pdf"></i><span class="truncate">${escapeHtml(docName)} (p.${escapeHtml(f.page)})</span><i class="ph ph-arrow-square-out"></i></button>
           <button type="button" class="wrap-btn px-1.5 py-0.2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold cursor-pointer" title="Wrap into a 2nd Order Construct">+ Convert to 2nd Order</button>
         </div>
         ${f.note ? `<div class="text-xs font-semibold text-slate-700">${escapeHtml(f.note)}</div>` : ''}
@@ -936,24 +966,35 @@ function renderMatrixTable() {
     const tdMeta = document.createElement('td');
     tdMeta.innerHTML = `
       <div class="space-y-2">
-        <!-- Header Badges & Reviewer -->
-        <div class="flex items-center justify-between">
-          <div class="flex items-center flex-wrap gap-1">
-            <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">3rd Order</span>
-            <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
+        <!-- Always visible: the title, the row's status and its place in the order. Everything else about the row
+             (reviewer, history, the study that established it, merge / split, delete) opens with ⋯, so the header stays
+             light while reading and translating; nothing is hidden for good and no data changes. -->
+        <input type="text" class="cluster-title w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-indigo-600" placeholder="3rd Order Construct / Theme Name..." value="${escapeHtml(cluster.thirdOrderTitle)}">
+        <div class="flex items-center justify-between gap-1">
+          <div class="flex items-center flex-wrap gap-1 min-w-0">
             <span class="cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
-            ${(() => { const n = rowHistoryCount(cluster); return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
-            ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from the Index Paper's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
             <span class="cl-cerqual-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
+            ${cluster.baseDocId === '' ? '' : (() => { const b = rowBaseDocId(cluster); const d = b && state.docs.find(x => x.id === b); return d ? `<span class="cl-base-pill text-[11px] px-1.5 py-0.2 rounded border border-slate-300 bg-white text-slate-700 truncate max-w-[10rem]" title="◆ Established by ${escapeHtml(getDisplayName(d))}: its cards in this row are what the other studies are translated into. Change it under ⋯.">◆ ${escapeHtml(getDisplayName(d))}</span>` : `<span class="cl-base-pill text-[11px] px-1.5 py-0.2 rounded border border-slate-300 bg-white text-slate-500" title="No single base: every study's cards are judged. Change it under ⋯.">◆ none</span>`; })()}
+            ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from study #1's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
           </div>
-          <div class="flex items-center space-x-1">
+          <div class="flex items-center gap-1 shrink-0">
             <button type="button" class="move-cl-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === 0 ? 'disabled' : ''} title="Move row up">▲</button>
             <button type="button" class="move-cl-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === visibleClusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
-            <button type="button" class="cl-rowops text-slate-400 hover:text-indigo-600 cursor-pointer ml-1" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i></button>
-            <button class="del-cluster text-slate-400 hover:text-rose-500 cursor-pointer ml-1" title="Delete Row"><i class="ph ph-trash"></i></button>
+            <button type="button" class="cl-tools-toggle px-1.5 py-0.2 rounded border ${state.rowToolsOpen.has(cluster.id) ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold" aria-expanded="${state.rowToolsOpen.has(cluster.id)}" title="Row tools: reviewer, history, the study that established the row (◆), merge / split, delete">⋯</button>
           </div>
         </div>
-        
+
+        <div class="cl-tools ${state.rowToolsOpen.has(cluster.id) ? '' : 'hidden'} space-y-1.5 rounded border border-slate-200 bg-slate-50 p-1.5">
+          <div class="flex items-center justify-between gap-1">
+            <div class="flex items-center flex-wrap gap-1">
+              <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
+              ${(() => { const n = rowHistoryCount(cluster); return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 History (${n})</button>` : ''; })()}
+            </div>
+            <div class="flex items-center gap-1">
+              <button type="button" class="cl-rowops text-[11px] px-1.5 py-0.2 rounded border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 cursor-pointer" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i> Merge / split</button>
+              <button class="del-cluster text-[11px] px-1.5 py-0.2 rounded border border-slate-200 bg-white text-slate-500 hover:text-rose-600 cursor-pointer" title="Delete Row"><i class="ph ph-trash"></i></button>
+            </div>
+          </div>
         ${(() => {
           // Which study's construct established this row (◆). Its own cards are not judged in this row; every other study's are.
           const rowDocIds = new Set(rowSecsIndexed(cluster.id).map(a => a.docId));
@@ -970,6 +1011,7 @@ function renderMatrixTable() {
             </select>
           </div>`;
         })()}
+        </div>
 
         ${cluster.baselineChange ? (() => {
           const bc = cluster.baselineChange;
@@ -984,9 +1026,6 @@ function renderMatrixTable() {
           </div>
         </div>`;
         })() : ''}
-
-        <!-- Always-visible 3rd Order Title -->
-        <input type="text" class="cluster-title w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-indigo-600" placeholder="3rd Order Construct / Theme Name..." value="${escapeHtml(cluster.thirdOrderTitle)}">
 
         <!-- 3-Mode Mini-Tab Bar to prevent vertical clutter -->
         <div class="cl-subtab-bar grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
@@ -1152,7 +1191,7 @@ function renderMatrixTable() {
         await recordAuditLog({
           clusterIds: [cluster.id],
           category: 'third_order',
-          action: 'Refined 3rd Order Construct Title',
+          action: LOG_ACTION.rowTitle,
           fromVal: oldTitle,
           toVal: newTitle || '(Untitled)'
         });
@@ -1374,19 +1413,39 @@ function renderMatrixTable() {
       bindPendingCommit(tdMeta.querySelector(sel), saveCerqualChanges);
     });
 
+    tdMeta.querySelector('.cl-tools-toggle').onclick = () => {
+      const open = !state.rowToolsOpen.has(cluster.id);
+      if (open) state.rowToolsOpen.add(cluster.id); else state.rowToolsOpen.delete(cluster.id);
+      tdMeta.querySelector('.cl-tools').classList.toggle('hidden', !open);
+      const t = tdMeta.querySelector('.cl-tools-toggle');
+      t.setAttribute('aria-expanded', String(open));
+      t.className = `cl-tools-toggle px-1.5 py-0.2 rounded border ${open ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold`;
+    };
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
     tdMeta.querySelector('.del-cluster').onclick = async () => {
       const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
+      // Nothing of the row is left behind (judgements, cell notes and line-of-argument marks in it, its concept-map relations);
+      // Ctrl+Z puts all of it back
+      const PER_ROW = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+      const perRow = {};
+      assigned.forEach(a => { perRow[a.id] = {}; PER_ROW.forEach(k => { if (a[k] && cluster.id in a[k]) perRow[a.id][k] = a[k][cluster.id]; }); });
+      const removedLinks = (state.loa.links || []).filter(l => l.from === cluster.id || l.to === cluster.id);
       pushUndoAction({
         type: 'delete_cluster',
         label: `3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`,
         cluster: { ...cluster },
-        assignedSecIds: assigned.map(a => a.id)
+        assignedSecIds: assigned.map(a => a.id),
+        perRow, removedLinks
       });
       const ops = []; // unplacing the cards and deleting the row in one transaction (see dbBatch)
       for (let a of assigned) {
         a.clusterIds = a.clusterIds.filter(id => id !== cluster.id);
+        PER_ROW.forEach(k => { if (a[k] && cluster.id in a[k]) { a[k] = { ...a[k] }; delete a[k][cluster.id]; } });
         ops.push({ store: 'annotations', put: a });
+      }
+      if (removedLinks.length) {
+        state.loa = { ...state.loa, links: state.loa.links.filter(l => !removedLinks.includes(l)) };
+        ops.push({ store: 'meta', put: state.loa });
       }
       ops.push({ store: 'clusters', del: cluster.id });
       state.clusters = state.clusters.filter(c => c.id !== cluster.id);
@@ -1397,6 +1456,7 @@ function renderMatrixTable() {
         action: 'Deleted 3rd Order Row',
         fromVal: cluster.thirdOrderTitle || '(Untitled Row)'
       });
+      renderLoaClusterChips(); // the drawer's chips and map (if open) lose the row
       renderMatrixView();
       showUndoSnackbar(`Removed the row "${cluster.thirdOrderTitle || 'Untitled'}" (its constructs stay in the pool / other rows)`);
     };
@@ -1442,7 +1502,7 @@ function renderMatrixTable() {
               <details class="matrix-card-detail mt-1.5 bg-white rounded border border-blue-100 p-1.5">
                 <summary class="text-xs font-semibold text-blue-700 cursor-pointer">🟦 ${firsts.length} Linked 1st Order Quote(s)</summary>
                 <ul class="pl-3 mt-1 list-disc text-xs text-slate-600 space-y-1">
-                  ${firsts.map(f => `<li>"${escapeHtml(f.text)}" ${f.note ? `<span class="font-semibold text-blue-800 not-italic">[${escapeHtml(f.note)}]</span> ` : ''}<span class="text-slate-400">(p.${f.page})</span>${f.nuanceNote ? `<div class="text-[11px] text-sky-700 not-italic">🌐 ${escapeHtml(f.nuanceNote)}</div>` : ''}</li>`).join('')}
+                  ${firsts.map(f => `<li>"${escapeHtml(f.text)}" ${f.note ? `<span class="font-semibold text-blue-800 not-italic">[${escapeHtml(f.note)}]</span> ` : ''}<span class="text-slate-400">(p.${escapeHtml(f.page)})</span>${f.nuanceNote ? `<div class="text-[11px] text-sky-700 not-italic">🌐 ${escapeHtml(f.nuanceNote)}</div>` : ''}</li>`).join('')}
                 </ul>
               </details>
             `;
@@ -1463,7 +1523,7 @@ function renderMatrixTable() {
                   : `<select class="rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${relMeta.badgeCls}" title="How this study's construct relates to the row: not yet judged, Reciprocal (translates into it), Refutational (contrasts with it) or Different aspect (speaks to another aspect of the topic, for the line of argument)">
                   ${CELL_RELATIONS.map(r => `<option value="${r}" ${r === cellRelation ? 'selected' : ''}>${escapeHtml(getCellRelationMeta(r).label)}</option>`).join('')}
                 </select>`}
-                <button type="button" class="jump-pdf-btn text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 px-2.5 py-0.5 rounded-md shadow-sm cursor-pointer transition flex items-center space-x-1 transform hover:-translate-y-0.5" title="Open PDF & jump to page ${sec.page} in ${escapeHtml(getDisplayName(doc))}"><i class="ph ph-file-pdf"></i><span>PDF p.${sec.page}</span><i class="ph ph-arrow-square-out"></i></button>
+                <button type="button" class="jump-pdf-btn text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 px-2.5 py-0.5 rounded-md shadow-sm cursor-pointer transition flex items-center space-x-1 transform hover:-translate-y-0.5" title="Open PDF & jump to page ${escapeHtml(sec.page)} in ${escapeHtml(getDisplayName(doc))}"><i class="ph ph-file-pdf"></i><span>PDF p.${escapeHtml(sec.page)}</span><i class="ph ph-arrow-square-out"></i></button>
                 <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
                 <span class="text-[11px] px-1 py-0.2 rounded border ${secBadge.cls} ${showConcUI ? '' : 'hidden'}">${secBadge.label}</span>
                 ${firsts.length > 0 ? `<span class="text-[11px] bg-blue-50 text-blue-700 border border-blue-200 px-1 py-0.2 rounded font-semibold" title="${firsts.length} linked 1st Order Quote(s)">🟦 ${firsts.length}</span>` : ''}
@@ -2036,7 +2096,7 @@ async function mergeRows(src, tgt, why) {
 async function splitRow(src, secIds, title, why) {
   const srcTitle = clusterLabel(src);
   const secs = rowSecs(src).filter(s => secIds.includes(s.id));
-  const nw = await createNewClusterRow(title, { silent: true });
+  const nw = await createNewClusterRow(title, { silent: true, deferWrite: true });
   const ids = [src.id, nw.id];
   const beforeAnns = secs.map(a => annRowState(a, ids));
   const srcBase = rowBaseDocId(src);
@@ -2057,12 +2117,13 @@ async function splitRow(src, secIds, title, why) {
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
     ops.push({ store: 'annotations', put: s });
   }
-  ops.push({ store: 'clusters', put: nw });
-  // The new row sits right below the one it was split from
-  state.clusters = state.clusters.filter(c => c.id !== nw.id);
-  state.clusters.splice(state.clusters.findIndex(c => c.id === src.id) + 1, 0, nw);
+  // The new row sits right below the one it was split from; the new row, the moved cards and the order of every row are
+  // one transaction, and the rows in memory change only once it is stored
+  const order = state.clusters.filter(c => c.id !== nw.id);
+  order.splice(order.findIndex(c => c.id === src.id) + 1, 0, nw);
+  order.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
   await dbBatch(ops);
-  await persistClusterOrder();
+  state.clusters = order;
   pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${srcTitle.slice(0, 24)}"`, srcId: src.id, newId: nw.id,
     before: { anns: beforeAnns }, after: { anns: secs.map(a => annRowState(a, ids)) } });
   await recordAuditLog({

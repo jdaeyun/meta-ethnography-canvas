@@ -16,6 +16,13 @@ Your data
     Backup (top bar) and Settings > Restore Project. PDFs are not stored in backups: drop the same
     PDF files back in and they reconnect by filename.
   - Clearing the browser's site data removes the project. Make a JSON backup at the end of each session.
+  - Where the data lives depends on the browser. Firefox (and Safari) keep it per file location: if you
+    move this folder, or open the app from another folder (for example a new version extracted next to
+    the old one), the project seems to be gone. It is not lost: open the app from the old location again.
+    Chrome and Edge keep one store for all local files.
+  - Updating to a new version: in the old version click Backup; extract the new ZIP; open it and use
+    Settings > Restore Project (then drop the PDFs in). Or keep one folder and replace its files with the
+    new ones (the location, and so the data, stays the same).
 
 Notes
   - Very large PDFs can feel slower than in the online version: when a page is opened from a file,

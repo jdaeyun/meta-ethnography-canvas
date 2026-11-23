@@ -12,6 +12,8 @@ me_canvas.html         markup only (4 tabs + modals); loads everything under app
 app/version.js         release info (version, date, concept DOI) — the one place to edit per release
 app/css/me_canvas.css  app-specific CSS (everything else is Tailwind classes)
 app/js/core.js         IndexedDB, auto-save badge, `state`, normalize*(), link helpers, escapeHtml, showSnackbar
+app/js/logic.js        pure logic, no DOM / `state` / IndexedDB (unit-tested in Node): Appendix A selection, project-file sanitising,
+                       backup merge rules, text similarity, map relations and flow columns, PDF text joins, author / year parsing
 app/js/app.js          project/reviewer setup, startup (DOMContentLoaded), welcome guide, tab switching, settings menu, PDF drag & drop
 app/js/undo-audit.js   undo stack, recordAuditLog()
 app/js/loa.js          "Research Aim & Overall Model" drawer, concept map SVG, team models
@@ -43,8 +45,15 @@ optional dependencies, install with `npm ci --include=optional` (Tailwind 4 need
 Re-run `npm run css` after using a Tailwind class that appears nowhere else. Write class names in full
 (no string concatenation such as 'bg-' + color) so the Tailwind scanner can see them.
 `npm run serve` serves the folder at http://localhost:8080 for testing. node_modules/ is not committed.
-`npm test` runs the Playwright smoke tests (tools/test/smoke.mjs: audit logging, restore, lazy matrix rows, dialogs, file://) against the ?demo project;
-install the browser once with `npx playwright install chromium`. Run it after changing app behaviour and extend it with the change.
+`npm test` runs the unit tests, then the smoke tests (`npm run test:unit` / `npm run test:smoke` run one of them):
+- tools/test/unit.test.mjs (node:test, no browser) loads app/js/logic.js alone in a fresh context and tests its functions directly.
+  Put a new piece of logic that needs no page there (taking what it needs as arguments), and test it there.
+- tools/test/smoke.mjs drives the ?demo project in Chromium (Playwright: audit logging, restore, lazy matrix rows, dialogs, file://);
+  install the browser once with `npx playwright install chromium`. Run it after changing app behaviour and extend it with the change.
+  No fixed waits (`waitForTimeout`; a smoke check fails on one): after an action, `await settle(p)` waits until the app has nothing
+  in flight (IndexedDB transactions, async handlers, timers up to 1 s, PDF rendering, pending debounced saves, a reason / choice
+  dialog awaiting its automatic answer); when the test is about a condition, wait for that condition with `waitForFunction`.
+  If settle times out, its error names what was still in flight. A timer the app sets for longer than 1 s is not waited for.
 
 ## Demo (?demo)
 
@@ -85,7 +94,7 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 
 - Classic `<script>` files sharing one global scope (not ES modules, so `file://` works). The smoke test "Shared global scope"
   fails when a top-level name is declared in two files.
-  Keep the load order in `me_canvas.html`; `version.js`, then `core.js` first. Top-level code may only call
+  Keep the load order in `me_canvas.html`; `version.js`, then `core.js`, then `logic.js` first. Top-level code may only call
   functions from files loaded earlier — anything else must run inside handlers or DOMContentLoaded.
 - Backward compatibility from v1.4.7 on (data format 1): a project saved by 1.4.7 or later must open in every later
   version with the same meaning. Backups carry `formatVersion` (`PROJECT_FORMAT`, core.js). A change to the data shape or to
@@ -108,6 +117,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   mark and the peer row's title, so a row of that title made here later takes it in): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.
   `loa.peerSetAside` (optional, same kind) remembers the peer constructs set aside in Compare (peer id, reviewer, text key), so the next
   file from that reviewer does not show them as new.
+  `loa.mapPositions` (optional, same kind) holds the places the reviewer dragged the line-of-argument map's boxes to, per layout
+  (`{ circle: { rowId: {x, y} }, flow: {...} }`, map units); a box without one keeps its computed place. Layout only: undoable, not logged.
   Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
   was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
 - Operations that change several records at once (merge / split / delete a row, delete a study, the order of studies or rows)
