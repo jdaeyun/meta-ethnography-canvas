@@ -528,6 +528,8 @@ document.addEventListener('mousedown', e => {
 }, true);
 
 // ---- Icon-only buttons get an accessible name from their tooltip ----
+// Elements the two body observers (icon labels, growing text boxes) never need to look into
+const SKIP_OBSERVED = new Set(['SPAN', 'BR', 'CANVAS', 'I', 'B', 'svg', 'path']);
 (function labelIconButtons() {
   const label = root => {
     const btns = root.matches && root.matches('button') ? [root] : [];
@@ -539,7 +541,8 @@ document.addEventListener('mousedown', e => {
     });
   };
   label(document.body);
-  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) label(n); })))
+  // Text spans, line breaks and canvases (thousands of them when PDF.js lays out a page) hold no buttons: skipped at once
+  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1 && !SKIP_OBSERVED.has(n.tagName)) label(n); })))
     .observe(document.body, { childList: true, subtree: true });
 })();
 
@@ -572,7 +575,7 @@ document.addEventListener('mousedown', e => {
     schedule(el);
   };
   const initIn = root => {
-    if (root.nodeType !== 1) return;
+    if (root.nodeType !== 1 || SKIP_OBSERVED.has(root.tagName)) return;
     // .lazy-grow boxes (e.g. the many audit-trail reason boxes) start growing only once they are focused
     if (root.tagName === 'TEXTAREA' && !root.classList.contains('lazy-grow')) init(root);
     root.querySelectorAll && root.querySelectorAll('textarea:not(.lazy-grow)').forEach(init);

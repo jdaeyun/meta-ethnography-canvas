@@ -39,10 +39,15 @@ document.getElementById('backupJsonBtn').addEventListener('click', async () => {
 });
 
 // ---- MERGE helpers: local work is never overwritten ----
+// Empty at every depth: an object counts as empty when all of its values are (e.g. appraisalItems { CASP: {} }, which the app
+// creates as soon as a study's appraisal is looked at)
 function isEmptyValue(v) {
-  return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0) ||
-    (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+  if (v === undefined || v === null || v === '') return true;
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === 'object') return Object.keys(v).every(k => isEmptyValue(v[k]));
+  return false;
 }
+const isPlainObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
 // Lists of separate records (relations, team models, within-study links, set-aside items) are merged as a union: what is only
 // in the backup is added, a record in both (same key) keeps the local version. Key per list field:
 const MERGE_UNION_KEYS = {
@@ -65,6 +70,12 @@ function mergeFillEmpty(local, incoming, skip = []) {
       return;
     }
     if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
+    else if (isPlainObject(local[k]) && isPlainObject(incoming[k])) {
+      // Both have something (e.g. answers to some appraisal questions each): fill what is empty here, one level down
+      const r = mergeFillEmpty(local[k], incoming[k]);
+      if (r.filled.length) filled.push(k);
+      r.conflicts.forEach(c => conflicts.push(`${k}.${c}`));
+    }
     else if (stableJson(local[k]) !== stableJson(incoming[k])) conflicts.push(k); // same content in another key order is no conflict
   });
   return { filled, conflicts };

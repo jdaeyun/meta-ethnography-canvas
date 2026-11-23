@@ -104,12 +104,21 @@ function buildConceptMapSvg(prefix, width, height, layout = getLoaMapLayout()) {
   Object.entries(LINK_TYPES).forEach(([k, v]) => {
     defs += `<marker id="${prefix}-ah-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${v.color}"/></marker>`;
   });
+  const offsets = linkPairOffsets(links);
   links.forEach(l => {
     const m = LINK_TYPES[l.type] || LINK_TYPES.leads;
     const e = edge(pos[l.from], pos[l.to]);
     const markers = isDirectedLink(l.type) ? `marker-end="url(#${prefix}-ah-${l.type})"`
                   : `marker-start="url(#${prefix}-ah-${l.type})" marker-end="url(#${prefix}-ah-${l.type})"`;
-    lines += `<line x1="${e.x1.toFixed(1)}" y1="${e.y1.toFixed(1)}" x2="${e.x2.toFixed(1)}" y2="${e.y2.toFixed(1)}" stroke="${m.color}" stroke-width="1.8" ${m.dash ? `stroke-dasharray="${m.dash}"` : ''} ${markers}><title>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.from)))} ${m.label} ${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.to)))}${l.note ? ' — ' + escapeHtml(l.note) : ''}</title></line>`;
+    const title = `<title>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.from)))} ${m.label} ${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.to)))}${l.note ? ' — ' + escapeHtml(l.note) : ''}</title>`;
+    const style = `fill="none" stroke="${m.color}" stroke-width="1.8" ${m.dash ? `stroke-dasharray="${m.dash}"` : ''} ${markers}`;
+    const o = offsets[l.id] || 0;
+    if (!o) { lines += `<line x1="${e.x1.toFixed(1)}" y1="${e.y1.toFixed(1)}" x2="${e.x2.toFixed(1)}" y2="${e.y2.toFixed(1)}" ${style}>${title}</line>`; return; }
+    // A curve bowed to one side of the straight line, by the offset of this relation in its pair
+    const mx = (e.x1 + e.x2) / 2, my = (e.y1 + e.y2) / 2, len = Math.hypot(e.x2 - e.x1, e.y2 - e.y1) || 1;
+    const nx = -(e.y2 - e.y1) / len, ny = (e.x2 - e.x1) / len;
+    const qx = mx + nx * o * 2, qy = my + ny * o * 2;
+    lines += `<path d="M${e.x1.toFixed(1)},${e.y1.toFixed(1)} Q${qx.toFixed(1)},${qy.toFixed(1)} ${e.x2.toFixed(1)},${e.y2.toFixed(1)}" ${style}>${title}</path>`;
   });
   let boxes = '';
   nodes.forEach(c => {
@@ -117,6 +126,19 @@ function buildConceptMapSvg(prefix, width, height, layout = getLoaMapLayout()) {
     boxes += `<g><title>${escapeHtml(p.label)}</title><rect x="${(p.x - p.w / 2).toFixed(1)}" y="${(p.y - p.h / 2).toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h}" rx="6" fill="#ffffff" stroke="#475569" stroke-width="1.2"/><text x="${p.x.toFixed(1)}" y="${(p.y + 4).toFixed(1)}" text-anchor="middle" font-size="11" font-family="Georgia, serif" fill="#0f172a">${escapeHtml(p.short)}</text></g>`;
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="100%" style="max-width:${width}px; height:auto;" role="img" aria-label="Concept relationship map"><defs>${defs}</defs>${lines}${boxes}</svg>`;
+}
+// Several relations between the same two constructs (e.g. A ➔ B and A ⚡ B) are drawn side by side, not on top of each other:
+// each gets an offset across the line between them (0 when it is the only one). Keyed by link id.
+function linkPairOffsets(links, step = 22) {
+  const groups = {};
+  links.forEach(l => { const k = [l.from, l.to].sort().join('|'); (groups[k] = groups[k] || []).push(l); });
+  const off = {};
+  Object.values(groups).forEach(g => g.forEach((l, i) => {
+    // Measured against the pair's sorted direction, so A→B and B→A also part
+    const sign = [l.from, l.to].sort()[0] === l.from ? 1 : -1;
+    off[l.id] = (i - (g.length - 1) / 2) * step * sign;
+  }));
+  return off;
 }
 // Left → right process layout: columns follow "leads to" relations (longest path from the starting constructs);
 // "mutually related" and "in tension" relations do not create steps and are drawn as curved links.
@@ -203,13 +225,15 @@ function buildFlowMapSvg(prefix) {
   Object.entries(LINK_TYPES).forEach(([k, v]) => {
     defs += `<marker id="${prefix}-fl-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${v.color}"/></marker>`;
   });
+  const flowOffsets = linkPairOffsets(links, 16);
   links.forEach(l => {
     const m = LINK_TYPES[l.type] || LINK_TYPES.leads;
     const a = pos[l.from], b = pos[l.to];
     let d;
+    const po = flowOffsets[l.id] || 0; // parallel relations of one pair: their curves part by this much
     if (b.col > a.col) {                       // forward step: right edge → left edge
       const x1 = a.x + a.w / 2, x2 = b.x - b.w / 2 - 2, mx = (x1 + x2) / 2;
-      d = `M${x1.toFixed(1)},${a.y.toFixed(1)} C${mx.toFixed(1)},${a.y.toFixed(1)} ${mx.toFixed(1)},${b.y.toFixed(1)} ${x2.toFixed(1)},${b.y.toFixed(1)}`;
+      d = `M${x1.toFixed(1)},${(a.y + po / 3).toFixed(1)} C${mx.toFixed(1)},${(a.y + po).toFixed(1)} ${mx.toFixed(1)},${(b.y + po).toFixed(1)} ${x2.toFixed(1)},${(b.y + po / 3).toFixed(1)}`;
     } else if (b.col < a.col) {                // feedback loop: arc below the boxes
       const x1 = a.x, x2 = b.x, y1 = a.y + a.h / 2, y2 = b.y + b.h / 2 + 2, low = Math.max(y1, y2) + 34;
       d = `M${x1.toFixed(1)},${y1.toFixed(1)} C${x1.toFixed(1)},${low.toFixed(1)} ${x2.toFixed(1)},${low.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
@@ -597,7 +621,12 @@ commitLoaDrawer.isCommit = true;
 function markLoaDrawerDirty() { loaDrawerDirty = true; pendingSaveCleanups.add(commitLoaDrawer); }
 LOA_DRAWER_FIELD_IDS().forEach(id => document.getElementById(id)?.addEventListener('input', markLoaDrawerDirty));
 // Focus leaving the drawer commits it; the window losing focus (another window or app) does not (see bindPendingCommit)
-loaDrawer.addEventListener('focusout', e => { if (document.hasFocus() && (!e.relatedTarget || !loaDrawer.contains(e.relatedTarget))) commitLoaDrawer(); });
+// A dialog opened from the drawer (From the map, Load a model) is part of working in it: focus moving there does not commit
+loaDrawer.addEventListener('focusout', e => {
+  const to = e.relatedTarget;
+  if (!document.hasFocus() || (to && (loaDrawer.contains(to) || to.closest('[role="dialog"]')))) return;
+  commitLoaDrawer();
+});
 document.getElementById('saveLoaBtn').addEventListener('click', async () => {
   loaDrawerDirty = false; pendingSaveCleanups.delete(commitLoaDrawer);
   await saveLoaDrawer();

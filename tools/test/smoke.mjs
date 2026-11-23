@@ -1848,13 +1848,96 @@ await group('Review fixes 7: undo logs of constructs, manual entry kept on failu
   await p.context().close();
 });
 
+await group('Review fixes 8: merge of nested appraisal answers, deletions take their references, placing without dragging, waiting cards, storage errors, map pairs', async () => {
+  const p = await openDemo();
+  // Merge: a study whose appraisal was only opened here ({ CASP: {} }) takes the backup's answers, no conflict
+  const ap = await p.evaluate(() => {
+    const local = { appraisalItems: { CASP: {} } }, inc = { appraisalItems: { CASP: { q1: { a: 'yes', note: 'n' } } } };
+    const r1 = mergeFillEmpty(local, inc);
+    const l2 = { appraisalItems: { CASP: { q1: { a: 'yes' } } } }, i2 = { appraisalItems: { CASP: { q1: { a: 'yes' }, q2: { a: 'no' } } } };
+    const r2 = mergeFillEmpty(l2, i2);
+    return { filled1: r1.filled.includes('appraisalItems') && local.appraisalItems.CASP.q1.a === 'yes' && !r1.conflicts.length,
+             nested: !!l2.appraisalItems.CASP.q2 && !r2.conflicts.length };
+  });
+  check('merge fills appraisal answers that are empty here, question by question, without a conflict', ap.filled1 && ap.nested, JSON.stringify(ap));
+  // Deleting a construct takes its within-study relationships with it; Ctrl+Z brings them back
+  await tab(p, 'extract'); await p.evaluate(() => switchStudy(state.docs[0].id)); await p.waitForTimeout(800);
+  const cl = await p.evaluate(async () => {
+    const d = state.docs[0];
+    const [s1, s2] = state.annotations.filter(a => a.docId === d.id && a.type === 'second_order');
+    if (!s2) return { skip: true };
+    d.conceptLinks = [...(d.conceptLinks || []), { id: 'cl_test', from: s1.id, to: s2.id, type: 'leads', note: '' }];
+    await dbPut('docs', d); updateSidebar();
+    document.querySelector(`[data-sidebar-anno="${s1.id}"]`).closest('div').querySelector('.del')?.click();
+    await new Promise(r => setTimeout(r, 500));
+    const gone = !(d.conceptLinks || []).some(l => l.id === 'cl_test');
+    await performUndo(); await new Promise(r => setTimeout(r, 400));
+    return { gone, back: (d.conceptLinks || []).some(l => l.id === 'cl_test') };
+  });
+  if (!cl.skip) check('deleting a construct removes its within-study relationships; Ctrl+Z restores them', cl.gone && cl.back, JSON.stringify(cl));
+  // Deleting a study removes empty-cell records and "same study as" pointing to it; Ctrl+Z restores them
+  const st = await p.evaluate(async () => {
+    const victim = state.docs[3], other = state.docs[2], row = state.clusters[0];
+    row.cellStatus = { ...(row.cellStatus || {}), [victim.id]: { status: 'absent', note: 'checked' } }; await dbPut('clusters', row);
+    other.companionOf = victim.id; await dbPut('docs', other);
+    renderStudyList(); await new Promise(r => setTimeout(r, 200));
+    [...document.querySelectorAll('#studyList .del')][state.docs.indexOf(victim)].click();
+    await new Promise(r => setTimeout(r, 600));
+    const gone = !(victim.id in (row.cellStatus || {})) && other.companionOf === '';
+    await performUndo(); await new Promise(r => setTimeout(r, 800));
+    return { gone, back: (row.cellStatus || {})[victim.id] && other.companionOf === victim.id };
+  });
+  check('deleting a study removes references to it; Ctrl+Z restores them', st.gone && !!st.back, JSON.stringify(st));
+  // Placing a construct without dragging; a card waiting for a peer row says so
+  await tab(p, 'matrix'); await p.waitForTimeout(600);
+  const pl = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && a.clusterIds.length < state.clusters.length);
+    sec._peerRows = { pr_x: { _title: 'A row of the other reviewer' } }; renderSecondOrderPool();
+    const card = [...document.querySelectorAll('#matrixLeftSidebar [draggable="true"]')].find(c => c.querySelector('.pool-waiting'));
+    const waiting = !!card && /A row of the other reviewer/.test(card.querySelector('.pool-waiting').textContent);
+    delete sec._peerRows;
+    const target = state.clusters.find(c => !sec.clusterIds.includes(c.id));
+    renderSecondOrderPool();
+    const sel = [...document.querySelectorAll('.pool-place')].find(x => [...x.options].some(o => o.value === target.id));
+    sel.value = target.id; sel.dispatchEvent(new Event('change'));
+    await new Promise(r => setTimeout(r, 600));
+    return { waiting, placed: sec.clusterIds.includes(target.id) };
+  });
+  check('a card waiting for a peer row says so', pl.waiting, JSON.stringify(pl));
+  check('a construct can be placed in a row from the pool without dragging', pl.placed);
+  // A write the browser refuses is said plainly
+  await p.evaluate(() => { reportStorageError({ name: 'QuotaExceededError' }); });
+  await p.waitForTimeout(400);
+  check('a refused write shows what happened and what to do', p.notices.some(t => /could not be saved[\s\S]*QuotaExceededError[\s\S]*Backup/.test(t)));
+  // The drawer does not commit when focus moves into a dialog opened from it
+  const dr = await p.evaluate(async () => {
+    if (!state.isLoaOpen) document.getElementById('toggleLoaDrawerBtn').click();
+    const n = state.logs.length;
+    const el = document.getElementById('loaNarrativeInput'); el.focus(); el.value += ' (more)'; el.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('choiceModalCancelBtn').focus(); // as when a dialog opens from the drawer
+    await new Promise(r => setTimeout(r, 300));
+    return state.logs.length === n;
+  });
+  check('focus moving into a dialog does not commit the drawer', dr);
+  // Two relations between the same constructs are drawn apart in the circular map
+  const mp = await p.evaluate(() => {
+    const saved = state.loa.links; const [x, y] = state.clusters;
+    state.loa.links = [{ id: 'p1', from: x.id, to: y.id, type: 'leads' }, { id: 'p2', from: x.id, to: y.id, type: 'contradicts' }];
+    const svg = buildConceptMapSvg('t', 640, 360, 'circle'); state.loa.links = saved;
+    return (svg.match(/<path d="M[\d.]+,[\d.]+ Q/g) || []).length;
+  });
+  check('two relations between the same constructs are drawn as two curves, not one line over the other', mp === 2, String(mp));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Appendix A rules still match the audit entries the app writes', async () => {
   // Appendix A sorts entries by their action text (APPENDIX_EDIT_SERIES / APPENDIX_ROUTINE / APPENDIX_WRITEUP). If the wording of
   // an entry changes, its rule would stop matching without any error: every rule must match some action the app can write.
   const p = await openDemo();
   const rules = await p.evaluate(() => ({
     series: APPENDIX_EDIT_SERIES.map(x => x[0].source), routine: APPENDIX_ROUTINE.map(r => r.source), writeup: APPENDIX_WRITEUP.source,
-    labels: Object.values(LOA_FIELD_LABELS)
+    labels: Object.values(LOA_FIELD_LABELS), shared: Object.values(LOG_ACTION)
   }));
   await p.context().close();
   // The actions the app writes: the literals on each "action:" line, with ${a ? 'P' : 'Q'} read both ways and other ${…} as "1";
@@ -1873,6 +1956,7 @@ await group('Appendix A rules still match the audit entries the app writes', asy
     }
   }
   rules.labels.forEach(l => literals.push('Updated ' + l));
+  rules.shared.forEach(a => literals.push(a)); // actions written from LOG_ACTION (core.js)
   const dead = [];
   const test = (src, name) => { const re = new RegExp(src); if (!literals.some(t => re.test(t))) dead.push(`${name}: /${src}/`); };
   rules.series.forEach(r => test(r, 'series'));

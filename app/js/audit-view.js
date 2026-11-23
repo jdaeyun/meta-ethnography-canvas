@@ -18,7 +18,7 @@ function clusterTitleHistory(cluster) {
   const titles = [];
   const add = t => { t = (t || '').trim(); if (t && !/^\(untitled/i.test(t) && !titles.includes(t)) titles.push(t); };
   state.logs
-    .filter(l => l.action === 'Refined 3rd Order Construct Title' && logIsForRow(l, cluster))
+    .filter(l => l.action === LOG_ACTION.rowTitle && logIsForRow(l, cluster))
     .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
     .forEach(l => { add(l.fromVal); add(l.toVal); });
   add(cluster.thirdOrderTitle);

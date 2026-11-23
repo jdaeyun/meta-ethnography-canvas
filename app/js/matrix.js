@@ -551,6 +551,11 @@ function renderSecondOrderPool() {
       <div class="text-[13px] text-slate-600 italic line-clamp-3 leading-snug">"${escapeHtml(sec.text)}"</div>
       ${sec.nuanceNote ? `<div class="mt-1 text-xs text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 truncate" title="${escapeHtml(sec.nuanceNote)}">🌐 ${escapeHtml(sec.nuanceNote)}</div>` : ''}
       ${poolQuotesPreviewHtml}
+      ${(() => {
+        // Imported in Compare before the other reviewer's row was here: shown, so the waiting placement is not a hidden state
+        const waiting = Object.values(sec._peerRows || {}).map(w => w && w._title).filter(Boolean);
+        return waiting.length ? `<div class="pool-waiting mt-1 text-[11px] text-teal-900 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200" title="Imported in Compare, where the other reviewer placed it in this row. It is placed here, with their judgement and cell note, when a row of that name is here: import the row in Compare, or name a row so.">⏳ Waits for the other reviewer's row: ${waiting.map(t => '“' + escapeHtml(t) + '”').join(', ')}</div>` : '';
+      })()}
       ${count === 0 ? `<details class="pool-nt mt-1.5 rounded border border-slate-200 bg-slate-50 p-1.5" ${sec.notTranslatedNote ? 'open' : ''}>
         <summary class="text-[11px] font-semibold text-slate-600 cursor-pointer select-none">${sec.notTranslatedNote ? '✎ Why not translated (Appendix B)' : '+ Why not translated? (optional, reported in Appendix B)'}</summary>
         <textarea rows="2" class="pool-nt-input mt-1 w-full text-xs border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-indigo-500 resize-y" placeholder="e.g., outside the review question; contradicts the rows but does not translate into any; too thin to interpret…">${escapeHtml(sec.notTranslatedNote)}</textarea>
@@ -561,11 +566,34 @@ function renderSecondOrderPool() {
           ? `<span class="text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded font-semibold">✓ Placed in ${count} row${count > 1 ? 's' : ''}</span>`
           : '<span class="text-indigo-600 font-medium">Drag to Matrix ➔</span>'}
       </div>
+      ${(() => {
+        // Placing without dragging (many rows, a trackpad, the keyboard): choose the row
+        const rows = state.clusters.filter(c => !sec.clusterIds.includes(c.id));
+        return rows.length ? `<select class="pool-place mt-1 w-full text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white text-slate-700" title="Place this construct in a row (it can be in several rows)" aria-label="Place in a 3rd Order row">
+          <option value="">${count > 0 ? '+ Also place in row…' : 'Place in row…'}</option>
+          ${rows.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(clusterLabel(c))}</option>`).join('')}
+        </select>` : '';
+      })()}
     `;
     card.querySelector('.jump-pdf-btn').onclick = (e) => {
       e.stopPropagation();
       jumpToPdfAnnotation(sec.id);
     };
+    const placeSel = card.querySelector('.pool-place');
+    if (placeSel) {
+      placeSel.addEventListener('mousedown', e => e.stopPropagation());
+      placeSel.onchange = async () => {
+        const target = state.clusters.find(c => c.id === placeSel.value);
+        if (!target) return;
+        await assignSecondOrderToCluster(sec, target);
+        renderLoaClusterChips();
+        renderMatrixView();
+        // Show where it went (rows are built lazily: scroll to the row, which builds it)
+        const tr = document.querySelector(`#matrixTable tr[data-cluster-id="${CSS.escape(target.id)}"]`);
+        if (tr) { tr.scrollIntoView({ block: 'center', behavior: 'smooth' }); tr.classList.add('drag-over'); setTimeout(() => tr.classList.remove('drag-over'), 1500); }
+        showSnackbar(`Placed in "${clusterLabel(target)}" (not yet judged).`);
+      };
+    }
     card.querySelector('.rev-badge-btn').onclick = (e) => {
       e.stopPropagation();
       promptReassignItemReviewer(sec, 'annotations', renderMatrixView);
@@ -1163,7 +1191,7 @@ function renderMatrixTable() {
         await recordAuditLog({
           clusterIds: [cluster.id],
           category: 'third_order',
-          action: 'Refined 3rd Order Construct Title',
+          action: LOG_ACTION.rowTitle,
           fromVal: oldTitle,
           toVal: newTitle || '(Untitled)'
         });

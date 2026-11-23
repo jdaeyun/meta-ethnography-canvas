@@ -405,7 +405,7 @@ function getAppendixMode() { const m = lsGet('me_appendix_mode'); return APPENDI
 
 // Edits of one text that are shown as one line in Appendix A (family name; same row for row texts)
 const APPENDIX_EDIT_SERIES = [
-  [/^Refined 3rd Order Construct Title$/, 'Row title refined'],
+  [new RegExp('^' + LOG_ACTION.rowTitle + '$'), 'Row title refined'],
   [/^Updated Step A Translation Summary for /, 'Step A translation summary revised'],
   [/^Updated Step B 3rd Order Definition & Interpretation for /, 'Step B third-order interpretation revised'],
   [/^Reflexive note on /, 'Reflexive note on the row revised'],

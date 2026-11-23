@@ -383,10 +383,17 @@ function renderStudyList() {
           doc: JSON.parse(JSON.stringify(doc)),
           binary: binRec && binRec.data ? binRec.data : null,
           annotations: toDel.map(a => JSON.parse(JSON.stringify(a))),
-          position: idx
+          position: idx,
+          // References to the study elsewhere are removed with it and put back by Ctrl+Z: empty-cell records in rows and
+          // "same primary study as". (A row's ◆ base is kept: it tells which rows study #1 established, see checkBaselineChange.)
+          cellStatus: state.clusters.filter(c => c.cellStatus && doc.id in c.cellStatus).map(c => ({ id: c.id, v: c.cellStatus[doc.id] })),
+          companions: state.docs.filter(d => d.companionOf === doc.id).map(d => d.id)
         });
-        // The study, its PDF and its constructs go in one transaction (see dbBatch)
-        await dbBatch([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id }))]);
+        const refOps = [];
+        state.clusters.forEach(c => { if (c.cellStatus && doc.id in c.cellStatus) { c.cellStatus = { ...c.cellStatus }; delete c.cellStatus[doc.id]; refOps.push({ store: 'clusters', put: c }); } });
+        state.docs.forEach(d => { if (d.companionOf === doc.id) { d.companionOf = ''; refOps.push({ store: 'docs', put: d }); } });
+        // The study, its PDF, its constructs and the references to it go in one transaction (see dbBatch)
+        await dbBatch([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refOps]);
         state.docs = state.docs.filter(d => d.id !== doc.id);
         state.annotations = state.annotations.filter(a => a.docId !== doc.id);
         await persistDocOrder();
@@ -1404,7 +1411,8 @@ async function ensurePdfTextIndex() {
       if (state.activePdfDoc !== pdfDoc) return null;
       const page = await pdfDoc.getPage(i);
       const tc = await page.getTextContent();
-      const joined = joinTextItems(tc.items.map(item => item.str)).normalize('NFC').toLowerCase();
+      // Runs of spaces and line breaks count as one space, here, in the query and in the highlight (the same text everywhere)
+      const joined = joinTextItems(tc.items.map(item => item.str)).normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
       pageTexts.push({ pageNum: i, text: joined });
     }
   } catch (e) {
@@ -1422,7 +1430,7 @@ async function runPdfSearch(query, direction = 1) {
   const prevBtn = document.getElementById('pdfSearchPrevBtn');
   const nextBtn = document.getElementById('pdfSearchNextBtn');
   const clearBtn = document.getElementById('pdfSearchClearBtn');
-  const q = (query || '').normalize('NFC').trim().toLowerCase();
+  const q = (query || '').normalize('NFC').trim().toLowerCase().replace(/\s+/g, ' ');
 
   if (!q || !state.activePdfDoc) {
     pdfSearchState.matches = [];

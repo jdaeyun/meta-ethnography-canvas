@@ -254,15 +254,21 @@ function updateSidebar() {
 
     w.querySelector('.del').onclick = async () => {
       const unlinkedIds = linked.map(f => f.id);
+      // Its within-study relationships (Appendix C) go with it; Ctrl+Z puts them back
+      const ownDoc = state.docs.find(d => d.id === sec.docId);
+      const removedConceptLinks = ((ownDoc && ownDoc.conceptLinks) || []).filter(l => l.from === sec.id || l.to === sec.id);
       pushUndoAction({
         type: 'delete_annotation',
         label: `2nd Order Construct (${sec.note || sec.text.slice(0, 30)})`,
         annotations: [{ ...sec }],
         unlinkedChildrenIds: unlinkedIds,
-        parentId: sec.id
+        parentId: sec.id,
+        removedConceptLinks, conceptLinksDocId: ownDoc ? ownDoc.id : null
       });
-      for (let f of linked) { unlinkQuote(f, sec.id); await dbPut('annotations', f); }
-      await dbDelete('annotations', sec.id);
+      const ops = linked.map(f => { unlinkQuote(f, sec.id); return { store: 'annotations', put: f }; });
+      if (removedConceptLinks.length) { ownDoc.conceptLinks = ownDoc.conceptLinks.filter(l => !removedConceptLinks.includes(l)); ops.push({ store: 'docs', put: ownDoc }); }
+      ops.push({ store: 'annotations', del: sec.id });
+      await dbBatch(ops); // the construct, its quotes' links and its within-study relationships in one transaction
       state.annotations = state.annotations.filter(x => x.id !== sec.id);
       updateSidebar();
       renderHighlights();

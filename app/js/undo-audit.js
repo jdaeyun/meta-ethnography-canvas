@@ -63,6 +63,14 @@ async function performUndoStep() {
         }
       }
     }
+    if ((last.removedConceptLinks || []).length) {
+      const d = state.docs.find(x => x.id === last.conceptLinksDocId);
+      if (d) {
+        const have = new Set((d.conceptLinks || []).map(l => l.id));
+        d.conceptLinks = [...(d.conceptLinks || []), ...last.removedConceptLinks.filter(l => !have.has(l.id))];
+        await dbPut('docs', d);
+      }
+    }
     // The deletion was logged, so is its undoing; a construct placed in rows concerns those rows (a key decision, as its
     // deletion was)
     for (const a of last.annotations) {
@@ -150,6 +158,8 @@ async function performUndoStep() {
       ops.push({ store: 'docs', put: d });
     }
     restored.forEach(a => ops.push({ store: 'annotations', put: a }));
+    (last.cellStatus || []).forEach(({ id, v }) => { const c = state.clusters.find(x => x.id === id); if (c) { c.cellStatus = { ...(c.cellStatus || {}), [d.id]: v }; ops.push({ store: 'clusters', put: c }); } });
+    (last.companions || []).forEach(id => { const o = state.docs.find(x => x.id === id); if (o && !o.companionOf) { o.companionOf = d.id; ops.push({ store: 'docs', put: o }); } });
     await dbBatch(ops);
     if (isNew) {
       const pos = Math.max(0, Math.min(state.docs.length, last.position ?? state.docs.length));

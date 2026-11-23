@@ -21,6 +21,8 @@ const DB_VERSION = 6;
 // to upgradeProjectData() (and to normalize*() for the browser's own database). Files without the number are older
 // (before 1.4.7) and are opened on a best-effort basis.
 const PROJECT_FORMAT = 1;
+// Audit actions that other code reads back (row title history, Appendix A): written and matched from one place
+const LOG_ACTION = { rowTitle: 'Refined 3rd Order Construct Title' };
 function upgradeProjectData(data) {
   const f = Number(data && data.formatVersion) || 0;
   if (f > PROJECT_FORMAT) {
@@ -208,6 +210,15 @@ function updateBackupReminder() {
     + ' Click Backup to save a JSON file.';
 }
 
+// A write the browser refused (storage full, private mode limits, a damaged database): the change is on screen but not stored.
+// Said plainly, at most once a minute, with what to do; the save badge shows "Save Error" as well.
+let lastStorageNotice = 0;
+function reportStorageError(err) {
+  if (Date.now() - lastStorageNotice < 60000) return;
+  lastStorageNotice = Date.now();
+  const what = (err && (err.name || err.message)) || 'unknown error';
+  if (typeof showNotice === 'function') showNotice('A change could not be saved', `The browser did not store the last change (${what}). What you see may differ from what is saved.\n\nMake a Backup now (the backup is made from what you see). If the browser's storage is full, free space (e.g. remove PDFs of studies you no longer need), then reload and restore the backup if anything is missing.`);
+}
 // quiet: bookkeeping writes the user did not make (e.g. a PDF fingerprint) — no save badge, no backup reminder
 // Lookups the matrix builds once per render (rows' constructs, quotes per construct, history per row): dropped whenever the
 // data they come from is written, so a row built later (lazily) never reads an outdated index
@@ -226,8 +237,8 @@ async function dbPut(store, item, { quiet = false } = {}) {
       markUnbackedChange();
       resolve();
     };
-    tx.onerror = () => { flashSaveStatus('error'); reject(tx.error); };
-    tx.onabort = () => { flashSaveStatus('error'); reject(tx.error || new Error('IndexedDB transaction aborted')); };
+    tx.onerror = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error); };
+    tx.onabort = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error || new Error('IndexedDB transaction aborted')); };
   });
 }
 // Several writes across stores in ONE transaction: all of them are stored, or none (a crash, a full disk or an error part way
@@ -246,12 +257,13 @@ async function dbBatch(ops) {
       // A write that cannot even be queued (e.g. a record without its key) aborts the whole transaction: nothing is stored
       try { tx.abort(); } catch (e) { /* already finished */ }
       flashSaveStatus('error');
+      reportStorageError(err);
       reject(err);
       return;
     }
     tx.oncomplete = () => { flashSaveStatus('saved'); markUnbackedChange(); resolve(); };
-    tx.onerror = () => { flashSaveStatus('error'); reject(tx.error); };
-    tx.onabort = () => { flashSaveStatus('error'); reject(tx.error || new Error('IndexedDB transaction aborted')); };
+    tx.onerror = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error); };
+    tx.onabort = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error || new Error('IndexedDB transaction aborted')); };
   });
 }
 async function dbGet(store, key) {
