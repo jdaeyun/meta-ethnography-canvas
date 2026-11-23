@@ -83,7 +83,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 
 ## Rules
 
-- Classic `<script>` files sharing one global scope (not ES modules, so `file://` works).
+- Classic `<script>` files sharing one global scope (not ES modules, so `file://` works). The smoke test "Shared global scope"
+  fails when a top-level name is declared in two files.
   Keep the load order in `me_canvas.html`; `version.js`, then `core.js` first. Top-level code may only call
   functions from files loaded earlier — anything else must run inside handlers or DOMContentLoaded.
 - Backward compatibility from v1.4.7 on (data format 1): a project saved by 1.4.7 or later must open in every later
@@ -102,13 +103,35 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row. A placed card is judged 'reciprocal',
   'refutational' or 'other_aspect' (◇, Noblit & Hare's third relation; `aspectUsedInLoa[rowId]` marks those the line of
   argument draws on), or stays 'unjudged'.
+  Items imported in Compare before what they belong to is here keep the peer's links in `_peerParentIds` (a quote waiting for its
+  2nd order construct) / `_peerRows` (a construct waiting for its row: per peer row id, the judgement, cell note, line-of-argument
+  mark and the peer row's title, so a row of that title made here later takes it in): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.
+  `loa.peerSetAside` (optional, same kind) remembers the peer constructs set aside in Compare (peer id, reviewer, text key), so the next
+  file from that reviewer does not show them as new.
   Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
   was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
+- Operations that change several records at once (merge / split / delete a row, delete a study, the order of studies or rows)
+  write them in one transaction with `dbBatch(ops)` (core.js), so a failure part way leaves the project as it was.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
 - Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit
   (save + `recordAuditLog`) then also runs on tab switch, matrix re-render and page leave, so a saved text never lacks its log entry.
+  `flushAllPendingSaves()` returns a promise (null when nothing is pending): await it before reading the trail (backup, exports).
+- Dialogs: no `alert()`, `confirm()` or `prompt()` (a browser may suppress them, so confirm() silently returns false; smoke test
+  "No browser dialogs"). Ask for a reason or a short entry with `askReason({ title, context, label, confirmLabel, cancelLabel, draftKey,
+  value, singleLine })` (resolves to the text, '' = none, null = cancelled; `cancelLabel: null` when the decision is already made).
+  Choose between actions with `askChoice({ title, body, choices: [{ value, label, hint, tone }] })`: every button names what it does,
+  and closing it (Cancel, ×, Esc) always means "change nothing". A message that must be read: `showNotice(title, body)`; short
+  notices and input hints: `showSnackbar()`. A deletion that Ctrl+Z undoes does not ask first: push the undo action, then
+  `showUndoSnackbar(message)`.
+- Where fields live: the Research Aim & Overall Model drawer (Tab 2) holds what is thought out during the analysis (aim, Item 12, alternative
+  interpretations, map, Item 16, team models, line of argument; saved together when the reviewer leaves the drawer, closes it,
+  switches tab or leaves the page: `commitLoaDrawer`). Fields that describe the method for the write-up
+  (`WRITEUP_FIELDS` in loa.js) sit beside the Methods Summary in Tab 4 and commit one by one; a gap `PH(text, fieldKey)` links to its field.
 - Tab 2 rows are built lazily (`renderMatrixTable`): only rows near the viewport have content. Do not query row DOM across the whole table.
+  Per-row lookups (a row's constructs, a construct's quotes, a row's history) come from `getMatrixIndex()` (one pass per render);
+  `dbPut` / `dbDelete` / `dbClear` of annotations or logs drop it (`invalidateMatrixIndex()`): call that after changing
+  those in memory without writing them.
   Scroll position is kept by an anchor row (`data-cluster-id`) and corrected when a placeholder above the viewport is built; overflow-anchor is off on purpose.
 - Stance: this is a qualitative (Big Q) tool. Differences between reviewers are readings to discuss, not errors; agreement is provisional
   ("Agreed (for now)"); quality appraisal is never a ranking criterion; the Index Paper is a reasoned choice by the reviewer, not a sort result.
@@ -134,8 +157,12 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   `eval` / `new Function`, no CDN or external fetch. A new resource type means updating the policy and the smoke test
   "Content-Security-Policy". PDF.js stays 3.11.174 (4.x+ ships only ES modules, which file:// cannot load) with
   `isEvalSupported: false` (CVE-2024-4367) on every `getDocument` call.
-- Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`);
+- Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`, `getAppendixASpec()`);
   change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
+  Appendix A shows the key decisions by default (`isKeyDecisionLog()`, repeated edits of one text folded by `APPENDIX_EDIT_SERIES`);
+  a new kind of audit entry that is routine bookkeeping belongs in `APPENDIX_ROUTINE`. The trail itself is never filtered.
+  The rules match the action text, so the smoke test "Appendix A rules still match" fails when a reworded action leaves a rule
+  matching nothing: update the rule together with the wording.
 - UI text is English.
 - The app must fit laptop widths: no overlap in the header or the view toolbars from 1024 px up (smoke test "Layout at laptop widths").
   Toolbars wrap (`flex-wrap`, `gap-*`, not `space-x-*`); long labels shorten below `xl` / `2xl` and keep the full text in `title`.

@@ -166,7 +166,13 @@ async function setOrderStrategy(next, { rationale = '', reason = '' } = {}) {
 }
 document.getElementById('orderStrategySelect')?.addEventListener('change', async (e) => {
   const next = e.target.value;
-  const why = (prompt(`Translation order: "${ORDER_STRATEGIES[next].label}". Why? (optional — recorded in the audit trail)`) || '').trim();
+  const why = await askReason({
+    title: `Translation order: ${ORDER_STRATEGIES[next].label}`,
+    context: `From "${ORDER_STRATEGIES[getOrderStrategy()].label}" to "${ORDER_STRATEGIES[next].label}". The reason is also used in the Methods Summary.`,
+    label: 'Why this order? (optional, saved in the Audit Trail)',
+    confirmLabel: 'Change order', draftKey: 'order-strategy'
+  });
+  if (why === null) { e.target.value = getOrderStrategy(); return; } // cancelled: nothing changed
   await setOrderStrategy(next, { rationale: why });
 });
 
@@ -209,10 +215,8 @@ function getBadgesHtml(doc) {
 }
 
 async function persistDocOrder() {
-  for (let i = 0; i < state.docs.length; i++) {
-    state.docs[i].order = i;
-    await dbPut('docs', state.docs[i]);
-  }
+  // The whole order in one transaction: never half of the studies in the new order and half in the old
+  await dbBatch(state.docs.map((d, i) => { d.order = i; return { store: 'docs', put: d }; }));
   await checkBaselineChange();
 }
 
@@ -270,6 +274,7 @@ async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
 
 async function moveStudyOrder(fromIdx, toIdx) {
   if (toIdx < 0 || toIdx >= state.docs.length || fromIdx === toIdx) return;
+  const oldFirstId = state.docs[0] && state.docs[0].id; // by id: two studies can share a display name (Smith et al. 2020)
   const oldIndexPaper = getDisplayName(state.docs[0]);
   const movedDoc = state.docs[fromIdx];
   const [moved] = state.docs.splice(fromIdx, 1);
@@ -277,8 +282,13 @@ async function moveStudyOrder(fromIdx, toIdx) {
   await persistDocOrder();
   const newIndexPaper = getDisplayName(state.docs[0]);
 
-  if (oldIndexPaper !== newIndexPaper) {
-    const idxWhy = (prompt(`The #1 study (${firstStudyMeta().long}) has changed. Why? (optional — recorded in the audit trail as the rationale)`) || '').trim();
+  if (oldFirstId !== (state.docs[0] && state.docs[0].id)) {
+    const idxWhy = await askReason({
+      title: `The #1 study (${firstStudyMeta().long}) has changed`,
+      context: `From ${oldIndexPaper} to ${newIndexPaper}. Rows established by study #1 are marked for re-reading.`,
+      label: 'Why this study first? (optional, saved in the Audit Trail as the rationale)',
+      cancelLabel: null
+    });
     await recordAuditLog({
       category: 'study_order',
       rationale: idxWhy,
@@ -355,11 +365,18 @@ function renderStudyList() {
     item.addEventListener('click', (e) => { if (!e.target.closest('.del')) switchStudy(doc.id); });
     item.querySelector('.del').addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (confirm('Delete this study and its extracted constructs? (You can Undo with Ctrl+Z; the deletion is recorded in the Audit Trail)')) {
+      const nExtracted = state.annotations.filter(a => a.docId === doc.id).length;
+      // One dialog: the decision and its reason (removing a study from the synthesis is an interpretive decision)
+      const why = await askReason({
+        title: `Remove ${getDisplayName(doc)} from the synthesis?`,
+        context: `The study and its ${nExtracted} extracted construct(s)/quote(s) are deleted${idx === 0 ? ', and the next study becomes #1' : ''}. The removal is recorded in the Audit Trail; Ctrl+Z undoes it.`,
+        label: 'Why is this study being removed? (optional, saved in the Audit Trail as the rationale)',
+        confirmLabel: 'Remove study', draftKey: 'remove-study-' + doc.id
+      });
+      if (why !== null) {
         const wasIndex = idx === 0;
         const binRec = await dbGet('pdf_binaries', doc.id);
         const toDel = state.annotations.filter(a => a.docId === doc.id);
-        const why = (prompt('Why is this study being removed? (optional — recorded in the audit trail as the rationale)') || '').trim();
         pushUndoAction({
           type: 'delete_study',
           label: `Study (${getDisplayName(doc)})`,
@@ -368,12 +385,11 @@ function renderStudyList() {
           annotations: toDel.map(a => JSON.parse(JSON.stringify(a))),
           position: idx
         });
-        await dbDelete('docs', doc.id);
-        await dbDelete('pdf_binaries', doc.id);
+        // The study, its PDF and its constructs go in one transaction (see dbBatch)
+        await dbBatch([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id }))]);
         state.docs = state.docs.filter(d => d.id !== doc.id);
-        await persistDocOrder();
-        for (let a of toDel) await dbDelete('annotations', a.id);
         state.annotations = state.annotations.filter(a => a.docId !== doc.id);
+        await persistDocOrder();
         await recordAuditLog({
           category: 'study_order',
           rationale: why,
@@ -383,6 +399,7 @@ function renderStudyList() {
           toVal: `${state.docs.length} studies`
         });
         if (state.activeDocId === doc.id) state.activeDocId = state.docs[0]?.id || null;
+        showUndoSnackbar(`Removed ${getDisplayName(doc)}`);
         renderStudyList();
         if (state.activeDocId) switchStudy(state.activeDocId);
         else {
@@ -394,6 +411,61 @@ function renderStudyList() {
     });
     list.appendChild(item);
   });
+}
+
+// Page placeholders at the current zoom, observed for lazy rendering. Used when a study opens and when the zoom changes
+// (the PDF stays loaded: a new zoom only lays the pages out again).
+async function layoutPdfPages(loadedPdf, isStale) {
+  const wrapper = document.getElementById('pdfPagesWrapper');
+  if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
+  const numPages = loadedPdf.numPages;
+  document.getElementById('pdfPageCountLabel').textContent = `${numPages} page${numPages > 1 ? 's' : ''}`;
+  document.getElementById('zoomPercentInput').value = Math.round(state.scale * 100);
+
+  // Fetch exact per-page viewport dimensions in parallel so landscape/portrait pages size accurately
+  const pageViewports = await Promise.all(
+    Array.from({ length: numPages }, (_, idx) =>
+      loadedPdf.getPage(idx + 1).then(p => p.getViewport({ scale: state.scale }))
+    )
+  );
+  if (isStale()) return false;
+  wrapper.innerHTML = '';
+
+  const scrollRoot = document.getElementById('pdfViewerContainer');
+  pageObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const container = entry.target;
+      const pageNum = parseInt(container.dataset.p, 10);
+      if (entry.isIntersecting) {
+        if (!container.dataset.rendered && !container.dataset.rendering) {
+          renderPageContent(container, pageNum);
+        }
+        // Memory guard: evict rendered canvases more than 10 pages away from current view
+        const allPages = wrapper.querySelectorAll('.page-container[data-rendered="true"]');
+        if (allPages.length > 16) {
+          allPages.forEach(other => {
+            const otherNum = parseInt(other.dataset.p, 10);
+            if (Math.abs(otherNum - pageNum) > 10) {
+              evictPageContent(other, otherNum);
+            }
+          });
+        }
+      }
+    });
+  }, {
+    root: scrollRoot,
+    rootMargin: '600px 0px 600px 0px',
+    threshold: 0.01
+  });
+
+  for (let i = 1; i <= numPages; i++) {
+    const vp = pageViewports[i - 1];
+    const container = createPagePlaceholder(i, vp.width, vp.height);
+    wrapper.appendChild(container);
+    pageObserver.observe(container);
+  }
+
+  return true;
 }
 
 let switchStudyToken = 0;
@@ -441,52 +513,7 @@ async function switchStudy(id) {
     state.activePdfDoc = loadedPdf;
     wrapper.innerHTML = '';
 
-    const numPages = state.activePdfDoc.numPages;
-    document.getElementById('pdfPageCountLabel').textContent = `${numPages} page${numPages > 1 ? 's' : ''}`;
-    document.getElementById('zoomPercentInput').value = Math.round(state.scale * 100);
-
-    // Fetch exact per-page viewport dimensions in parallel so landscape/portrait pages size accurately
-    const pageViewports = await Promise.all(
-      Array.from({ length: numPages }, (_, idx) =>
-        loadedPdf.getPage(idx + 1).then(p => p.getViewport({ scale: state.scale }))
-      )
-    );
-    if (isStale()) return;
-
-    const scrollRoot = document.getElementById('pdfViewerContainer');
-    pageObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        const container = entry.target;
-        const pageNum = parseInt(container.dataset.p, 10);
-        if (entry.isIntersecting) {
-          if (!container.dataset.rendered && !container.dataset.rendering) {
-            renderPageContent(container, pageNum);
-          }
-          // Memory guard: evict rendered canvases more than 10 pages away from current view
-          const allPages = wrapper.querySelectorAll('.page-container[data-rendered="true"]');
-          if (allPages.length > 16) {
-            allPages.forEach(other => {
-              const otherNum = parseInt(other.dataset.p, 10);
-              if (Math.abs(otherNum - pageNum) > 10) {
-                evictPageContent(other, otherNum);
-              }
-            });
-          }
-        }
-      });
-    }, {
-      root: scrollRoot,
-      rootMargin: '600px 0px 600px 0px',
-      threshold: 0.01
-    });
-
-    for (let i = 1; i <= numPages; i++) {
-      const vp = pageViewports[i - 1];
-      const container = createPagePlaceholder(i, vp.width, vp.height);
-      wrapper.appendChild(container);
-      pageObserver.observe(container);
-    }
-
+    if (!(await layoutPdfPages(loadedPdf, isStale))) return;
     renderHighlights();
     updateSidebar();
   } catch (err) {
@@ -519,7 +546,13 @@ async function setPdfZoom(newScale) {
   if (!state.activeDocId) return;
   const scrollContainer = document.getElementById('pdfViewerContainer');
   const scrollRatio = scrollContainer.scrollHeight > 0 ? scrollContainer.scrollTop / scrollContainer.scrollHeight : 0;
-  await switchStudy(state.activeDocId);
+  if (state.activePdfDoc) {
+    // Same PDF, new size: lay the pages out again without reading and parsing the file again
+    const myToken = ++switchStudyToken;
+    if (await layoutPdfPages(state.activePdfDoc, () => myToken !== switchStudyToken)) renderHighlights();
+  } else {
+    await switchStudy(state.activeDocId);
+  }
   scrollContainer.scrollTop = scrollContainer.scrollHeight * scrollRatio;
 }
 
@@ -560,10 +593,8 @@ async function jumpToPdfAnnotation(annoId, pageOverride = null) {
   const pageContainer = wrapper.querySelector(`.page-container[data-p="${targetPage}"]`);
   if (!pageContainer) return;
 
-  // Force immediate render of target page if not yet lazily rendered
-  if (!pageContainer.dataset.rendered && !pageContainer.dataset.rendering) {
-    await renderPageContent(pageContainer, targetPage);
-  }
+  // Render the page now, or wait for the render already running (e.g. started by scrolling), before looking for the hit
+  if (!pageContainer.dataset.rendered) await renderPageContent(pageContainer, targetPage);
 
   // Scroll to the exact highlight box or page top
   const hlBoxes = Array.from(pageContainer.querySelectorAll(`.hl-box[data-anno-id="${CSS.escape(anno.id)}"]`));
@@ -847,6 +878,7 @@ function funderLinkedText(d) {
 }
 
 document.getElementById('saveMetaBtn').addEventListener('click', async () => {
+  metaDirty = false; pendingSaveCleanups.delete(commitMeta);
   await saveCurrentMeta();
   state.isEditMetaMode = false;
   toggleMetaDockUI();
@@ -855,6 +887,25 @@ document.getElementById('saveMetaBtn').addEventListener('click', async () => {
 ['metaEtAl', 'metaAppraisalTool', 'metaQuality', 'metaRichness', 'metaCompanionOf'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => saveCurrentMeta());
 });
+// Text fields are saved (and logged where they are) when left, or on a study / tab switch or page leave, like every other
+// text box: nothing typed here is lost if the reviewer moves on without clicking Save Info. saveCurrentMeta() reads the
+// fields into the active study before its first await, so a flush at the start of switchStudy() saves them to the right study.
+// One commit for the whole dock (not one per field), so several edited fields are saved in one go.
+let metaDirty = false;
+const commitMeta = async () => {
+  if (!metaDirty) return;
+  metaDirty = false;
+  pendingSaveCleanups.delete(commitMeta);
+  await saveCurrentMeta();
+};
+commitMeta.isCommit = true;
+['metaAuthor', 'metaYear', 'metaTitle', 'metaDoi', 'metaSetting', 'metaParticipants', 'metaGroup', 'metaMethodology', 'metaFunder', 'metaContextNote', 'metaStudyOverview']
+  .forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => { metaDirty = true; pendingSaveCleanups.add(commitMeta); });
+    el.addEventListener('change', commitMeta);
+  });
 
 document.querySelectorAll('.meta-drop-target').forEach(input => {
   input.addEventListener('dragover', e => {
@@ -940,8 +991,16 @@ function createPagePlaceholder(num, width, height) {
   return container;
 }
 
-async function renderPageContent(container, num) {
-  if (!state.activePdfDoc || container.dataset.rendered || container.dataset.rendering) return;
+// The page being rendered, so a caller that needs its text layer (search jump) can wait for it
+const pageRenderPromises = new WeakMap();
+function renderPageContent(container, num) {
+  if (!state.activePdfDoc || container.dataset.rendered) return Promise.resolve();
+  if (container.dataset.rendering) return pageRenderPromises.get(container) || Promise.resolve();
+  const p = renderPageContentNow(container, num);
+  pageRenderPromises.set(container, p);
+  return p;
+}
+async function renderPageContentNow(container, num) {
   container.dataset.rendering = 'true';
   try {
     const page = await state.activePdfDoc.getPage(num);
@@ -953,9 +1012,13 @@ async function renderPageContent(container, num) {
     const placeholder = container.querySelector('.page-loading-placeholder');
     if (placeholder) placeholder.remove();
 
+    // Sharp text on HiDPI screens: draw at the device pixel ratio (capped at 2 to keep memory in check), show at CSS size
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const canvas = document.createElement('canvas');
-    canvas.width = vp.width;
-    canvas.height = vp.height;
+    canvas.width = Math.floor(vp.width * dpr);
+    canvas.height = Math.floor(vp.height * dpr);
+    canvas.style.width = vp.width + 'px';
+    canvas.style.height = vp.height + 'px';
 
     const hlLayer = container.querySelector('.highlight-layer');
     container.insertBefore(canvas, hlLayer);
@@ -967,7 +1030,7 @@ async function renderPageContent(container, num) {
     txtLayer.style.setProperty('--scale-factor', state.scale);
     container.appendChild(txtLayer);
 
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
     const textContent = await page.getTextContent();
     await pdfjsLib.renderTextLayer({
       textContentSource: textContent,
@@ -984,11 +1047,26 @@ async function renderPageContent(container, num) {
   }
 }
 
+// Chinese / Japanese text has no spaces between words: where two text items meet between such characters, nothing is added
+const CJK_CHAR = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+function joinSeparator(prev, next) {
+  return CJK_CHAR.test(String(prev).slice(-1)) && CJK_CHAR.test(String(next).charAt(0)) ? '' : ' ';
+}
+function joinTextItems(strs) {
+  let out = '';
+  strs.forEach(t => { if (!t) return; out += (out ? joinSeparator(out, t) : '') + t; });
+  return out;
+}
 // Text of a selection in the PDF text layer. Range.toString() joins the last word of one line to the first word
 // of the next ("againstthe") because PDF.js text items usually have no trailing space at a line end.
 // Here a space is added whenever the next text item starts on a new line or column (hyphen at line end: no space).
 function selectionTextWithSpaces(range) {
-  const spans = [...document.querySelectorAll('#pdfPagesWrapper .textLayer span')].filter(sp => sp.firstChild && sp.firstChild.nodeType === 3 && range.intersectsNode(sp));
+  // Only the spans under the selection's common ancestor (one page, or the pages it spans), not every rendered page
+  let root = range.commonAncestorContainer;
+  if (root && root.nodeType !== 1) root = root.parentElement;
+  if (!root || !root.closest || !root.closest('#pdfPagesWrapper')) return range.toString();
+  const candidates = root.matches('.textLayer span') ? [root] : [...root.querySelectorAll(root.closest('.textLayer') ? 'span' : '.textLayer span')];
+  const spans = candidates.filter(sp => sp.firstChild && sp.firstChild.nodeType === 3 && range.intersectsNode(sp));
   if (!spans.length) return range.toString();
   let out = '';
   let prev = null;
@@ -1002,7 +1080,7 @@ function selectionTextWithSpaces(range) {
     const r = sp.getBoundingClientRect();
     if (prev && out && !/\s$/.test(out) && !/^\s/.test(piece)) {
       const newLine = r.top > prev.top + prev.height * 0.6 || r.left + 1 < prev.left;
-      if (newLine && !/[-\u2010\u2011]$/.test(out)) out += ' ';
+      if (newLine && !/[-\u2010\u2011]$/.test(out)) out += joinSeparator(out, piece);
     }
     out += piece;
     prev = r;
@@ -1029,12 +1107,14 @@ document.addEventListener('mouseup', (e) => {
   let lastPage = null;
   let lastRect = rects[rects.length - 1];
 
+  // Each rect belongs to the page whose box contains its centre. Found by geometry, not elementFromPoint: a selection that runs
+  // under the sticky zoom bar or outside the visible area would otherwise lose those lines (and the page range).
+  const pageBoxes = [...document.querySelectorAll('#pdfPagesWrapper .page-container')].map(pc => ({ el: pc, box: pc.getBoundingClientRect() }));
   rects.forEach(r => {
-    // Find the page container under the centre of this rect
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
-    let el = document.elementFromPoint(cx, cy);
-    while (el && !el.classList?.contains('page-container')) el = el.parentElement;
+    const hit = pageBoxes.find(p => cx >= p.box.left && cx <= p.box.right && cy >= p.box.top && cy <= p.box.bottom);
+    const el = hit ? hit.el : null;
     
     if (el) {
       const pageNum = parseInt(el.dataset.p, 10);
@@ -1225,20 +1305,63 @@ function renderHighlights() {
         b.style.top = (r.top * 100) + '%';
         b.style.width = (r.width * 100) + '%';
         b.style.height = (r.height * 100) + '%';
-        b.onclick = () => {
-          const cardEl = document.querySelector(`[data-sidebar-anno="${CSS.escape(a.id)}"]`);
-          if (cardEl) {
-            cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            cardEl.classList.add('ring-2', 'ring-amber-400');
-            setTimeout(() => cardEl.classList.remove('ring-2', 'ring-amber-400'), 1400);
-          }
-        };
         layer.appendChild(b);
       });
     }
     });
   });
 }
+
+// Clicking a highlight shows its card in the sidebar. The text layer lies above the highlights (so highlighted text can
+// still be selected again, e.g. to extract a second construct from it), so the click is matched to the boxes by position:
+// a plain click (no text selected) inside a box opens its card; a drag still selects text as usual.
+function focusSidebarCard(annoId) {
+  const cardEl = document.querySelector(`[data-sidebar-anno="${CSS.escape(annoId)}"]`);
+  if (!cardEl) return;
+  cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  cardEl.classList.add('ring-2', 'ring-amber-400');
+  setTimeout(() => cardEl.classList.remove('ring-2', 'ring-amber-400'), 1400);
+}
+function hlBoxAtPoint(target, x, y) {
+  const pageContainer = target && target.closest ? target.closest('#pdfPagesWrapper .page-container') : null;
+  if (!pageContainer) return null;
+  // The smallest box under the pointer: a short highlight inside a longer one stays reachable
+  let best = null, bestArea = Infinity;
+  pageContainer.querySelectorAll('.hl-box').forEach(b => {
+    const r = b.getBoundingClientRect();
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return;
+    const area = r.width * r.height;
+    if (area < bestArea) { best = b; bestArea = area; }
+  });
+  return best;
+}
+(() => {
+  const wrapper = document.getElementById('pdfPagesWrapper');
+  if (!wrapper) return;
+  wrapper.addEventListener('click', e => {
+    if (e.button !== 0) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim()) return; // the user selected text
+    const box = hlBoxAtPoint(e.target, e.clientX, e.clientY);
+    if (box) focusSidebarCard(box.dataset.annoId);
+  });
+  // Pointer cursor and the highlight's tooltip while hovering over it (checked once per frame)
+  let pending = null, lastPage = null;
+  wrapper.addEventListener('mousemove', e => {
+    if (pending) return;
+    const { target, clientX, clientY } = e;
+    pending = requestAnimationFrame(() => {
+      pending = null;
+      const box = hlBoxAtPoint(target, clientX, clientY);
+      const pageContainer = target && target.closest ? target.closest('.page-container') : null;
+      if (lastPage && lastPage !== pageContainer) { lastPage.classList.remove('hl-hover'); lastPage.removeAttribute('title'); }
+      lastPage = pageContainer;
+      if (!pageContainer) return;
+      pageContainer.classList.toggle('hl-hover', !!box);
+      if (box) pageContainer.title = box.title + ' (click to show its card)'; else pageContainer.removeAttribute('title');
+    });
+  });
+})();
 
 // --- D. Full-PDF Keyword Search across Lazy-Rendered Pages ---
 const pdfSearchState = {
@@ -1263,7 +1386,7 @@ async function ensurePdfTextIndex() {
       if (state.activePdfDoc !== pdfDoc) return null;
       const page = await pdfDoc.getPage(i);
       const tc = await page.getTextContent();
-      const joined = tc.items.map(item => item.str).join(' ').normalize('NFC').toLowerCase();
+      const joined = joinTextItems(tc.items.map(item => item.str)).normalize('NFC').toLowerCase();
       pageTexts.push({ pageNum: i, text: joined });
     }
   } catch (e) {
@@ -1337,21 +1460,32 @@ async function jumpToSearchedPage(matchIdx, queryStr) {
   const pageContainer = wrapper.querySelector(`.page-container[data-p="${targetPage}"]`);
   if (!pageContainer) return;
 
-  if (!pageContainer.dataset.rendered && !pageContainer.dataset.rendering) {
-    await renderPageContent(pageContainer, targetPage);
-  }
+  if (!pageContainer.dataset.rendered) await renderPageContent(pageContainer, targetPage); // or wait for the render already running
 
   const q = (queryStr || document.getElementById('pdfSearchInput')?.value || '').normalize('NFC').trim().toLowerCase();
-  const spans = Array.from(pageContainer.querySelectorAll('.textLayer span'));
-  const hitSpan = spans.find(s => s.textContent.normalize('NFC').toLowerCase().includes(q));
-  if (hitSpan) {
-    hitSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    spans.forEach(s => {
-      if (s.textContent.normalize('NFC').toLowerCase().includes(q)) {
-        s.style.backgroundColor = 'rgba(250, 204, 21, 0.55)';
-        s.style.borderRadius = '2px';
-        setTimeout(() => { s.style.backgroundColor = ''; }, 2200);
-      }
+  // The search index joins the page's text items with spaces, so a phrase can run over several text spans (PDF.js splits
+  // lines and words into spans): match against the same joined text and light up every span the match touches.
+  const spans = Array.from(pageContainer.querySelectorAll('.textLayer span')).filter(sp => sp.firstChild && sp.firstChild.nodeType === 3);
+  const norm = t => t.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
+  const needle = norm(q).trim();
+  let joined = '';
+  const starts = spans.map(sp => {
+    const t = norm(sp.textContent);
+    if (joined && t) joined += joinSeparator(joined, t); // the same joining as the search index
+    const at = joined.length; joined += t; return at;
+  });
+  const hits = new Set();
+  for (let at = needle ? joined.indexOf(needle) : -1; at >= 0; at = joined.indexOf(needle, at + 1)) {
+    const end = at + needle.length;
+    spans.forEach((sp, k) => { const a = starts[k], b = a + norm(sp.textContent).length; if (a < end && b > at) hits.add(sp); });
+  }
+  if (hits.size) {
+    const first = spans.find(sp => hits.has(sp));
+    first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    hits.forEach(sp => {
+      sp.style.backgroundColor = 'rgba(250, 204, 21, 0.55)';
+      sp.style.borderRadius = '2px';
+      setTimeout(() => { sp.style.backgroundColor = ''; }, 6000); // long enough to read the passage around it
     });
   } else {
     pageContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1405,16 +1539,20 @@ function extractSurnameFromAuthorString(rawAuthor) {
   return { surname, hasEtAl: multiAuthors };
 }
 
+// Publication years 1980–2039, one pattern for every stage of the citation auto-fill
+const YEAR_CORE = '19[89]\\d|20[0-3]\\d';
+const YEAR_RE = new RegExp('(?:^|\\D)(' + YEAR_CORE + ')(?!\\d)');
 async function autoExtractCitationFromPdf() {
   const doc = state.docs.find(d => d.id === state.activeDocId);
   if (!doc || !state.activePdfDoc) {
-    return alert('Please load a PDF binary first.');
+    showSnackbar('Open a study whose PDF is loaded first.'); return;
   }
 
   let detectedTitle = '';
   let detectedAuthor = '';
   let detectedEtAl = true;
   let detectedYear = '';
+  let yearFromPublicationDate = false;
 
   // Stage 1: Check embedded PDF Info Dict & XMP Metadata
   try {
@@ -1437,9 +1575,11 @@ async function autoExtractCitationFromPdf() {
       }
     }
 
-    const rawDate = (xmp && (xmp.get('prism:publicationDate') || xmp.get('dc:date') || xmp.get('xap:CreateDate'))) || info.CreationDate || '';
-    const dateMatch = String(rawDate).match(/(?:^|\D)(19[89]\d|20[0-3]\d)(?!\d)/);
-    if (dateMatch) detectedYear = dateMatch[1];
+    // A publication date in the metadata is trusted; a file creation date (often the download or typesetting date) is only a fallback
+    const pubDate = xmp && (xmp.get('prism:publicationDate') || xmp.get('dc:date'));
+    const rawDate = pubDate || (xmp && xmp.get('xap:CreateDate')) || info.CreationDate || '';
+    const dateMatch = String(rawDate).match(YEAR_RE);
+    if (dateMatch) { detectedYear = dateMatch[1]; yearFromPublicationDate = !!pubDate; }
   } catch (e) {
     console.warn('Metadata read warning:', e);
   }
@@ -1483,10 +1623,10 @@ async function autoExtractCitationFromPdf() {
 
     // 2a. Find Year from Page 1 header/footer text if not yet found (or refine)
     const fullPage1Text = lines.map(l => l.text).join(' ');
-    const yearMatches = (fullPage1Text.match(/(?:^|\D)(19[89]\d|20[0-2]\d)(?!\d)/g) || []).map(m => m.replace(/^\D/, ''));
-    if (yearMatches && yearMatches.length > 0) {
+    const yearMatches = (fullPage1Text.match(new RegExp(YEAR_RE.source, 'g')) || []).map(m => m.replace(/^\D/, ''));
+    if (!yearFromPublicationDate && yearMatches.length > 0) {
       // Prefer year near copyright/received/published keywords
-      const pubContextMatch = fullPage1Text.match(/(?:published|accepted|received|©|copyright|\()\s*(?:[a-z]+\s+\d{1,2},?\s*)?(19[89]\d|20[0-2]\d)/i);
+      const pubContextMatch = fullPage1Text.match(new RegExp('(?:published|accepted|received|©|copyright|\\()\\s*(?:[a-z]+\\s+\\d{1,2},?\\s*)?(' + YEAR_CORE + ')', 'i'));
       detectedYear = pubContextMatch ? pubContextMatch[1] : yearMatches[0];
     }
 
@@ -1521,8 +1661,11 @@ async function autoExtractCitationFromPdf() {
           const rawAuthorLine = candidateAuthorLines[0].text;
           const firstAuthorChunk = rawAuthorLine.split(/,|;|\band\b|&/i)[0];
           const parsed = extractSurnameFromAuthorString(firstAuthorChunk);
-          if (parsed.surname && /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ-]+/.test(parsed.surname)) {
-            detectedAuthor = parsed.surname;
+          // A capitalised surname, or one in capitals (SMITH, O'NEILL-JONES) written as Smith, O'Neill-Jones. Names in other
+          // scripts are left to the reviewer: the order of family and given name cannot be told from the line.
+          const allCaps = parsed.surname && /^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]+$/.test(parsed.surname);
+          if (parsed.surname && (allCaps || /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ-]+/.test(parsed.surname))) {
+            detectedAuthor = allCaps ? parsed.surname.toLowerCase().replace(/(^|[-'’\s])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : parsed.surname;
             detectedEtAl = /,|;|\band\b|&/i.test(rawAuthorLine);
           }
         }
@@ -1534,7 +1677,7 @@ async function autoExtractCitationFromPdf() {
 
   // Stage 3: Filename fallback
   if (!detectedYear && doc.name) {
-    const fnYear = doc.name.match(/(?:^|\D)(19[89]\d|20[0-2]\d)(?!\d)/);
+    const fnYear = doc.name.match(YEAR_RE);
     if (fnYear) detectedYear = fnYear[1];
   }
   if (!detectedAuthor && doc.name) {
@@ -1543,7 +1686,7 @@ async function autoExtractCitationFromPdf() {
   }
 
   if (!detectedTitle && !detectedAuthor && !detectedYear) {
-    return alert('Could not auto-detect citation metadata from this PDF (it may be a scanned image without OCR).');
+    showSnackbar('No citation details found in this PDF (it may be a scanned image without OCR). Enter them by hand.'); return;
   }
 
   if (detectedAuthor) document.getElementById('metaAuthor').value = detectedAuthor;
@@ -1676,14 +1819,21 @@ document.getElementById('richTieKeepBtn').addEventListener('click', closeRichnes
 document.getElementById('richTieCloseBtn').addEventListener('click', closeRichnessTieModal);
 document.getElementById('richTieApplyBtn').addEventListener('click', async () => {
   if (!richTieWork) return;
-  const oldOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
+  const oldIds = state.docs.map(d => d.id).join('|'); // by id: two studies can share a display name
   const oldIndexPaper = getDisplayName(state.docs[0]);
   richTieWork.forEach(g => state.docs.splice(g.start, g.docs.length, ...g.docs));
   const newOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
   const reason = document.getElementById('richTieReason').value.trim();
   closeRichnessTieModal();
   if (reason) { state.loa = { ...state.loa, id: 'loa_main', orderRationale: reason, updatedAt: Date.now() }; await dbPut('meta', state.loa); }
-  if (oldOrderStr === newOrderStr) return;
+  if (oldIds === state.docs.map(d => d.id).join('|')) {
+    // The order stays, but the reasoning about it is a decision too
+    if (reason) {
+      await recordAuditLog({ category: 'study_order', action: 'Kept the order of studies tied on Conceptual Richness, with a reason', detail: `Translation sequence: ${newOrderStr}`, rationale: reason });
+      showSnackbar('Order kept; the reason is recorded.');
+    }
+    return;
+  }
   await persistDocOrder();
   const newIndexPaper = getDisplayName(state.docs[0]);
   await recordAuditLog({
@@ -1710,6 +1860,9 @@ const rightSidebar = document.getElementById('extractRightSidebar');
 let isResizing = false;
 
 if (resizer && rightSidebar) {
+  // The width is remembered in this browser, as the pool width in Tab 2 is (kept within the same 320–800 px)
+  const savedSidebarWidth = parseInt(lsGet('me_extract_sidebar_width'), 10);
+  if (savedSidebarWidth >= 320 && savedSidebarWidth <= 800) rightSidebar.style.width = savedSidebarWidth + 'px';
   resizer.addEventListener('mousedown', (e) => {
     isResizing = true;
     document.body.style.cursor = 'col-resize';
@@ -1730,6 +1883,7 @@ if (resizer && rightSidebar) {
     if (isResizing) {
       isResizing = false;
       document.body.style.cursor = 'default';
+      lsSet('me_extract_sidebar_width', String(parseInt(rightSidebar.style.width, 10) || ''));
     }
   });
 }

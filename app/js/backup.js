@@ -12,7 +12,8 @@ function backupTimestamp(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-document.getElementById('backupJsonBtn').addEventListener('click', () => {
+document.getElementById('backupJsonBtn').addEventListener('click', async () => {
+  await flushAllPendingSaves(); // a text typed just now (and its audit entry) belongs in the backup
   const payload = {
     version: DB_VERSION,
     formatVersion: PROJECT_FORMAT,
@@ -42,15 +43,43 @@ function isEmptyValue(v) {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0) ||
     (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
 }
+// Lists of separate records (relations, team models, within-study links, set-aside items) are merged as a union: what is only
+// in the backup is added, a record in both (same key) keeps the local version. Key per list field:
+const MERGE_UNION_KEYS = {
+  links: x => x.id || [x.from, x.to, x.type].join('|'),
+  conceptLinks: x => x.id || [x.from, x.to, x.type].join('|'),
+  teamModels: x => x.id || [x.reviewer, x.title, x.capturedAt].join('|'),
+  peerSetAside: x => [x.peerId, x.reviewer, x.textKey].join('|')
+};
 // Copy fields from `incoming` into `local` only where `local` is empty; report fields that differ
 function mergeFillEmpty(local, incoming, skip = []) {
   const filled = [], conflicts = [];
   Object.keys(incoming || {}).forEach(k => {
     if (skip.includes(k) || isEmptyValue(incoming[k])) return;
+    if (MERGE_UNION_KEYS[k] && Array.isArray(incoming[k]) && Array.isArray(local[k])) {
+      const keyOf = MERGE_UNION_KEYS[k], have = new Set(local[k].map(keyOf));
+      const add = incoming[k].filter(x => x && !have.has(keyOf(x)));
+      if (add.length) { local[k] = [...local[k], ...add]; filled.push(k); }
+      return;
+    }
     if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
-    else if (JSON.stringify(local[k]) !== JSON.stringify(incoming[k])) conflicts.push(k);
+    else if (stableJson(local[k]) !== stableJson(incoming[k])) conflicts.push(k); // same content in another key order is no conflict
   });
   return { filled, conflicts };
+}
+// Same item on both sides with different content: texts that are empty here are filled from the backup (a note or a Step B
+// written on another computer); placements, judgements and ratings are not, since an empty value may be a decision made here.
+const MERGE_FILL_TEXT = {
+  annotations: ['note', 'nuanceNote', 'concordanceNote', 'notTranslatedNote'],
+  clusters: ['thirdOrderTitle', 'translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation', 'cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote']
+};
+function mergeFillTexts(local, incoming, fields) {
+  const filled = [];
+  fields.forEach(k => {
+    const v = incoming[k];
+    if (typeof v === 'string' && v.trim() && !(typeof local[k] === 'string' && local[k].trim())) { local[k] = v; filled.push(k); }
+  });
+  return filled;
 }
 function stableJson(v) {
   if (Array.isArray(v)) return '[' + v.map(stableJson).join(',') + ']';
@@ -59,10 +88,12 @@ function stableJson(v) {
 }
 function sameRecord(a, b) { return stableJson(a) === stableJson(b); }
 function mergeSummaryText(r) {
-  let t = `Backup merged.\n\nAdded: ${r.docs} studies, ${r.annotations} constructs/quotes, ${r.clusters} 3rd Order rows, ${r.logs} audit entries.`;
+  let t = `Backup merged.\n\nAdded: ${r.docs} studies, ${r.annotations} constructs/quotes, ${r.clusters} 3rd Order rows, ${r.logs} audit entries.`
+    + (r.filled ? `\nFilled empty fields (notes, texts) of ${r.filled} item(s) from the backup.` : '');
   if (r.conflicts.length) {
     t += `\n\nKept YOUR version of ${r.conflicts.length} item(s) that differ in the backup (also listed in the Audit Trail):\n`
-      + r.conflicts.slice(0, 12).map(x => '• ' + x).join('\n') + (r.conflicts.length > 12 ? `\n… and ${r.conflicts.length - 12} more` : '');
+      + r.conflicts.slice(0, 12).map(x => '• ' + x).join('\n') + (r.conflicts.length > 12 ? `\n… and ${r.conflicts.length - 12} more` : '')
+      + '\n\nTo look at the backup\'s version of these items side by side and adopt parts of it, open the backup with Compare.';
   }
   return t;
 }
@@ -80,40 +111,28 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     const currentProjCode = sanitizeProjectCode(state.projectCode || '');
     const hasExistingWork = state.docs.length > 0 || state.annotations.length > 0 || state.clusters.length > 0;
 
-    if (hasExistingWork && currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode) {
-      const proceedMismatch = confirm(
-        `⚠️ PROJECT CODE MISMATCH WARNING!\n\n` +
-        `• Current Workspace Project Code: [${currentProjCode}]\n` +
-        `• Backup File Project Code: [${incomingProjCode}]\n\n` +
-        `You are attempting to load a JSON file from a DIFFERENT project [${incomingProjCode}] into [${currentProjCode}].\n` +
-        `Click [Cancel] to abort safely, or [OK] ONLY if you intend to switch to or overwrite with [${incomingProjCode}].`
-      );
-      if (!proceedMismatch) {
-        e.target.value = '';
-        return;
-      }
-    }
-
     let replaceCleanly = true;
     const mergeReport = { docs: 0, annotations: 0, clusters: 0, logs: 0, filled: 0, tidied: 0, conflicts: [] };
+    const mergeDocIdMap = {}; // MERGE: backup study id -> local study id
     if (hasExistingWork) {
-      if (currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode) {
-        const confirmCleanSwitch = confirm(
-          `Because the Project Codes differ ([${currentProjCode}] vs. [${incomingProjCode}]), MERGE mode is disabled to prevent cross-project contamination.\n\n` +
-          `Click [OK] to perform a CLEAN RESTORE of project [${incomingProjCode}] (replacing current workspace data), or [Cancel] to abort.`
-        );
-        if (!confirmCleanSwitch) {
-          e.target.value = '';
-          return;
-        }
-        replaceCleanly = true;
-      } else {
-        replaceCleanly = confirm(
-          `Restore Mode Selection (Project: ${incomingProjCode || currentProjCode || 'Current'}):\n\n` +
-          '• Click [OK] for CLEAN RESTORE (Recommended): Replaces current annotations, clusters, and logs with the backup while preserving any matching PDF binaries already loaded in your browser.\n' +
-          '• Click [Cancel] for MERGE: Keeps all current data and adds what is only in the backup. Where an item exists in both with different content, your current version is kept and the item is listed afterwards.'
-        );
-      }
+      // Every button names what it does; closing the dialog (Cancel, ×, Escape) changes nothing
+      const otherProject = currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode;
+      const choice = otherProject
+        ? await askChoice({
+            title: 'This backup is from another project',
+            body: `This workspace: [${currentProjCode}]\nBackup file: [${incomingProjCode}] (${file.name})\n\nMerging is not offered across projects, so that two projects never mix.`,
+            choices: [{ value: 'clean', tone: 'danger', label: `Replace this workspace with project [${incomingProjCode}]`, hint: 'Clean restore: the studies, constructs, rows and audit trail here are replaced by the backup (make a Backup of this workspace first if you may need it). PDFs already stored for matching studies are kept.' }]
+          })
+        : await askChoice({
+            title: `Restore from ${file.name}`,
+            body: `Project: ${incomingProjCode || currentProjCode || 'this workspace'}. This workspace already has work in it.`,
+            choices: [
+              { value: 'clean', tone: 'primary', label: 'Clean restore (replace)', hint: 'Replaces the studies, constructs, rows and audit trail here with the backup. PDFs already stored for matching studies are kept.' },
+              { value: 'merge', tone: 'plain', label: 'Merge into this workspace', hint: 'Keeps everything here and adds what is only in the backup. Where an item is in both with different content, your version is kept and the item is listed afterwards (and in the Audit Trail).' }
+            ]
+          });
+      if (!choice) { e.target.value = ''; return; }
+      replaceCleanly = choice === 'clean';
     }
 
     if (replaceCleanly) {
@@ -210,21 +229,28 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       // MERGE: add what is not here yet; never overwrite local work. Where the same item exists on both sides
       // with different content, the LOCAL version is kept and the item is listed (and logged) as a conflict.
       // Map backup doc IDs -> local doc IDs (a filename match keeps the LOCAL id, so PDF binaries and local constructs stay attached)
-      const mergeDocIdMap = {};
       const addedAnnoIds = new Set();
+      const findLocalDoc = d => state.docs.find(x => x.id === d.id) ||
+        state.docs.find(x => x.name && d.name && x.name.toLowerCase() === d.name.toLowerCase());
+      // First the whole map (a study may refer to one listed after it), then every study id in the backup goes through it:
+      // annotations, the companion study, each row's base study and empty-cell records, and study #1.
+      for (const rawD of data.docs) {
+        if (!rawD || !rawD.id) continue;
+        const existing = findLocalDoc(rawD);
+        mergeDocIdMap[rawD.id] = existing ? existing.id : rawD.id;
+      }
+      const toLocalDoc = id => (id && mergeDocIdMap[id]) || id;
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);
-        const existing = state.docs.find(x => x.id === d.id) ||
-          state.docs.find(x => x.name && d.name && x.name.toLowerCase() === d.name.toLowerCase());
+        if (d.companionOf) d.companionOf = toLocalDoc(d.companionOf);
+        const existing = findLocalDoc(d);
         if (existing) {
-          mergeDocIdMap[d.id] = existing.id;
           const r = mergeFillEmpty(existing, d, ['id', 'hasBinary', 'order']);
           if (r.conflicts.length) mergeReport.conflicts.push(`Study ${getDisplayName(existing)}: ${r.conflicts.join(', ')}`);
           if (r.filled.length) { mergeReport.filled++; await dbPut('docs', existing); }
         } else {
           d.hasBinary = false;
           d.order = state.docs.length;
-          mergeDocIdMap[d.id] = d.id;
           await dbPut('docs', d);
           state.docs.push(d);
           mergeReport.docs++;
@@ -235,7 +261,10 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         const a = normalizeAnnotation(rawA);
         const local = state.annotations.find(x => x.id === a.id);
         if (local) {
-          if (!sameRecord(local, a)) mergeReport.conflicts.push(`${a.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} (p.${local.page}): ${local.note || String(local.text || '').slice(0, 50)}`);
+          if (!sameRecord(local, a)) {
+            if (mergeFillTexts(local, a, MERGE_FILL_TEXT.annotations).length) { mergeReport.filled++; await dbPut('annotations', local); }
+            if (!sameRecord(local, a)) mergeReport.conflicts.push(`${a.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} (p.${local.page}): ${local.note || String(local.text || '').slice(0, 50)}`);
+          }
           continue;
         }
         await dbPut('annotations', a);
@@ -244,10 +273,19 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         mergeReport.annotations++;
       }
       for (const rawC of (data.clusters || [])) {
+        if (rawC && rawC.baseDocId) rawC.baseDocId = toLocalDoc(rawC.baseDocId);
+        if (rawC && rawC.cellStatus && typeof rawC.cellStatus === 'object') {
+          const cs = {};
+          Object.keys(rawC.cellStatus).forEach(id => { cs[toLocalDoc(id)] = rawC.cellStatus[id]; });
+          rawC.cellStatus = cs;
+        }
         const c = normalizeCluster(rawC);
         const local = state.clusters.find(x => x.id === c.id);
         if (local) {
-          if (!sameRecord(local, c)) mergeReport.conflicts.push(`3rd Order row: ${local.thirdOrderTitle || '(Untitled Row)'}`);
+          if (!sameRecord(local, c)) {
+            if (mergeFillTexts(local, c, MERGE_FILL_TEXT.clusters).length) { mergeReport.filled++; await dbPut('clusters', local); }
+            if (!sameRecord(local, c)) mergeReport.conflicts.push(`3rd Order row: ${local.thirdOrderTitle || '(Untitled Row)'}`);
+          }
           continue;
         }
         await dbPut('clusters', c);
@@ -286,6 +324,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       await dbPut('meta', state.loa);
     } else if (data.loa) {
       // MERGE: the aim, model and narrative are only filled where they are empty here
+      if (data.loa.baselineDocId) data.loa.baselineDocId = mergeDocIdMap[data.loa.baselineDocId] || data.loa.baselineDocId;
       const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt']);
       if (r.conflicts.length) mergeReport.conflicts.push(`Research Aim & Overall Model: ${r.conflicts.join(', ')}`);
       if (r.filled.length) { state.loa.id = 'loa_main'; await dbPut('meta', state.loa); }
@@ -294,10 +333,10 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     updateHeaderProjectUI();
 
     state.docs.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+    state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0)); // same order as at startup
     if (!state.loa.baselineDocId) await checkBaselineChange();
     ensureDocFingerprints();
 
-    state.docs.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
     state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     updateAuditBadge();
     renderStudyList();
@@ -318,27 +357,29 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         category: 'project_data',
         action: 'Merged a JSON backup into the project',
         detail: `Backup file: ${src}. Added ${mergeReport.docs} studies, ${mergeReport.annotations} constructs/quotes, ${mergeReport.clusters} 3rd Order rows, ${mergeReport.logs} audit entries.`
+          + (mergeReport.filled ? ` Filled empty fields of ${mergeReport.filled} item(s) from the backup.` : '')
           + (mergeReport.tidied ? ` ${mergeReport.tidied} added item(s) pointed to rows or constructs not in this project; those links were dropped.` : '')
           + (mergeReport.conflicts.length ? `\nKept the local version of ${mergeReport.conflicts.length} item(s) that differ in the backup:\n` + mergeReport.conflicts.map(x => '• ' + x).join('\n') : '')
       });
     }
     renderMatrixView();
     if (replaceCleanly) markBackupDone();
+    // One dialog at a time: the merge report first (worth reading), then the list of PDFs to reconnect
+    if (!replaceCleanly) await showNotice('Backup merged', mergeSummaryText(mergeReport));
+    else if (!state.docs.some(d => !d.hasBinary)) showSnackbar('Backup restored.');
     if (state.docs.some(d => !d.hasBinary)) showMissingPdfModal();
-    else alert(replaceCleanly ? 'Backup cleanly restored!' : mergeSummaryText(mergeReport));
-    if (!replaceCleanly && mergeReport.conflicts.length && state.docs.some(d => !d.hasBinary)) alert(mergeSummaryText(mergeReport));
   } catch (err) {
-    alert('Failed to restore JSON: ' + err.message);
+    showNotice('The backup could not be restored', err.message);
   }
   e.target.value = '';
 });
 
 document.getElementById('resetProjectBtn').addEventListener('click', async () => {
-  const ok = confirm(
-    'Reset Project (Start Blank):\n\n' +
-    'Are you sure you want to clear all studies, PDFs, constructs, matrix rows, and audit logs?\n' +
-    '(Tip: Use "Backup" first if you want to save your current project as a JSON file.)'
-  );
+  const ok = await askChoice({
+    title: 'Reset the project (start blank)?',
+    body: 'All studies, PDFs, constructs, matrix rows and audit trail entries in this browser are removed. This cannot be undone: use Backup first if you may need this project again.',
+    choices: [{ value: 'reset', tone: 'danger', label: 'Remove everything and start blank' }]
+  });
   if (!ok) return;
 
   if (pageObserver) {
@@ -430,6 +471,7 @@ function refreshMissingPdfModal(unmatched = null) {
       unmatchedPdfFiles = unmatchedPdfFiles.filter(f => f !== file);
       renderStudyList();
       refreshMissingPdfModal();
+      switchStudy(doc.id); // show the PDF just connected (as when a file is matched by name)
     };
     list.appendChild(li);
   });

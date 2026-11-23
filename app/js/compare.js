@@ -51,9 +51,14 @@ function computeTextSimilarity(strA, strB) {
   if (!a || !b) return 0;
   if (a === b) return 1.0;
   if (a.includes(b) || b.includes(a)) {
+    // One selection inside the other: the same passage, read with a shorter or longer span. Only when the shorter one is a
+    // passage of its own (8+ words, or 40% of the longer): a short phrase occurs in many unrelated quotes.
     const minLen = Math.min(a.length, b.length);
     const maxLen = Math.max(a.length, b.length);
-    if (minLen > 12) return Math.max(0.78, minLen / maxLen);
+    const shorter = a.length <= b.length ? a : b;
+    const shortWords = shorter.split(/\s+/).length;
+    const unspaced = shortWords === 1 && minLen >= 20; // Japanese / Chinese text has no spaces: count characters instead
+    if (minLen > 12 && (shortWords >= 8 || unspaced || minLen / maxLen >= 0.4)) return Math.max(0.78, minLen / maxLen);
   }
   // Word token overlap (including 2-char clinical/regional abbreviations like RN, UK, IV, ED)
   const wordsA = new Set(a.split(/\s+/).filter(w => w.length >= 2));
@@ -62,7 +67,12 @@ function computeTextSimilarity(strA, strB) {
   if (wordsA.size > 0 && wordsB.size > 0) {
     let inter = 0;
     wordsA.forEach(w => { if (wordsB.has(w)) inter++; });
-    wordScore = inter / Math.min(wordsA.size, wordsB.size);
+    // Dice, like the bigrams. The overlap with the shorter passage (inter / min) is used only when that passage is long
+    // enough to mean something: two readers selecting overlapping stretches of the same paragraph should still pair, but a
+    // two-word fragment ("moral distress") must not "match" any long quote that happens to contain both words.
+    const minSize = Math.min(wordsA.size, wordsB.size);
+    const dice = (2 * inter) / (wordsA.size + wordsB.size);
+    wordScore = minSize >= 8 ? Math.max(dice, inter / minSize) : dice;
   }
   // Character bigram overlap (handles CJK/Japanese text without spaces and minor OCR/hyphenation diffs)
   const noSpaceA = a.replace(/\s+/g, '');
@@ -155,6 +165,21 @@ function computePeerAnnotationMatches(cmp) {
   });
   cmp.localOnlyAnnos = state.annotations.filter(a => !localTaken.has(a.id));
   cmp.peerToLocalAnnoId = null; // rebuilt from the new pairs on the next import
+  // Constructs set aside in an earlier comparison with this reviewer do not come back as new; they are listed apart
+  cmp.setAsideAnnos = cmp.peerOnlyAnnos.filter(item => peerSetAsideRecord(cmp, item.peerAnno));
+  cmp.peerOnlyAnnos = cmp.peerOnlyAnnos.filter(item => !peerSetAsideRecord(cmp, item.peerAnno));
+}
+
+// ---- Set aside: remembered in the project (state.loa.peerSetAside), so the next file from the same reviewer does not
+// bring the same construct back as new. A construct whose text the reviewer has changed since is shown again. ----
+function peerSetAsideKey(pAnno) { return String(pAnno.text || '').normalize('NFC').replace(/\s+/g, ' ').trim().slice(0, 300); }
+function peerSetAsideRecord(cmp, pAnno) {
+  const list = Array.isArray(state.loa.peerSetAside) ? state.loa.peerSetAside : [];
+  return list.find(r => r.peerId === pAnno.id && r.reviewer === cmp.peerReviewer && r.textKey === peerSetAsideKey(pAnno)) || null;
+}
+async function savePeerSetAside(list) {
+  state.loa = { ...state.loa, id: 'loa_main', peerSetAside: list, updatedAt: Date.now() };
+  await dbPut('meta', state.loa);
 }
 
 // ---- Translation order of both reviewers: a different #1 or order can lead to a different reading (to discuss, not an error) ----
@@ -196,7 +221,13 @@ function renderCompareStudiesTab(container, cmp) {
     ${info.firstDiffers || !info.sameOrder ? `<button type="button" class="cmp-order-memo px-2.5 py-1 text-xs font-semibold rounded border border-amber-400 bg-amber-50 text-amber-900 cursor-pointer hover:bg-amber-100">Record this difference in the Audit Trail…</button>` : ''}`;
   const memoBtn = orderBox.querySelector('.cmp-order-memo');
   if (memoBtn) memoBtn.onclick = async () => {
-    const note = (prompt('What does the different starting point / order mean for your readings? (optional)') || '').trim();
+    const note = await askReason({
+      title: `A different translation order from @${cmp.peerReviewer}`,
+      context: `Mine: ${state.docs.map(d => getDisplayName(d)).join(' ➔ ')}\n@${cmp.peerReviewer}: ${info.peerDocs.map(nameOfPeer).join(' ➔ ')}`,
+      label: 'What does the different starting point / order mean for your readings? (optional)',
+      confirmLabel: 'Record in the Audit Trail', draftKey: 'order-diff'
+    });
+    if (note === null) return;
     await recordAuditLog({
       category: 'concordance',
       action: `Noted a different translation order from @${cmp.peerReviewer}`,
@@ -258,19 +289,18 @@ async function processPeerJsonFile(file) {
     const incomingProjCode = sanitizeProjectCode(peerData.projectCode || peerData.loa?.projectCode || '');
     const currentProjCode = sanitizeProjectCode(state.projectCode || '');
     if (currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode) {
-      const proceed = confirm(
-        `⚠️ PROJECT CODE MISMATCH DETECTED!\n\n` +
-        `• Current Workspace Project Code: [${currentProjCode}]\n` +
-        `• Peer JSON File Project Code: [${incomingProjCode}]\n\n` +
-        `Are you sure you didn't select a JSON file from a different systematic review project?\n` +
-        `Click [OK] ONLY if you intentionally want to compare these two projects, or [Cancel] to abort safely.`
-      );
+      const proceed = await askChoice({
+        title: 'This file is from another project',
+        body: `This workspace: [${currentProjCode}]\nOther reviewer's file: [${incomingProjCode}] (${file.name})\n\nCheck that you picked the file of this review.`,
+        choices: [{ value: 'go', tone: 'danger', label: 'Compare these two projects anyway', hint: 'Nothing is changed until you import something.' }]
+      });
       if (!proceed) return;
     } else if (currentProjCode && !incomingProjCode) {
-      const proceed = confirm(
-        `⚠️ Notice: The selected Peer JSON file does not have a Project Code tag, while your workspace is set to [${currentProjCode}].\n\n` +
-        `Continue comparing with this file?`
-      );
+      const proceed = await askChoice({
+        title: 'This file has no project code',
+        body: `This workspace is [${currentProjCode}]; the other reviewer's file (${file.name}) has no project code.`,
+        choices: [{ value: 'go', tone: 'primary', label: 'Compare with this file' }]
+      });
       if (!proceed) return;
     }
 
@@ -281,6 +311,7 @@ async function processPeerJsonFile(file) {
     const { docMapPeerToLocal, matchedStudies, unmatchedPeerDocs } = matchPeerDocs(peerData);
     state.peerComparison = { peerReviewer, peerData, docMapPeerToLocal, matchedStudies, unmatchedPeerDocs };
     computePeerAnnotationMatches(state.peerComparison);
+    await reattachWaitingByTitle(state.peerComparison);
     // Start on the Studies & Order tab when there is something to settle or discuss there
     const firstDiffers = (peerData.docs[0] && state.docs[0]) && docMapPeerToLocal[(peerData.docs.slice().sort((a, b) => (a.order ?? 999) - (b.order ?? 999))[0] || {}).id] !== state.docs[0].id;
     if (unmatchedPeerDocs.length || firstDiffers) setCompareTab('studies');
@@ -296,24 +327,30 @@ async function processPeerJsonFile(file) {
     compareWorkspace.classList.add('flex');
     renderComparisonDashboard();
   } catch (err) {
-    alert('Error comparing JSON: ' + err.message);
+    showNotice('Could not compare with this file', err.message);
   }
 }
 
 document.querySelectorAll('.cmp-tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
     setCompareTab(btn.dataset.cmptab);
+    if (btn.dataset.cmptab === 'clusters_logs') await reattachWaitingByTitle(state.peerComparison);
     renderComparisonTabContent();
   });
 });
 
-function getCompareBuckets(cmp) {
+// Two readings of the same passage are labelled differently when the labels differ, including when only one
+// reviewer gave a label (the other left it empty): both are readings to discuss.
+function pairLabelsDiffer(l, p) {
   const norm = v => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return norm(l.note) !== norm(p.note);
+}
+function getCompareBuckets(cmp) {
   const divergent = [];
   const aligned = [];
   cmp.matchedPairs.forEach(pair => {
     const l = pair.localAnno, p = pair.peerAnno;
-    const labelsDiffer = norm(l.note) && norm(p.note) && norm(l.note) !== norm(p.note);
+    const labelsDiffer = pairLabelsDiffer(l, p);
     const flagged = l.concordanceStatus === 'discuss' || p.concordanceStatus === 'discuss';
     const isAgreed = l.concordanceStatus === 'agreed';
     ((!isAgreed && (labelsDiffer || flagged)) ? divergent : aligned).push(pair);
@@ -346,9 +383,38 @@ function renderComparisonTabContent() {
 
   if (state.activeCompareTab === 'studies') { renderCompareStudiesTab(container, cmp); return; }
 
+  // Constructs set aside earlier: listed apart (collapsed), each can be taken back into the list
+  const renderSetAside = () => {
+    const items = cmp.setAsideAnnos || [];
+    if (!items.length) return;
+    const box = document.createElement('details');
+    box.className = 'set-aside-box bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-600';
+    box.innerHTML = `<summary class="cursor-pointer font-semibold">Set aside earlier (${items.length}): not shown as new again</summary><div class="space-y-1.5 mt-2"></div>`;
+    const list = box.querySelector('div');
+    items.forEach(item => {
+      const p = item.peerAnno, rec = peerSetAsideRecord(cmp, p);
+      const row = document.createElement('div');
+      row.className = 'flex items-start justify-between gap-3 bg-white border border-slate-200 rounded px-2.5 py-1.5';
+      const studyName = item.doc ? getDisplayName(item.doc) : (item.peerDoc ? getDisplayName(item.peerDoc) : 'Unknown Study');
+      row.innerHTML = `<div class="flex-1"><b>${escapeHtml(studyName)}</b> p.${escapeHtml(p.page)} — <i>"${escapeHtml(String(p.text || '').slice(0, 140))}${String(p.text || '').length > 140 ? '…' : ''}"</i>
+          <div class="text-[11px] text-slate-400">Set aside ${rec && rec.at ? new Date(rec.at).toLocaleString() : ''}${rec && rec.by ? ' by @' + escapeHtml(rec.by) : ''}</div></div>
+        <button type="button" class="reconsider-btn shrink-0 px-2 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded cursor-pointer">Reconsider</button>`;
+      row.querySelector('.reconsider-btn').onclick = async () => {
+        await savePeerSetAside((state.loa.peerSetAside || []).filter(r => r !== rec));
+        cmp.setAsideAnnos = cmp.setAsideAnnos.filter(x => x !== item);
+        cmp.peerOnlyAnnos.push(item);
+        await recordAuditLog({ category: 'concordance', action: `Reconsidered a construct from @${cmp.peerReviewer} set aside earlier`, detail: `${studyName} (p.${p.page}): "${String(p.text || '').slice(0, 70)}..."` });
+        renderComparisonDashboard();
+      };
+      list.appendChild(row);
+    });
+    container.appendChild(box);
+  };
+
   const renderPeerOnly = () => {
     if (cmp.peerOnlyAnnos.length === 0) {
-      container.innerHTML = `<div class="p-10 text-center text-xs text-slate-400 bg-white rounded-xl border border-slate-200">🎉 All of @${escapeHtml(cmp.peerReviewer)}'s extracted constructs are either matched or resolved!</div>`;
+      container.innerHTML = `<div class="p-10 text-center text-xs text-slate-400 bg-white rounded-xl border border-slate-200">🎉 Each of @${escapeHtml(cmp.peerReviewer)}'s extracted constructs is matched, imported or set aside.</div>`;
+      renderSetAside();
       return;
     }
 
@@ -396,7 +462,7 @@ function renderComparisonTabContent() {
           <button class="imp-discuss px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1">
             <i class="ph ph-chats-circle"></i><span>Import as Discuss</span>
           </button>
-          <button class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-md cursor-pointer" title="Not imported now; the construct stays in the other reviewer's file">
+          <button class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-md cursor-pointer" title="Not imported; the construct stays in the other reviewer's file. Remembered in this project, so a later file from this reviewer does not show it as new again (unless its text has changed).">
             Set Aside
           </button>
         </div>
@@ -411,6 +477,9 @@ function renderComparisonTabContent() {
       };
       card.querySelector('.imp-dismiss').onclick = async () => {
         cmp.peerOnlyAnnos.splice(idx, 1);
+        (cmp.setAsideAnnos = cmp.setAsideAnnos || []).push(item);
+        const list = Array.isArray(state.loa.peerSetAside) ? state.loa.peerSetAside : [];
+        await savePeerSetAside([...list, { peerId: p.id, reviewer: cmp.peerReviewer, textKey: peerSetAsideKey(p), at: Date.now(), by: state.reviewerId || '' }]);
         await recordAuditLog({
           category: 'concordance',
           action: `Set Aside Peer-Only Construct from @${cmp.peerReviewer}`,
@@ -420,6 +489,7 @@ function renderComparisonTabContent() {
       };
       container.appendChild(card);
     });
+    renderSetAside();
   };
 
   const renderMatched = (pairs, emptyMsg) => {
@@ -431,8 +501,7 @@ function renderComparisonTabContent() {
       const l = pair.localAnno;
       const p = pair.peerAnno;
       const dName = pair.doc ? getDisplayName(pair.doc) : 'Study';
-      const nm = v => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
-      const labelDiff = !!(nm(l.note) && nm(p.note) && nm(l.note) !== nm(p.note));
+      const labelDiff = pairLabelsDiffer(l, p);
       const flaggedDisc = l.concordanceStatus === 'discuss' || p.concordanceStatus === 'discuss';
       const differs = (labelDiff || flaggedDisc) && l.concordanceStatus !== 'agreed';
       const card = document.createElement('div');
@@ -456,12 +525,12 @@ function renderComparisonTabContent() {
         <div class="grid grid-cols-2 gap-3 text-xs">
           <div class="p-2.5 rounded bg-indigo-50/40 border border-indigo-200">
             <div class="font-bold text-indigo-900 mb-1">👤 My Extraction (@${escapeHtml(l.by || state.reviewerId)})</div>
-            ${l.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(l.note)}</div>` : ''}
+            ${l.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(l.note)}</div>` : (labelDiff ? '<div class="mb-1 text-amber-800 italic">(no label)</div>' : '')}
             <div class="italic text-slate-600">"${escapeHtml(l.text)}"</div>
           </div>
           <div class="p-2.5 rounded bg-teal-50/40 border border-teal-200">
             <div class="font-bold text-teal-900 mb-1">🤝 Peer Extraction (@${escapeHtml(p.by || cmp.peerReviewer)})</div>
-            ${p.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(p.note)}</div>` : ''}
+            ${p.note ? `<div class="font-semibold mb-1 ${labelDiff ? 'text-amber-900 bg-amber-100 rounded px-1' : 'text-slate-800'}">Label: ${escapeHtml(p.note)}</div>` : (labelDiff ? '<div class="mb-1 text-amber-800 italic">(no label)</div>' : '')}
             <div class="italic text-slate-600">"${escapeHtml(p.text)}"</div>
           </div>
         </div>
@@ -525,8 +594,9 @@ function renderComparisonTabContent() {
   } else if (tab === 'unique') {
     if (cmp.peerOnlyAnnos.length === 0 && cmp.localOnlyAnnos.length === 0) {
       container.innerHTML = `<div class="p-10 text-center text-xs text-slate-400 bg-white rounded-xl border border-slate-200">No unique extractions — both reviewers' constructs overlap.</div>`;
+      renderSetAside();
     } else {
-      if (cmp.peerOnlyAnnos.length > 0) renderPeerOnly();
+      if (cmp.peerOnlyAnnos.length > 0) renderPeerOnly(); else renderSetAside();
       if (cmp.localOnlyAnnos.length > 0) renderLocalOnly();
     }
   } else if (tab === 'aligned') {
@@ -580,7 +650,7 @@ function renderComparisonTabContent() {
       for (const pm of (Array.isArray(peerLoa.teamModels) ? peerLoa.teamModels : [])) {
         if (!(state.loa.teamModels || []).some(m => m.id === pm.id)) await addTeamModel({ ...pm }, `Carried over from @${cmp.peerReviewer}'s team-model records.`);
       }
-      alert('Independent models recorded. Open "Research Aim & Overall Model" in Tab 2 to compare them side by side and write how they were merged.');
+      showSnackbar('Independent models recorded. Open "Research Aim & Overall Model" in Tab 2 to compare them side by side and write how they were merged.');
     };
     loaSection.querySelector('.cmp-import-rel').onclick = async () => {
       await mergePeerAuditLogs();
@@ -589,7 +659,7 @@ function renderComparisonTabContent() {
       for (const l of peerModel.links) {
         const f = byTitle(l.from), t = byTitle(l.to);
         if (!f || !t || f.id === t.id) { skipped++; continue; }
-        const dup = (state.loa.links || []).some(x => x.type === l.type && ((x.from === f.id && x.to === t.id) || (l.type !== 'leads' && x.from === t.id && x.to === f.id)));
+        const dup = (state.loa.links || []).some(x => x.type === l.type && ((x.from === f.id && x.to === t.id) || (!isDirectedLink(l.type) && x.from === t.id && x.to === f.id)));
         if (dup) continue;
         state.loa.links = [...(state.loa.links || []), { id: 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from: f.id, to: t.id, type: l.type, note: (l.note ? l.note + ' ' : '') + `[from @${cmp.peerReviewer}]` }];
         added++;
@@ -600,7 +670,7 @@ function renderComparisonTabContent() {
         await recordAuditLog({ category: 'team_model', action: `Imported ${added} concept relation(s) from @${cmp.peerReviewer}'s model`, detail: skipped ? `${skipped} relation(s) skipped: the rows were not found here by title (import those rows first).` : '' });
         renderLoaMap();
       }
-      alert(`Imported ${added} relation(s).${skipped ? ` ${skipped} skipped (rows not found here by title — import those rows first).` : ''}`);
+      showSnackbar(`Imported ${added} relation(s).${skipped ? ` ${skipped} skipped (rows not found here by title — import those rows first).` : ''}`);
       renderComparisonTabContent();
     };
     box.appendChild(loaSection);
@@ -625,7 +695,7 @@ function renderComparisonTabContent() {
 
     restBox.querySelector('#mergePeerLogsBtn').onclick = async () => {
       const added = await mergePeerAuditLogs();
-      alert(added ? `Merged ${added} new audit trail entries from @${cmp.peerReviewer}!` : `Nothing new to merge: @${cmp.peerReviewer}'s audit trail entries are already in your trail.`);
+      showSnackbar(added ? `Merged ${added} new audit trail entries from @${cmp.peerReviewer}!` : `Nothing new to merge: @${cmp.peerReviewer}'s audit trail entries are already in your trail.`);
     };
 
     const clList = restBox.querySelector('#peerClustersList');
@@ -651,14 +721,20 @@ function renderComparisonTabContent() {
           // The peer's base study is one of their studies: point it to the matching local study (an unmatched one stays as is,
           // so it applies if that study is added later with the same id)
           const pBase = ('baseDocId' in pc) ? pc.baseDocId : null;
-          const newCl = normalizeCluster({ ...pc, by: cmp.peerReviewer, baseDocId: pBase ? (cmp.docMapPeerToLocal[pBase] || pBase) : pBase });
+          const toLocalDoc = id => cmp.docMapPeerToLocal[id] || id;
+          // Empty-cell records (absent / different aspect) are keyed by the peer's study ids: key them by the local ones
+          const cellStatus = {};
+          Object.keys(pc.cellStatus || {}).forEach(id => { cellStatus[toLocalDoc(id)] = pc.cellStatus[id]; });
+          const newCl = normalizeCluster({ ...JSON.parse(JSON.stringify(pc)), cellStatus, by: cmp.peerReviewer, baseDocId: pBase ? toLocalDoc(pBase) : pBase });
           await dbPut('clusters', newCl);
           state.clusters.push(newCl);
+          const placed = await reattachPeerRowPlacements(newCl.id);
           await recordAuditLog({
             clusterIds: [newCl.id],
             category: 'concordance',
             action: `Imported 3rd Order Row from @${cmp.peerReviewer}`,
-            toVal: newCl.thirdOrderTitle || '(Untitled)'
+            toVal: newCl.thirdOrderTitle || '(Untitled)',
+            detail: placed ? `${placed} construct(s) imported earlier from @${cmp.peerReviewer} placed in this row, with their judgements and cell notes.` : ''
           });
           renderComparisonTabContent();
         });
@@ -703,6 +779,61 @@ function peerRowMap(cmp) {
   return map;
 }
 
+// Per-row values a 2nd Order construct carries for each row it is placed in (same list as merge / split in matrix.js)
+const PEER_ROW_KEYS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+// A peer row that is here now (imported after its constructs, or a local row with the same title): place the constructs
+// that were waiting for it, with their judgements. peerRowId = the row's id in the peer's file; localRowId = the row here.
+async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
+  let n = 0;
+  for (const a of state.annotations) {
+    const w = a.type === 'second_order' && a._peerRows && a._peerRows[peerRowId];
+    if (!w) continue;
+    if (!a.clusterIds.includes(localRowId)) a.clusterIds.push(localRowId);
+    PEER_ROW_KEYS.forEach(k => { if (k in w && !(a[k] && localRowId in a[k])) a[k] = { ...(a[k] || {}), [localRowId]: w[k] }; });
+    delete a._peerRows[peerRowId];
+    if (!Object.keys(a._peerRows).length) delete a._peerRows;
+    await dbPut('annotations', a);
+    n++;
+  }
+  return n;
+}
+
+// Constructs waiting for a peer row that is now here under the same title (a row made here, not imported): placed when a
+// file is compared and when the "3rd Order, Model & Logs" tab is opened. Never from inside a render; one run at a time.
+async function reattachWaitingByTitle(cmp) {
+  if (!cmp || cmp.reattaching) return 0;
+  cmp.reattaching = true;
+  let total = 0;
+  try {
+    for (const pc of (cmp.peerData.clusters || [])) {
+      if (!state.annotations.some(a => a._peerRows && a._peerRows[pc.id])) continue;
+      const local = state.clusters.find(c => c.id === pc.id || sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
+      if (!local) continue;
+      const placed = await reattachPeerRowPlacements(pc.id, local.id);
+      if (!placed) continue;
+      total += placed;
+      await recordAuditLog({ clusterIds: [local.id], category: 'concordance', action: `Placed ${placed} construct(s) imported from @${cmp.peerReviewer} in "${local.thirdOrderTitle || 'Untitled Row'}"`, detail: `The row matches @${cmp.peerReviewer}'s row "${pc.thirdOrderTitle || ''}"; their judgements and cell notes came with them.` });
+    }
+  } finally { cmp.reattaching = false; }
+  if (total) showSnackbar(`Placed ${total} construct(s) from @${cmp.peerReviewer} in rows that are here now.`);
+  return total;
+}
+
+// A row here now has the title of a peer row that constructs are waiting for (it was named or renamed): place them, also
+// when Compare is closed. Called when a row title is committed.
+async function reattachWaitingForRow(cluster) {
+  if (!cluster || !cluster.thirdOrderTitle) return 0;
+  const peerIds = new Set();
+  state.annotations.forEach(a => Object.entries(a._peerRows || {}).forEach(([pid, w]) => { if (w && sameRowTitle(w._title, cluster.thirdOrderTitle)) peerIds.add(pid); }));
+  let total = 0;
+  for (const pid of peerIds) total += await reattachPeerRowPlacements(pid, cluster.id);
+  if (total) {
+    await recordAuditLog({ clusterIds: [cluster.id], category: 'concordance', action: `Placed ${total} construct(s) imported from another reviewer in "${cluster.thirdOrderTitle}"`, detail: 'They were imported in Compare before a row of this title was here; their judgements and cell notes came with them.' });
+    showSnackbar(`Placed ${total} imported construct(s) waiting for a row called "${cluster.thirdOrderTitle}".`);
+  }
+  return total;
+}
+
 async function importPeerConstruct(item, status) {
   await mergePeerAuditLogs();
   const cmp = state.peerComparison;
@@ -744,16 +875,25 @@ async function importPeerConstruct(item, status) {
     if (waiting.length) raw._peerParentIds = waiting;
   }
   // Map the peer's rows to local rows: same id, else same title (the rule that shows "✓ Already in Matrix").
-  // Placements in rows that do not exist here are dropped (peer rows can be imported in the "3rd Order & Logs" tab).
+  // A placement in a row that is not here yet is kept aside (_peerRows) with its judgement, cell note and line-of-argument
+  // mark, and is placed when that row is imported in the "3rd Order, Model & Logs" tab (see reattachPeerRowPlacements).
   if (Array.isArray(raw.clusterIds)) {
     const rowMap = peerRowMap(cmp);
+    const waitingRows = {};
+    raw.clusterIds.forEach(id => {
+      if (rowMap[id] || !id) return;
+      const pRow = (cmp.peerData.clusters || []).find(c => c.id === id);
+      waitingRows[id] = pRow && pRow.thirdOrderTitle ? { _title: pRow.thirdOrderTitle } : {}; // the title lets a row made here later take them in
+      PEER_ROW_KEYS.forEach(k => { if (raw[k] && typeof raw[k] === 'object' && id in raw[k]) waitingRows[id][k] = raw[k][id]; });
+    });
     raw.clusterIds = [...new Set(raw.clusterIds.map(id => rowMap[id]).filter(Boolean))];
-    ['clusterRelations', 'clusterComments'].forEach(k => {
+    PEER_ROW_KEYS.forEach(k => {
       if (!raw[k] || typeof raw[k] !== 'object') return;
       const out = {};
       Object.keys(raw[k]).forEach(id => { if (rowMap[id] && !(rowMap[id] in out)) out[rowMap[id]] = raw[k][id]; });
       raw[k] = out;
     });
+    if (Object.keys(waitingRows).length) raw._peerRows = waitingRows; else delete raw._peerRows;
   }
   if (raw.type === 'second_order' && targetDocId === state.docs[0]?.id) raw.indexSeeded = true;
 

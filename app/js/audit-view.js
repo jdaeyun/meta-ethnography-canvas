@@ -6,8 +6,12 @@
 // ========================================================
 // VIEW 3: AUDIT TRAIL & REFLEXIVE LOG RENDERER
 // ========================================================
-document.getElementById('auditFilterCategory').addEventListener('change', () => renderAuditTimeline());
-document.getElementById('auditFilterRow').addEventListener('change', () => renderAuditTimeline());
+// A long project has a long trail: the timeline shows a page of entries and more on request, so opening Tab 3 or adding a
+// memo does not rebuild every card. The trail itself, the filters and the exports always cover every entry.
+const AUDIT_PAGE = 150;
+let auditShownCount = AUDIT_PAGE;
+document.getElementById('auditFilterCategory').addEventListener('change', () => { auditShownCount = AUDIT_PAGE; renderAuditTimeline(); });
+document.getElementById('auditFilterRow').addEventListener('change', () => { auditShownCount = AUDIT_PAGE; renderAuditTimeline(); });
 
 // ---- 3rd Order row history: audit entries carry the id(s) of the row(s) they concern ----
 function clusterTitleHistory(cluster) {
@@ -25,7 +29,7 @@ document.getElementById('addMemoBtn').addEventListener('click', async () => {
   const subType = document.getElementById('memoSubType').value;
   const targetRef = document.getElementById('memoTargetRef').value;
   const content = document.getElementById('memoContentInput').value.trim();
-  if (!content) return alert('Please enter memo content.');
+  if (!content) { showSnackbar('Write the memo first.'); return; }
 
   const cat = subType === 'Team Concordance Meeting' ? 'concordance' :
               subType === 'GRADE-CERQual Rationale' ? 'cerqual' :
@@ -127,7 +131,8 @@ function renderAuditTimeline() {
     return;
   }
 
-  list.forEach(log => {
+  const total = list.length;
+  list.slice(0, auditShownCount).forEach(log => {
     const meta = getCategoryMeta(log.category);
     const dateStr = new Date(log.timestamp).toLocaleString();
     const revTag = log.reviewer || 'Unknown';
@@ -187,7 +192,6 @@ function renderAuditTimeline() {
     });
 
     card.querySelector('.del-log').onclick = async () => {
-      if (!confirm('Delete this audit trail entry? (You can Undo with Ctrl+Z)')) return;
       pushUndoAction({
         type: 'delete_log',
         label: `Audit Log (${log.action.slice(0, 30)})`,
@@ -205,8 +209,17 @@ function renderAuditTimeline() {
       });
       updateAuditBadge();
       renderAuditTimeline();
+      showUndoSnackbar('Deleted the audit trail entry (the deletion itself is recorded)');
     };
 
     container.appendChild(card);
   });
+  if (total > auditShownCount) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'audit-show-more w-full py-2 text-xs font-semibold text-indigo-700 bg-white border border-slate-200 rounded-lg hover:bg-indigo-50 cursor-pointer';
+    more.textContent = `Show ${Math.min(AUDIT_PAGE, total - auditShownCount)} more (${total - auditShownCount} not shown)`;
+    more.onclick = () => { auditShownCount += AUDIT_PAGE; renderAuditTimeline(); };
+    container.appendChild(more);
+  }
 }

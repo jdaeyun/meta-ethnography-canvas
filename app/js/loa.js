@@ -10,6 +10,7 @@ const loaDrawer = document.getElementById('loaDrawer');
 const loaCaret = document.getElementById('loaCaretIcon');
 
 document.getElementById('toggleLoaDrawerBtn').addEventListener('click', () => {
+  if (state.isLoaOpen && typeof commitLoaDrawer === 'function') commitLoaDrawer(); // closing the drawer saves what was typed
   state.isLoaOpen = !state.isLoaOpen;
   loaDrawer.classList.toggle('hidden', !state.isLoaOpen);
   loaCaret.className = state.isLoaOpen ? 'ph ph-caret-up text-xs' : 'ph ph-caret-down text-xs';
@@ -26,6 +27,34 @@ function insertTextIntoLoaFlow(snippet) {
   const nextPos = start + snippet.length;
   el.setSelectionRange(nextPos, nextPos);
 }
+
+// The map (state.loa.links) is the structured record; the text sketch can be written from it, then extended by hand
+function flowTextFromMap() {
+  const label = id => `[${clusterLabel(state.clusters.find(c => c.id === id))}]`;
+  return getLoaLinks().map(l => `${label(l.from)} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${label(l.to)}`).join('\n');
+}
+document.getElementById('loaFlowFromMapBtn').addEventListener('click', async () => {
+  const el = document.getElementById('loaFlowInput');
+  const text = flowTextFromMap();
+  if (!text) { showSnackbar('The map has no relations yet: add them under Concept relationship map first.'); return; }
+  let next = text;
+  if (el.value.trim()) {
+    const how = await askChoice({
+      title: 'Write the sketch from the map',
+      body: 'The sketch already has text.',
+      choices: [
+        { value: 'add', tone: 'primary', label: 'Add the map\'s relations below it', hint: 'Keeps what you wrote.' },
+        { value: 'replace', tone: 'danger', label: 'Replace it with the map\'s relations', hint: 'What is there now is removed from the field (the last saved version stays in the Audit Trail).' }
+      ]
+    });
+    if (!how) return;
+    next = how === 'add' ? el.value.replace(/\s+$/, '') + '\n' + text : text;
+  }
+  el.value = next;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.focus();
+  showSnackbar('Written from the map. Saved when you leave the drawer.');
+});
 
 document.querySelectorAll('.loa-op-btn').forEach(btn => {
   btn.addEventListener('click', () => insertTextIntoLoaFlow(btn.dataset.op));
@@ -154,7 +183,10 @@ function buildFlowMapSvg(prefix) {
   const pos = {};
   const colHeights = cols.map(col => col.reduce((h, id) => h + (wrap(clusterLabel(state.clusters.find(c => c.id === id))).length * 14 + 14) + rowGap, -rowGap));
   const H = Math.max(160, Math.max(...colHeights) + padY * 2 + 20);
-  const W = padX * 2 + nCols * boxW + (nCols - 1) * colGap;
+  // Same-column relations loop out to the right of their column (see below): leave room for the loops of the last column
+  const loopReach = l => 0.75 * (22 + 10 * Math.abs((orderIdx[l.to] || 0) - (orderIdx[l.from] || 0))) + 10;
+  const lastColLoop = Math.max(0, ...links.filter(l => rank[l.from] === nCols - 1 && rank[l.to] === nCols - 1).map(loopReach));
+  const W = padX * 2 + nCols * boxW + (nCols - 1) * colGap + Math.max(0, lastColLoop - padX);
   cols.forEach((col, ci) => {
     let y = (H - colHeights[ci]) / 2;
     col.forEach(id => {
@@ -198,7 +230,7 @@ function buildFlowMapSvg(prefix) {
 
 function downloadConceptMapSvg() {
   let svg = buildConceptMapSvg('dl', 640, 360);
-  if (!svg) return alert('Add at least one relation to draw the map first.');
+  if (!svg) { showSnackbar('Add at least one relation to draw the map first.'); return; }
   // Standalone file: fixed pixel size instead of the responsive width, plus a legend line
   const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
   const W = vb ? +vb[1] : 640, H = vb ? +vb[2] : 360;
@@ -330,9 +362,9 @@ document.addEventListener('click', async (ev) => {
   const from = document.getElementById('loaLinkFrom').value, to = document.getElementById('loaLinkTo').value;
   const type = document.getElementById('loaLinkType').value;
   const note = document.getElementById('loaLinkNote').value.trim();
-  if (!from || !to || from === to) { alert('Choose two different 3rd Order rows.'); return; }
+  if (!from || !to || from === to) { showSnackbar('Choose two different 3rd Order rows.'); return; }
   const dup = (state.loa.links || []).some(l => l.type === type && ((l.from === from && l.to === to) || (!isDirectedLink(type) && l.from === to && l.to === from)));
-  if (dup) { alert('This relation already exists.'); return; }
+  if (dup) { showSnackbar('This relation already exists.'); return; }
   const link = { id: 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, type, note };
   state.loa.links = [...(state.loa.links || []), link];
   state.loa.updatedAt = Date.now();
@@ -380,7 +412,7 @@ function modelFromPeerLoa(peerLoa, peerClusters, reviewer) {
 }
 function modelIsEmpty(m) { return !(m.title || m.flow || m.narrative || (m.links && m.links.length)); }
 async function addTeamModel(model, how) {
-  if (modelIsEmpty(model)) { alert('This model is empty (no title, flow, narrative or relations).'); return false; }
+  if (modelIsEmpty(model)) { showSnackbar('This model is empty (no title, sketch, narrative or relations).'); return false; }
   state.loa.teamModels = [...(Array.isArray(state.loa.teamModels) ? state.loa.teamModels : []), model];
   state.loa.updatedAt = Date.now();
   await dbPut('meta', state.loa);
@@ -428,16 +460,21 @@ function renderTeamModels() {
       ${m.flow ? `<div class="font-mono text-[11px] bg-slate-50 border border-slate-200 rounded px-1 py-0.5">${escapeHtml(m.flow)}</div>` : ''}
       ${(m.links || []).length ? `<div class="space-y-0.5">${m.links.map(l => `<div>${counts[teamLinkKey(l)] === models.length ? '✓' : '◐'} ${escapeHtml(l.from)} <b style="color:${(LINK_TYPES[l.type] || LINK_TYPES.leads).color}">${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym}</b> ${escapeHtml(l.to)}</div>`).join('')}</div>` : ''}
       ${m.narrative ? `<details><summary class="cursor-pointer text-slate-500">Narrative</summary><div class="whitespace-pre-wrap text-slate-700">${escapeHtml(m.narrative)}</div></details>` : ''}`;
-    card.querySelector('.tm-adopt').onclick = () => {
+    card.querySelector('.tm-adopt').onclick = async () => {
       const cur = ['loaTitleInput', 'loaFlowInput', 'loaNarrativeInput'].some(id => document.getElementById(id).value.trim());
-      if (cur && !confirm('Replace the title / flow / narrative currently in the fields with this model? (Nothing is saved until you click "Save & Log to Trail".)')) return;
+      if (cur && !(await askChoice({
+        title: `Load @${m.reviewer}'s model as a draft?`,
+        body: 'The title, text sketch and narrative now in the fields are replaced. They are saved (and logged) when you leave the drawer.',
+        choices: [{ value: 'load', tone: 'primary', label: 'Replace the fields with this model' }]
+      }))) return;
       document.getElementById('loaTitleInput').value = m.title || '';
       document.getElementById('loaFlowInput').value = m.flow || '';
       document.getElementById('loaNarrativeInput').value = m.narrative || '';
-      showSnackbar(`Loaded @${m.reviewer}'s model as a draft — edit, then Save & Log to Trail.`);
+      markLoaDrawerDirty();
+      showSnackbar(`Loaded @${m.reviewer}'s model as a draft. It is saved when you leave the drawer.`);
     };
     card.querySelector('.tm-del').onclick = async () => {
-      if (!confirm(`Remove @${m.reviewer}'s model record? (The removal is logged.)`)) return;
+      if (!(await askChoice({ title: `Remove @${m.reviewer}'s model record?`, body: 'The removal is recorded in the Audit Trail; it cannot be undone with Ctrl+Z.', choices: [{ value: 'remove', tone: 'danger', label: 'Remove the model record' }] }))) return;
       state.loa.teamModels = models.filter(x => x.id !== m.id);
       state.loa.updatedAt = Date.now();
       await dbPut('meta', state.loa);
@@ -455,6 +492,8 @@ document.getElementById('saveMyModelBtn')?.addEventListener('click', async () =>
 });
 
 function renderLoaClusterChips() {
+  // Everything below lives in the drawer, which renders it again when it opens: nothing to redraw while it is closed
+  if (!state.isLoaOpen) return;
   renderLoaMap();
   renderTeamModels();
   const chipBox = document.getElementById('loaClusterChips');
@@ -476,36 +515,64 @@ function renderLoaClusterChips() {
   });
 }
 
-// eMERGe fields added for items 3, 9, 13 and 16: [loa key, input id, audit category]
+// The drawer holds what is thought out during the analysis (saved together: see commitLoaDrawer).
+// [loa key, input id, audit category]
 const LOA_EXTRA_FIELDS = [
+  ['alternativeInterpretations', 'loaAltInterpInput', 'translation_process'],
+  ['modelContext', 'loaModelContextInput', 'line_of_argument'],
+  ['teamMergeNote', 'loaTeamMergeInput', 'team_model']
+];
+// The fields that describe the method for the write-up live in Tab 4, beside the Methods Summary. Each is saved,
+// with one audit entry, when the reviewer leaves it (bindPendingCommit). Same project fields as before (state.loa).
+const WRITEUP_FIELDS = [
   ['reviewQuestion', 'loaQuestionInput', 'aim_question'],
   ['readingApproach', 'loaReadingInput', 'reading_extraction'],
   ['extractionScope', 'loaExtractionScopeInput', 'reading_extraction'],
   ['unitsTerminology', 'loaUnitsInput', 'reading_extraction'],
+  ['appraisalPolicy', 'loaAppraisalPolicyInput', 'appraisal_policy'],
+  ['appraisalUse', 'loaAppraisalUseInput', 'appraisal_policy'],
+  ['relateProcess', 'loaRelateProcessInput', 'relating_studies'],
   ['translationDefinitions', 'loaTransDefInput', 'translation_process'],
   ['translationProcess', 'loaTransProcInput', 'translation_process'],
-  ['alternativeInterpretations', 'loaAltInterpInput', 'translation_process'],
-  ['modelContext', 'loaModelContextInput', 'line_of_argument'],
-  ['teamMergeNote', 'loaTeamMergeInput', 'team_model']
+  ['synthStudies', 'loaSynthStudiesInput', 'line_of_argument']
 ];
 const LOA_FIELD_LABELS = {
   reviewQuestion: 'Review question (Item 3)', readingApproach: 'Reading & extraction process (Item 9)', extractionScope: 'Extracted from (Item 9)',
   unitsTerminology: 'Units of synthesis (Item 9)', translationDefinitions: 'Working definitions (Item 13)', translationProcess: 'Translation process (Item 13)',
   alternativeInterpretations: 'Alternative interpretations (Items 13/15)', modelContext: 'Context where the model applies (Item 16)',
-  teamMergeNote: 'How independent models were merged'
+  teamMergeNote: 'How independent models were merged',
+  appraisalPolicy: 'Quality appraisal policy', appraisalUse: 'How appraisal was used', relateProcess: 'Process of relating studies (Item 11)',
+  synthStudies: 'Studies synthesized into the line of argument (Item 15)'
 };
+const EXTRACTION_SCOPE_LABELS = { full: 'Full study accounts', findings: 'Findings sections only', mixed: 'Mainly findings, other sections for context' };
+function writeupFieldText(key, v) { return key === 'extractionScope' ? (EXTRACTION_SCOPE_LABELS[v] || '(not stated)') : v; }
+WRITEUP_FIELDS.forEach(([key, id, category]) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  bindPendingCommit(el, async () => {
+    const oldVal = state.loa[key] || '';
+    const newVal = (el.value || '').trim();
+    if (oldVal === newVal) return;
+    state.loa = { ...state.loa, id: 'loa_main', [key]: newVal, updatedAt: Date.now() };
+    await dbPut('meta', state.loa);
+    await recordAuditLog({
+      category,
+      action: `Updated ${LOA_FIELD_LABELS[key]}`,
+      fromVal: oldVal ? writeupFieldText(key, oldVal) : '(empty)',
+      toVal: newVal ? writeupFieldText(key, newVal) : '(cleared)'
+    });
+    if (!divPub.classList.contains('hidden')) renderPublicationView();
+  });
+});
 
 function populateLoaInputs() {
   document.getElementById('loaAimInput').value = state.loa.aim || '';
   document.getElementById('loaTitleInput').value = state.loa.title || '';
   document.getElementById('loaFlowInput').value = state.loa.flow || '';
   document.getElementById('loaNarrativeInput').value = state.loa.narrative || '';
-  document.getElementById('loaRelateProcessInput').value = state.loa.relateProcess || '';
   document.getElementById('loaRelateOutcomeInput').value = state.loa.relateOutcome || '';
-  document.getElementById('loaSynthStudiesInput').value = state.loa.synthStudies || '';
-  document.getElementById('loaAppraisalPolicyInput').value = state.loa.appraisalPolicy || '';
-  document.getElementById('loaAppraisalUseInput').value = state.loa.appraisalUse || '';
-  LOA_EXTRA_FIELDS.forEach(([k, id]) => { const el = document.getElementById(id); if (el) el.value = state.loa[k] || ''; });
+  // A field being typed in keeps its text (its commit is still to come)
+  [...LOA_EXTRA_FIELDS, ...WRITEUP_FIELDS].forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement) el.value = state.loa[k] || ''; });
   const ordSel = document.getElementById('orderStrategySelect');
   if (ordSel) ordSel.value = getOrderStrategy();
   if (state.loa.updatedAt) {
@@ -514,19 +581,37 @@ function populateLoaInputs() {
   renderLoaClusterChips();
 }
 
+// The drawer's fields are saved together (one audit entry per section that changed): when the reviewer leaves the drawer,
+// closes it, switches tab or leaves the page (a pending commit, like every other text box), or clicks Save & Log now.
+const LOA_DRAWER_FIELD_IDS = () => ['loaAimInput', 'loaTitleInput', 'loaFlowInput', 'loaNarrativeInput', 'loaRelateOutcomeInput', ...LOA_EXTRA_FIELDS.map(f => f[1])];
+let loaDrawerDirty = false;
+const commitLoaDrawer = async () => {
+  if (!loaDrawerDirty) return;
+  loaDrawerDirty = false;
+  pendingSaveCleanups.delete(commitLoaDrawer);
+  await saveLoaDrawer({ quiet: true });
+};
+commitLoaDrawer.isCommit = true;
+function markLoaDrawerDirty() { loaDrawerDirty = true; pendingSaveCleanups.add(commitLoaDrawer); }
+LOA_DRAWER_FIELD_IDS().forEach(id => document.getElementById(id)?.addEventListener('input', markLoaDrawerDirty));
+loaDrawer.addEventListener('focusout', e => { if (!e.relatedTarget || !loaDrawer.contains(e.relatedTarget)) commitLoaDrawer(); });
 document.getElementById('saveLoaBtn').addEventListener('click', async () => {
-  const ids = { aim: 'loaAimInput', title: 'loaTitleInput', flow: 'loaFlowInput', narrative: 'loaNarrativeInput', relateProcess: 'loaRelateProcessInput', relateOutcome: 'loaRelateOutcomeInput', synthStudies: 'loaSynthStudiesInput', appraisalPolicy: 'loaAppraisalPolicyInput', appraisalUse: 'loaAppraisalUseInput' };
+  loaDrawerDirty = false; pendingSaveCleanups.delete(commitLoaDrawer);
+  await saveLoaDrawer();
+});
+
+async function saveLoaDrawer({ quiet = false } = {}) {
+  const ids = { aim: 'loaAimInput', title: 'loaTitleInput', flow: 'loaFlowInput', narrative: 'loaNarrativeInput', relateOutcome: 'loaRelateOutcomeInput' };
   LOA_EXTRA_FIELDS.forEach(([k, id]) => { ids[k] = id; });
   const oldV = {}, newV = {};
   Object.keys(ids).forEach(k => { oldV[k] = state.loa[k] || ''; newV[k] = (document.getElementById(ids[k])?.value || '').trim(); });
   const aimChanged = oldV.aim !== newV.aim;
-  const loaChanged = ['title', 'flow', 'narrative', 'synthStudies'].some(k => oldV[k] !== newV[k]);
-  const relChanged = ['relateProcess', 'relateOutcome'].some(k => oldV[k] !== newV[k]);
-  const apprChanged = ['appraisalPolicy', 'appraisalUse'].some(k => oldV[k] !== newV[k]);
+  const loaChanged = ['title', 'flow', 'narrative'].some(k => oldV[k] !== newV[k]);
+  const relChanged = oldV.relateOutcome !== newV.relateOutcome;
   const extraChanged = LOA_EXTRA_FIELDS.filter(([k]) => oldV[k] !== newV[k]);
 
-  if (!aimChanged && !loaChanged && !relChanged && !apprChanged && extraChanged.length === 0) {
-    alert('No changes in Aim / Phase 4 / Line of Argument to save.');
+  if (!aimChanged && !loaChanged && !relChanged && extraChanged.length === 0) {
+    if (!quiet) showSnackbar('No changes in the Aim, Item 12 or the line of argument to save.');
     return;
   }
 
@@ -548,21 +633,12 @@ document.getElementById('saveLoaBtn').addEventListener('click', async () => {
     await recordAuditLog({
       category: 'line_of_argument',
       action: `Updated Line of Argument Synthesis${newV.title ? ': "' + newV.title + '"' : ''}`,
-      detail: `${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.synthStudies ? 'Studies synthesized: ' + newV.synthStudies + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
+      detail: `${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
       fromVal: oldV.title || oldV.flow || oldV.narrative ? `${oldV.title || '(Untitled)'} — ${(oldV.narrative || oldV.flow).slice(0, 70)}...` : '(Initial Draft)',
       toVal: `${newV.title || '(Untitled)'} — ${(newV.narrative || newV.flow).slice(0, 70)}...`
     });
   }
-  if (apprChanged) {
-    await recordAuditLog({
-      category: 'appraisal_policy',
-      action: 'Updated Quality Appraisal Policy / Use',
-      detail: `${newV.appraisalPolicy ? 'Policy: ' + newV.appraisalPolicy + '\n' : ''}${newV.appraisalUse ? 'Use: ' + newV.appraisalUse : ''}`,
-      fromVal: (oldV.appraisalPolicy || oldV.appraisalUse) ? `${(oldV.appraisalPolicy || oldV.appraisalUse).slice(0, 70)}...` : '(Initial Draft)',
-      toVal: `${(newV.appraisalPolicy || newV.appraisalUse || '(cleared)').slice(0, 70)}...`
-    });
-  }
-  // One audit entry per eMERGe section that changed (items 3/16, 9, 13)
+  // One audit entry per section that changed (alternative interpretations, Item 16, team merge)
   const byCat = {};
   extraChanged.forEach(([k, , cat]) => { (byCat[cat] = byCat[cat] || []).push(k); });
   for (const cat of Object.keys(byCat)) {
@@ -578,10 +654,10 @@ document.getElementById('saveLoaBtn').addEventListener('click', async () => {
   if (relChanged) {
     await recordAuditLog({
       category: 'relating_studies',
-      action: 'Updated Phase 4: Process / Outcome of Relating Studies (eMERGe items 11–12)',
-      detail: `${newV.relateProcess ? 'Process: ' + newV.relateProcess + '\n' : ''}${newV.relateOutcome ? 'Outcome: ' + newV.relateOutcome : ''}`,
-      fromVal: (oldV.relateProcess || oldV.relateOutcome) ? `${(oldV.relateProcess || oldV.relateOutcome).slice(0, 70)}...` : '(Initial Draft)',
-      toVal: `${(newV.relateProcess || newV.relateOutcome).slice(0, 70)}...`
+      action: 'Updated Phase 4: Outcome of Relating Studies (eMERGe item 12)',
+      detail: newV.relateOutcome ? 'Outcome: ' + newV.relateOutcome : '(cleared)',
+      fromVal: oldV.relateOutcome ? `${oldV.relateOutcome.slice(0, 70)}...` : '(Initial Draft)',
+      toVal: newV.relateOutcome ? `${newV.relateOutcome.slice(0, 70)}...` : '(cleared)'
     });
   }
-});
+}

@@ -83,11 +83,17 @@ function flashSaveStatus(status = 'saved') {
 
 const pendingSaveCleanups = new Set();
 
+// Starts every pending save / commit at once. The state changes are synchronous; the database writes and audit
+// entries finish later, so a caller that shows them (Audit Trail, exports, backup) awaits the returned promise.
+// Returns null when nothing was pending, so callers can render at once in the usual case.
 function flushAllPendingSaves() {
-  if (pendingSaveCleanups.size === 0) return;
+  if (pendingSaveCleanups.size === 0) return null;
+  const running = [];
   for (const flushFn of Array.from(pendingSaveCleanups)) {
-    try { flushFn(); } catch (e) { console.error('Flush save error:', e); }
+    try { running.push(Promise.resolve(flushFn()).catch(e => console.error('Flush save error:', e))); }
+    catch (e) { console.error('Flush save error:', e); }
   }
+  return Promise.all(running);
 }
 
 function createDebouncedSaver(fn, delay = 350) {
@@ -100,7 +106,7 @@ function createDebouncedSaver(fn, delay = 350) {
       pendingSaveCleanups.delete(flush);
       const argsToRun = latestArgs || [];
       latestArgs = null;
-      fn(...argsToRun);
+      return fn(...argsToRun);
     }
   };
   const debounced = (...args) => {
@@ -131,14 +137,20 @@ function bindPendingCommit(el, commitFn) {
     pendingSaveCleanups.delete(run);
     await commitFn();
   };
+  run.isCommit = true;
   el.addEventListener('input', () => { dirty = true; pendingSaveCleanups.add(run); });
   el.addEventListener('change', run);
   el.addEventListener('blur', run);
   return run;
 }
 
-window.addEventListener('beforeunload', () => {
+// The browser does not wait for asynchronous work while a page closes. If a text commit (save + audit entry) is still
+// pending, ask the browser to confirm leaving: the commit finishes while that dialog is shown. Saves without an audit
+// entry (debounced writes) are only started; they are tiny and normally complete.
+window.addEventListener('beforeunload', (e) => {
+  const hadCommit = Array.from(pendingSaveCleanups).some(f => f.isCommit);
   flushAllPendingSaves();
+  if (hadCommit) { e.preventDefault(); e.returnValue = ''; }
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
@@ -171,7 +183,13 @@ function updateBackupReminder() {
 }
 
 // quiet: bookkeeping writes the user did not make (e.g. a PDF fingerprint) — no save badge, no backup reminder
+// Lookups the matrix builds once per render (rows' constructs, quotes per construct, history per row): dropped whenever the
+// data they come from is written, so a row built later (lazily) never reads an outdated index
+let matrixIndexCache = null;
+// (Rows themselves are read live, so typing a row's texts, which writes 'clusters' while typing, does not drop it.)
+function invalidateMatrixIndex(store) { if (!store || store === 'annotations' || store === 'logs') matrixIndexCache = null; }
 async function dbPut(store, item, { quiet = false } = {}) {
+  invalidateMatrixIndex(store);
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
@@ -182,6 +200,30 @@ async function dbPut(store, item, { quiet = false } = {}) {
       markUnbackedChange();
       resolve();
     };
+    tx.onerror = () => { flashSaveStatus('error'); reject(tx.error); };
+    tx.onabort = () => { flashSaveStatus('error'); reject(tx.error || new Error('IndexedDB transaction aborted')); };
+  });
+}
+// Several writes across stores in ONE transaction: all of them are stored, or none (a crash, a full disk or an error part way
+// leaves the project as it was). For operations that change several records at once: merging / splitting / deleting rows and
+// deleting a study. ops: [{ store, put: item } | { store, del: key }]
+async function dbBatch(ops) {
+  if (!ops.length) return;
+  const stores = [...new Set(ops.map(o => o.store))];
+  stores.forEach(invalidateMatrixIndex);
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(stores, 'readwrite');
+    try {
+      ops.forEach(o => { const st = tx.objectStore(o.store); if ('del' in o) st.delete(o.del); else st.put(o.put); });
+    } catch (err) {
+      // A write that cannot even be queued (e.g. a record without its key) aborts the whole transaction: nothing is stored
+      try { tx.abort(); } catch (e) { /* already finished */ }
+      flashSaveStatus('error');
+      reject(err);
+      return;
+    }
+    tx.oncomplete = () => { flashSaveStatus('saved'); markUnbackedChange(); resolve(); };
     tx.onerror = () => { flashSaveStatus('error'); reject(tx.error); };
     tx.onabort = () => { flashSaveStatus('error'); reject(tx.error || new Error('IndexedDB transaction aborted')); };
   });
@@ -215,6 +257,7 @@ async function dbGetAllKeys(store) {
   });
 }
 async function dbDelete(store, key) {
+  invalidateMatrixIndex(store);
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
@@ -224,6 +267,7 @@ async function dbDelete(store, key) {
   });
 }
 async function dbClear(store) {
+  invalidateMatrixIndex(store);
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
@@ -622,13 +666,128 @@ function escapeHtml(s) {
   return s ? String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])) : '';
 }
 
-function showSnackbar(message) {
+// Short notice at the bottom of the window. With { actionLabel, onAction } it carries one button (e.g. Undo) and stays a
+// little longer; a newer notice replaces it (and its button).
+let snackbarTimer = null;
+function showSnackbar(message, { actionLabel = '', onAction = null, duration = 0 } = {}) {
   const snackbar = document.getElementById('snackbar');
-  if(snackbar) {
-    snackbar.textContent = message;
-    snackbar.classList.remove('opacity-0');
-    setTimeout(() => {
-      snackbar.classList.add('opacity-0');
-    }, 3000);
+  if (!snackbar) return;
+  const textEl = document.getElementById('snackbarText');
+  const btn = document.getElementById('snackbarAction');
+  if (textEl) textEl.textContent = message; else snackbar.textContent = message;
+  const hide = () => {
+    snackbar.classList.add('opacity-0', 'pointer-events-none');
+    if (btn) { btn.classList.add('hidden'); btn.onclick = null; }
+  };
+  if (btn) {
+    if (actionLabel && onAction) {
+      btn.textContent = actionLabel;
+      btn.classList.remove('hidden');
+      btn.onclick = () => { hide(); onAction(); };
+      snackbar.classList.remove('pointer-events-none');
+    } else {
+      btn.classList.add('hidden'); btn.onclick = null;
+      snackbar.classList.add('pointer-events-none');
+    }
   }
+  snackbar.classList.remove('opacity-0');
+  if (snackbarTimer) clearTimeout(snackbarTimer);
+  snackbarTimer = setTimeout(hide, duration || (actionLabel ? 7000 : Math.min(9000, 3000 + message.length * 25)));
+}
+// After a deletion that Ctrl+Z can undo: no "Are you sure?" first, a notice with Undo afterwards.
+// The button undoes THIS action only (if something else was pushed meanwhile, the notice was replaced anyway).
+function showUndoSnackbar(message) {
+  const action = state.undoStack[state.undoStack.length - 1];
+  showSnackbar(`${message} — Ctrl+Z to undo`, {
+    actionLabel: 'Undo',
+    onAction: () => { if (state.undoStack[state.undoStack.length - 1] === action) performUndo(); }
+  });
+}
+
+// A choice between named actions (instead of confirm(), whose OK / Cancel cannot say what each does, and which a browser may
+// suppress). choices: [{ value, label, hint, tone: 'primary' | 'danger' | 'plain' }]. Resolves to the chosen value, or null when
+// cancelled (Cancel, ×, Escape). Nothing is chosen by default: Enter does not pick an option.
+let choiceDismissOpen = null;
+function askChoice({ title = 'Choose', body = '', choices = [], cancelLabel = 'Cancel' } = {}) {
+  const modal = document.getElementById('choiceModal');
+  if (choiceDismissOpen) choiceDismissOpen();
+  document.getElementById('choiceModalTitle').textContent = title;
+  document.getElementById('choiceModalCancelBtn').textContent = cancelLabel;
+  document.getElementById('choiceModalBody').textContent = body;
+  document.getElementById('choiceModalBody').classList.toggle('hidden', !body);
+  const box = document.getElementById('choiceModalOptions');
+  box.innerHTML = '';
+  const TONE = {
+    primary: 'border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-900',
+    danger: 'border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-900',
+    plain: 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800'
+  };
+  return new Promise(resolve => {
+    const finish = v => {
+      choiceDismissOpen = null;
+      modal.classList.add('hidden'); modal.classList.remove('flex');
+      document.getElementById('choiceModalCloseBtn').onclick = document.getElementById('choiceModalCancelBtn').onclick = null;
+      resolve(v);
+    };
+    choices.forEach(c => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.value = c.value;
+      b.className = `choice-option w-full text-left rounded-lg border px-3 py-2 cursor-pointer ${TONE[c.tone] || TONE.plain}`;
+      const l = document.createElement('div'); l.className = 'text-[13px] font-bold'; l.textContent = c.label; b.appendChild(l);
+      if (c.hint) { const h = document.createElement('div'); h.className = 'text-[12px] mt-0.5 opacity-80'; h.textContent = c.hint; b.appendChild(h); }
+      b.onclick = () => finish(c.value);
+      box.appendChild(b);
+    });
+    choiceDismissOpen = () => finish(null);
+    document.getElementById('choiceModalCloseBtn').onclick = () => finish(null); // also Escape (modal handling in app.js)
+    document.getElementById('choiceModalCancelBtn').onclick = () => finish(null);
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+    setTimeout(() => document.getElementById('choiceModalCancelBtn').focus(), 20);
+  });
+}
+
+// A message that must be read (an error, a long report): the choice dialog with one OK button, instead of alert()
+function showNotice(title, body) { return askChoice({ title, body, choices: [], cancelLabel: 'OK' }); }
+
+// Asks for the reason of a decision in a multi-line box (instead of prompt()). Resolves to the text ('' = no reason given),
+// or null when cancelled. cancelLabel: null means the decision is already made and cannot be cancelled: the second button
+// then records it without a reason. A text typed and then cancelled is kept as a draft for the same draftKey.
+const reasonDrafts = new Map();
+let reasonDismissOpen = null; // closes a dialog still open when a new question comes (its caller then goes on, not hangs)
+// value: initial text; singleLine: a short entry (one line, Enter records), e.g. a reviewer ID or a label.
+function askReason({ title = 'Why?', context = '', label = 'Why? (optional, saved in the Audit Trail)', confirmLabel = 'Record', cancelLabel = 'Cancel', draftKey = '', value = '', singleLine = false } = {}) {
+  const modal = document.getElementById('reasonModal');
+  const input = document.getElementById('reasonModalInput');
+  const okBtn = document.getElementById('reasonModalConfirmBtn');
+  const secBtn = document.getElementById('reasonModalSecondaryBtn');
+  const closeBtn = document.getElementById('reasonModalCloseBtn');
+  document.getElementById('reasonModalTitle').textContent = title;
+  document.getElementById('reasonModalContext').textContent = context;
+  document.getElementById('reasonModalContext').classList.toggle('hidden', !context);
+  document.getElementById('reasonModalLabel').textContent = label;
+  if (reasonDismissOpen) reasonDismissOpen();
+  okBtn.textContent = confirmLabel;
+  secBtn.textContent = cancelLabel === null ? 'Record without a reason' : cancelLabel;
+  input.value = (draftKey && reasonDrafts.get(draftKey)) || value || '';
+  input.rows = singleLine ? 1 : 5;
+  input.classList.toggle('resize-y', !singleLine); input.classList.toggle('resize-none', singleLine);
+  document.getElementById('reasonModalHint').classList.toggle('hidden', singleLine);
+  return new Promise(resolve => {
+    const finish = value => {
+      reasonDismissOpen = null;
+      if (draftKey) { if (value === null && input.value.trim()) reasonDrafts.set(draftKey, input.value); else reasonDrafts.delete(draftKey); }
+      modal.classList.add('hidden'); modal.classList.remove('flex');
+      okBtn.onclick = secBtn.onclick = closeBtn.onclick = input.onkeydown = null;
+      resolve(value);
+    };
+    const dismiss = () => finish(cancelLabel === null ? '' : null);
+    reasonDismissOpen = dismiss;
+    okBtn.onclick = () => finish(input.value.trim());
+    secBtn.onclick = () => finish(cancelLabel === null ? '' : null);
+    closeBtn.onclick = dismiss; // also Escape (modal handling in app.js clicks the close button)
+    input.onkeydown = e => { if (e.key === 'Enter' && (singleLine || e.ctrlKey || e.metaKey)) { e.preventDefault(); finish(input.value.trim()); } };
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+    setTimeout(() => { input.focus(); if (singleLine) input.select(); }, 20);
+  });
 }

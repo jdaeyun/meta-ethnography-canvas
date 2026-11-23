@@ -8,7 +8,10 @@
 // ========================================================
 async function promptReassignItemReviewer(item, storeName, refreshFn) {
   const currentRev = item.by || item.reviewer || state.reviewerId || 'Reviewer';
-  const nextRev = prompt(`Change Reviewer ID for this item (currently @${currentRev}):`, state.reviewerId || currentRev);
+  const nextRev = await askReason({
+    title: 'Change the reviewer of this item', context: `Currently attributed to @${currentRev}. The change is recorded in the Audit Trail.`,
+    label: 'Reviewer ID', confirmLabel: 'Change', value: state.reviewerId || currentRev, singleLine: true
+  });
   if (nextRev === null) return;
   const clean = nextRev.trim();
   if (!clean || clean === currentRev) return;
@@ -217,21 +220,26 @@ window.addEventListener('DOMContentLoaded', async () => {
     const existingCount = state.annotations.filter(a => a.by === oldRev).length +
                           state.clusters.filter(c => c.by === oldRev).length;
     if (existingCount > 0) {
-      const doBulk = confirm(
-        `Reviewer ID changed from @${oldRev} to @${nextRev}.\n\n` +
-        `Would you also like to bulk-update your ${existingCount} existing constructs and rows from @${oldRev} to @${nextRev}?\n` +
-        `(Click [OK] to update all @${oldRev} items, or [Cancel] to only use @${nextRev} for new extractions)`
-      );
-      if (doBulk) {
+      const how = await askChoice({
+        title: `Reviewer ID changed from @${oldRev} to @${nextRev}`,
+        body: `${existingCount} existing construct(s) and row(s) are attributed to @${oldRev}.`,
+        choices: [
+          { value: 'new', tone: 'primary', label: `Use @${nextRev} for new work only`, hint: `Existing items stay attributed to @${oldRev}.` },
+          { value: 'all', tone: 'plain', label: `Attribute all @${oldRev} items to @${nextRev}`, hint: 'For a change of name only (the same person): constructs, rows and audit trail entries. Recorded in the Audit Trail.' }
+        ]
+      });
+      if (how === 'all') {
         for (const a of state.annotations) {
           if (a.by === oldRev) { a.by = nextRev; await dbPut('annotations', a); }
         }
         for (const c of state.clusters) {
           if (c.by === oldRev) { c.by = nextRev; await dbPut('clusters', c); }
         }
+        let nLogs = 0;
         for (const l of state.logs) {
-          if (l.reviewer === oldRev) { l.reviewer = nextRev; await dbPut('logs', l); }
+          if (l.reviewer === oldRev) { l.reviewer = nextRev; nLogs++; await dbPut('logs', l); }
         }
+        await recordAuditLog({ category: 'audit_edit', action: `Attributed all items of @${oldRev} to @${nextRev}`, detail: `${existingCount} construct(s) / row(s) and ${nLogs} audit trail entries.`, fromVal: '@' + oldRev, toVal: '@' + nextRev });
         updateSidebar();
         if (!divMatrix.classList.contains('hidden')) renderMatrixView();
         if (!divAudit.classList.contains('hidden')) renderAuditView();
@@ -332,15 +340,18 @@ function renderWelcomeGuideIfNeeded() {
       </div>
 
       <div class="mt-5 flex items-center justify-center space-x-3">
-        <button type="button" onclick="document.getElementById('pdfFileInput').click()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow cursor-pointer flex items-center space-x-1.5 transition">
+        <button type="button" id="welcomeSelectPdfBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow cursor-pointer flex items-center space-x-1.5 transition">
           <i class="ph ph-plus-circle text-base"></i><span>Select PDF Files to Begin</span>
         </button>
-        <button type="button" onclick="document.getElementById('jsonFileInput').click()" class="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold rounded-lg cursor-pointer flex items-center space-x-1.5 transition">
+        <button type="button" id="welcomeRestoreJsonBtn" class="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold rounded-lg cursor-pointer flex items-center space-x-1.5 transition">
           <i class="ph ph-upload-simple text-base"></i><span>Restore Project (.json)</span>
         </button>
       </div>
     </div>
   `;
+  // No inline onclick: the Content-Security-Policy blocks inline handlers
+  document.getElementById('welcomeSelectPdfBtn').addEventListener('click', () => document.getElementById('pdfFileInput').click());
+  document.getElementById('welcomeRestoreJsonBtn').addEventListener('click', () => document.getElementById('jsonFileInput').click());
 }
 
 // ========================================================
@@ -357,7 +368,13 @@ const divAudit = document.getElementById('auditView');
 const divPub = document.getElementById('pubView');
 
 function setActiveTab(tab) {
-  flushAllPendingSaves();
+  // Pending text commits change the state at once, but their audit entries arrive a moment later:
+  // render now, and once more when they are written, so the Audit Trail and Tab 4 never show the trail without them.
+  const flushed = flushAllPendingSaves();
+  if (flushed) flushed.then(() => {
+    if (tab === 'audit' && !divAudit.classList.contains('hidden')) renderAuditView();
+    if (tab === 'pub' && !divPub.classList.contains('hidden')) renderPublicationView();
+  });
   const activeCls = "px-2.5 py-1.5 text-xs font-bold rounded-md bg-white text-indigo-700 shadow-sm cursor-pointer transition flex items-center space-x-1.5";
   const inactiveCls = "px-2.5 py-1.5 text-xs font-medium rounded-md text-slate-500 hover:text-slate-800 cursor-pointer transition flex items-center space-x-1.5";
   
@@ -458,8 +475,8 @@ window.ondrop = async e => {
 
 // ---- Modals: Esc closes (except the required Reviewer ID dialog), focus moves in and returns, Tab stays inside ----
 (function modalAccessibility() {
-  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn', refutMapModal: 'refutMapCloseBtn', seedChoiceModal: 'seedChoiceCloseBtn' };
-  const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'refutMapModal', 'seedChoiceModal', 'reviewerLoginModal'];
+  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn', refutMapModal: 'refutMapCloseBtn', seedChoiceModal: 'seedChoiceCloseBtn', rowOpsModal: 'rowOpsCloseBtn', reasonModal: 'reasonModalCloseBtn', choiceModal: 'choiceModalCloseBtn' };
+  const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'refutMapModal', 'seedChoiceModal', 'rowOpsModal', 'reviewerLoginModal', 'choiceModal', 'reasonModal'];
   const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   const returnTo = {};
   const visible = id => { const m = document.getElementById(id); return m && !m.classList.contains('hidden') ? m : null; };
@@ -493,6 +510,17 @@ window.ondrop = async e => {
     }
   });
 })();
+
+// ---- Selecting text in a box inside a draggable card (matrix cells, pool, sidebar) selects text, not the card ----
+// While the mouse button is down in an input / textarea / select, its draggable card stops being draggable.
+document.addEventListener('mousedown', e => {
+  const field = e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]');
+  const card = field && field.closest('[draggable="true"]');
+  if (!card) return;
+  card.draggable = false;
+  const restore = () => { card.draggable = true; document.removeEventListener('mouseup', restore, true); };
+  document.addEventListener('mouseup', restore, true);
+}, true);
 
 // ---- Icon-only buttons get an accessible name from their tooltip ----
 (function labelIconButtons() {

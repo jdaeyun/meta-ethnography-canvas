@@ -22,8 +22,8 @@ function setThemeFolded(folded) {
 
 document.getElementById('matrixCompactToggle').addEventListener('change', (e) => {
   state.matrixCompactMode = e.target.checked;
-  const t = document.getElementById('matrixTable');
-  if (t) t.classList.toggle('matrix-compact', state.matrixCompactMode);
+  // Rebuild, so rows built later measure (and remember) their height under the right mode
+  renderMatrixTable();
 });
 document.getElementById('matrixRefutationalOnlyToggle').addEventListener('change', (e) => {
   state.matrixRefutationalOnly = e.target.checked;
@@ -99,7 +99,11 @@ async function assignSecondOrderToCluster(sec, cluster) {
   if (sec.clusterIds.includes(cluster.id)) return;
   sec.clusterIds.push(cluster.id);
   if (!sec.clusterRelations) sec.clusterRelations = {};
-  // No relation is assumed: the placement starts as "not yet judged" (see secRelation)
+  // No relation is assumed: the placement starts as "not yet judged" (see secRelation). A judgement, note or line-of-argument
+  // mark left from an earlier placement in this row (kept by older versions when a card was taken out) does not come back.
+  delete sec.clusterRelations[cluster.id];
+  if (sec.clusterComments) delete sec.clusterComments[cluster.id];
+  if (sec.aspectUsedInLoa && sec.aspectUsedInLoa[cluster.id]) { sec.aspectUsedInLoa = { ...sec.aspectUsedInLoa }; delete sec.aspectUsedInLoa[cluster.id]; }
   await dbPut('annotations', sec);
   normalizeCluster(cluster);
   // The first construct placed in a new row establishes it (◆); the reviewer can change this in the row header
@@ -138,9 +142,14 @@ async function removeSecondOrderFromCluster(sec, cluster) {
     secId: sec.id,
     clusterId: cluster.id,
     prevRelation: sec.clusterRelations ? sec.clusterRelations[cluster.id] : undefined,
-    prevComment: sec.clusterComments ? sec.clusterComments[cluster.id] : ''
+    prevComment: sec.clusterComments ? sec.clusterComments[cluster.id] : '',
+    prevAspectUsed: !!(sec.aspectUsedInLoa && sec.aspectUsedInLoa[cluster.id])
   });
   sec.clusterIds = sec.clusterIds.filter(id => id !== cluster.id);
+  // Taken out of the row: its judgement, note and line-of-argument mark there go too (Ctrl+Z brings all three back)
+  if (sec.clusterRelations) delete sec.clusterRelations[cluster.id];
+  if (sec.clusterComments) delete sec.clusterComments[cluster.id];
+  if (sec.aspectUsedInLoa && sec.aspectUsedInLoa[cluster.id]) { sec.aspectUsedInLoa = { ...sec.aspectUsedInLoa }; delete sec.aspectUsedInLoa[cluster.id]; }
   await dbPut('annotations', sec);
 
   const doc = state.docs.find(d => d.id === sec.docId);
@@ -178,11 +187,34 @@ newClusterDropZone.addEventListener('drop', async e => {
   renderMatrixView();
 });
 
+// One pass over the constructs, quotes and audit trail for the whole matrix, instead of one per row and card
+function getMatrixIndex() {
+  if (matrixIndexCache) return matrixIndexCache;
+  const secsByRow = new Map(), quotesBySec = new Map(), logsByRow = new Map();
+  state.annotations.forEach(a => {
+    if (a.type === 'second_order') normalizeAnnotation(a).clusterIds.forEach(cid => { if (!secsByRow.has(cid)) secsByRow.set(cid, []); secsByRow.get(cid).push(a); });
+    else if (a.type === 'first_order') quoteParentIds(a).forEach(pid => { if (!quotesBySec.has(pid)) quotesBySec.set(pid, []); quotesBySec.get(pid).push(a); });
+  });
+  state.logs.forEach(l => (l.clusterIds || []).forEach(cid => { if (!logsByRow.has(cid)) logsByRow.set(cid, new Set()); logsByRow.get(cid).add(l); }));
+  matrixIndexCache = { secsByRow, quotesBySec, logsByRow };
+  return matrixIndexCache;
+}
+function rowSecsIndexed(clusterId) { return getMatrixIndex().secsByRow.get(clusterId) || []; }
+function quotesOfIndexed(secId) { return getMatrixIndex().quotesBySec.get(secId) || []; }
+// Entries in a row's history (its own and those of the rows it absorbed or was split from; see logIsForRow)
+function rowHistoryCount(cluster) {
+  const idx = getMatrixIndex(), seen = new Set();
+  rowHistoryIds(cluster).forEach(id => (idx.logsByRow.get(id) || []).forEach(l => seen.add(l)));
+  return seen.size;
+}
+
 function computeClusterEvidenceStats(clusterId) {
-  const mappedSecs = state.annotations.filter(a => a.type === 'second_order' && normalizeAnnotation(a).clusterIds.includes(clusterId));
+  const mappedSecs = rowSecsIndexed(clusterId);
   const docIds = [...new Set(mappedSecs.map(s => s.docId))];
   const contributingDocs = docIds.map(id => state.docs.find(d => d.id === id)).filter(Boolean);
-  const quoteCount = uniqueQuotesOf(mappedSecs).length; // a quote linked to two constructs in this row counts once
+  const seenQ = new Set();
+  mappedSecs.forEach(s => quotesOfIndexed(s.id).forEach(f => seenQ.add(f.id)));
+  const quoteCount = seenQ.size; // a quote linked to two constructs in this row counts once
 
   return {
     studiesCount: contributingDocs.length,
@@ -223,6 +255,26 @@ async function seedIndexPaperRows() {
       .filter(sec => !sec.indexSeeded)
       .sort((a, b) => ((a.firstPage || parseInt(a.page, 10) || 0) - (b.firstPage || parseInt(b.page, 10) || 0)) || String(a.id).localeCompare(String(b.id)));
     if (fresh.length === 0) return false;
+
+    // Study #1 has changed since rows were seeded (seeded rows come from another study): making rows from the new #1's
+    // constructs is a new decision about method, so ask; "leave them" marks them, so the question is not asked again
+    const seededFromOther = state.clusters.some(c => c.autoSeeded && c.seededFromId &&
+      (state.annotations.find(a => a.id === c.seededFromId) || {}).docId !== indexDoc.id);
+    const unplaced = fresh.filter(sec => liveClusterIds(sec).length === 0);
+    if (seededFromOther && unplaced.length) {
+      const how = await askChoice({
+        title: `Study #1 is now ${getDisplayName(indexDoc)}`,
+        body: `${unplaced.length} of its 2nd Order construct(s) are in no row. The rows so far were started from an earlier study #1.`,
+        choices: [
+          { value: 'leave', tone: 'primary', label: 'Leave them in the pool', hint: 'Place them yourself, by translating them into the existing rows or making rows for them.' },
+          { value: 'seed', tone: 'plain', label: `Make a provisional row for each of them`, hint: 'As for the first study #1: each becomes a row established by this study (◆).' }
+        ]
+      });
+      if (how !== 'seed') {
+        if (how === 'leave') for (const sec of fresh) { sec.indexSeeded = true; await dbPut('annotations', sec); }
+        return false;
+      }
+    }
 
     const created = [];
     const createdIds = [];
@@ -312,7 +364,13 @@ const autoSeedToggleEl = document.getElementById('autoSeedIndexToggle');
 autoSeedToggleEl.checked = false; // set from the project once it is loaded (syncSeedToggle)
 function syncSeedToggle() { autoSeedToggleEl.checked = seedChoice() === 'seed'; }
 autoSeedToggleEl.addEventListener('change', async () => {
-  const why = (prompt(`${autoSeedToggleEl.checked ? 'Start rows from study #1' : 'Stop placing study #1 automatically'}: why? (optional — recorded in the audit trail)`) || '').trim();
+  const on = autoSeedToggleEl.checked;
+  const why = await askReason({
+    title: on ? 'Start rows from study #1' : 'Stop placing study #1 automatically',
+    context: on ? 'Each 2nd Order construct of study #1 becomes a provisional row established by study #1 (◆), and the other studies are translated into these rows. Study #1\'s structure can shape the whole synthesis.' : 'You create the rows yourself; study #1 is not placed automatically. Rows already made stay as they are.',
+    confirmLabel: on ? 'Start from study #1' : 'Stop', draftKey: 'seed-choice'
+  });
+  if (why === null) { syncSeedToggle(); return; } // cancelled: the setting stays as it was
   await setSeedChoice(autoSeedToggleEl.checked ? 'seed' : 'manual', why);
   if (autoSeedToggleEl.checked) renderMatrixView();
 });
@@ -660,6 +718,7 @@ function buildEmptyCell(cluster, doc) {
     if (sel.value) cluster.cellStatus[doc.id] = { status: sel.value, note: prev ? prev.note || '' : '' };
     else delete cluster.cellStatus[doc.id];
     await dbPut('clusters', cluster);
+    if (state.isLoaOpen) renderLoaAspects(); // the drawer lists the ◇ cells
     await recordAuditLog({
       clusterIds: [cluster.id], category: 'relating_studies',
       action: `${getDisplayName(doc)} in "${cluster.thirdOrderTitle || 'Untitled Row'}": ${sel.value ? EMPTY_CELL_STATUS[sel.value].label : 'not yet checked'}`,
@@ -688,6 +747,7 @@ function buildEmptyCell(cluster, doc) {
 
 function renderMatrixTable() {
   if (matrixRowObserver) { matrixRowObserver.disconnect(); matrixRowObserver = null; }
+  invalidateMatrixIndex(); // state may have changed in memory since the last write
   const t = document.getElementById('matrixTable');
   const scrollParent = t ? t.parentElement : null;
   const prevTop = scrollParent ? scrollParent.scrollTop : 0;
@@ -800,15 +860,7 @@ function renderMatrixTable() {
 
   const cerqualOpts = ['Not assessed', 'No/Very minor', 'Minor', 'Moderate', 'Serious'];
 
-  const visibleClusters = state.matrixRefutationalOnly
-    ? state.clusters.filter(c => {
-        return state.annotations.some(a =>
-          a.type === 'second_order' &&
-          normalizeAnnotation(a).clusterIds.includes(c.id) &&
-          isSecRefutational(a, c.id)
-        );
-      })
-    : state.clusters;
+  const visibleClusters = matrixVisibleClusters();
 
   if (visibleClusters.length === 0) {
     const emptyFilterTr = document.createElement('tr');
@@ -890,13 +942,13 @@ function renderMatrixTable() {
             <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">3rd Order</span>
             <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
             <span class="cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
-            ${(() => { const n = state.logs.filter(l => logIsForRow(l, cluster)).length; return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
+            ${(() => { const n = rowHistoryCount(cluster); return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 ${n}</button>` : ''; })()}
             ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from the Index Paper's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
             <span class="cl-cerqual-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
           </div>
           <div class="flex items-center space-x-1">
-            <button type="button" class="move-cl-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${state.clusters.indexOf(cluster) === 0 ? 'disabled' : ''} title="Move row up">▲</button>
-            <button type="button" class="move-cl-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${state.clusters.indexOf(cluster) === state.clusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
+            <button type="button" class="move-cl-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === 0 ? 'disabled' : ''} title="Move row up">▲</button>
+            <button type="button" class="move-cl-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === visibleClusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
             <button type="button" class="cl-rowops text-slate-400 hover:text-indigo-600 cursor-pointer ml-1" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i></button>
             <button class="del-cluster text-slate-400 hover:text-rose-500 cursor-pointer ml-1" title="Delete Row"><i class="ph ph-trash"></i></button>
           </div>
@@ -904,7 +956,8 @@ function renderMatrixTable() {
         
         ${(() => {
           // Which study's construct established this row (◆). Its own cards are not judged in this row; every other study's are.
-          const rowDocs = state.docs.filter(d => state.annotations.some(a => a.type === 'second_order' && a.docId === d.id && (a.clusterIds || []).includes(cluster.id)));
+          const rowDocIds = new Set(rowSecsIndexed(cluster.id).map(a => a.docId));
+          const rowDocs = state.docs.filter(d => rowDocIds.has(d.id));
           const base = rowBaseDocId(cluster);
           if (!rowDocs.length && !base) return '';
           const opts = rowDocs.slice();
@@ -1072,9 +1125,11 @@ function renderMatrixTable() {
     };
 
     let initialClusterTitle = cluster.thirdOrderTitle || '';
+    // Only the row title appears in the line-of-argument drawer (chips, map labels): redraw it when the title changed
+    let chipsTitle = cluster.thirdOrderTitle;
     const debouncedSaveCluster = createDebouncedSaver(async () => {
       await dbPut('clusters', cluster);
-      renderLoaClusterChips();
+      if (cluster.thirdOrderTitle !== chipsTitle) { chipsTitle = cluster.thirdOrderTitle; renderLoaClusterChips(); }
     }, 350);
 
     tdMeta.querySelector('.cluster-title').addEventListener('input', e => {
@@ -1093,6 +1148,7 @@ function renderMatrixTable() {
         cluster.thirdOrderTitle = newTitle;
         await dbPut('clusters', cluster);
         renderLoaClusterChips();
+        if (await reattachWaitingForRow(cluster)) renderMatrixTable();
         await recordAuditLog({
           clusterIds: [cluster.id],
           category: 'third_order',
@@ -1246,7 +1302,13 @@ function renderMatrixTable() {
     const baselineOkBtn = tdMeta.querySelector('.cl-baseline-ok');
     if (baselineOkBtn) baselineOkBtn.onclick = async () => {
       const bc = cluster.baselineChange;
-      const why = (prompt('What did you check or change in this row after study #1 changed? (optional — recorded in the audit trail)') || '').trim();
+      const why = await askReason({
+        title: `Re-read: ${cluster.thirdOrderTitle || 'Untitled Row'}`,
+        context: `Study #1 changed from ${bc.fromName || 'another study'} to ${bc.toName}.`,
+        label: 'What did you check or change in this row? (optional, saved in the Audit Trail)',
+        confirmLabel: 'Mark as re-read', draftKey: 'reread-' + cluster.id
+      });
+      if (why === null) return;
       delete cluster.baselineChange;
       await dbPut('clusters', cluster);
       await recordAuditLog({
@@ -1314,7 +1376,6 @@ function renderMatrixTable() {
 
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
     tdMeta.querySelector('.del-cluster').onclick = async () => {
-      if (!confirm('Remove this 3rd Order row? Assigned 2nd Order Constructs will remain in the pool/other rows. (You can Undo with Ctrl+Z)')) return;
       const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
       pushUndoAction({
         type: 'delete_cluster',
@@ -1322,12 +1383,14 @@ function renderMatrixTable() {
         cluster: { ...cluster },
         assignedSecIds: assigned.map(a => a.id)
       });
+      const ops = []; // unplacing the cards and deleting the row in one transaction (see dbBatch)
       for (let a of assigned) {
         a.clusterIds = a.clusterIds.filter(id => id !== cluster.id);
-        await dbPut('annotations', a);
+        ops.push({ store: 'annotations', put: a });
       }
-      await dbDelete('clusters', cluster.id);
+      ops.push({ store: 'clusters', del: cluster.id });
       state.clusters = state.clusters.filter(c => c.id !== cluster.id);
+      await dbBatch(ops);
       await recordAuditLog({
         clusterIds: [cluster.id],
         category: 'third_order',
@@ -1335,6 +1398,7 @@ function renderMatrixTable() {
         fromVal: cluster.thirdOrderTitle || '(Untitled Row)'
       });
       renderMatrixView();
+      showUndoSnackbar(`Removed the row "${cluster.thirdOrderTitle || 'Untitled'}" (its constructs stay in the pool / other rows)`);
     };
 
     tr.appendChild(tdMeta);
@@ -1351,7 +1415,7 @@ function renderMatrixTable() {
         cellWrap.className = 'space-y-2.5';
 
         cellConstructs.forEach(sec => {
-          const firsts = quotesOf(sec.id);
+          const firsts = quotesOfIndexed(sec.id);
           const otherClustersCount = sec.clusterIds.length - 1;
           const cellComment = (sec.clusterComments && sec.clusterComments[cluster.id]) || '';
           const cellRelation = secRelation(sec, cluster.id);
@@ -1473,6 +1537,7 @@ function renderMatrixTable() {
               if (nextRel === prevRel) return;
               sec.clusterRelations[cluster.id] = nextRel;
               await dbPut('annotations', sec);
+              if (state.isLoaOpen && (nextRel === 'other_aspect' || prevRel === 'other_aspect')) renderLoaAspects();
 
               const nextMeta = getCellRelationMeta(nextRel);
               card.className = `matrix-cell-card ${nextMeta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
@@ -1562,6 +1627,7 @@ function renderMatrixTable() {
               toVal: newVal || '(Empty)'
             });
           };
+          commitCellComment.isCommit = true;
           cmtInput.addEventListener('input', e => {
             if (!sec.clusterComments) sec.clusterComments = {};
             sec.clusterComments[cluster.id] = e.target.value.trim();
@@ -1654,19 +1720,30 @@ function renderMatrixTable() {
 
 // --- C. 3rd Order Row Reordering (▲ / ▼) ---
 async function persistClusterOrder() {
-  for (let i = 0; i < state.clusters.length; i++) {
-    state.clusters[i].order = i;
-    await dbPut('clusters', state.clusters[i]);
-  }
+  // The whole order in one transaction (see dbBatch)
+  await dbBatch(state.clusters.map((c, i) => { c.order = i; return { store: 'clusters', put: c }; }));
+}
+
+// Rows shown in the matrix (all, or only those with a ⚡ card while "Contradictions Only" is on)
+function matrixVisibleClusters() {
+  return state.matrixRefutationalOnly
+    ? state.clusters.filter(c => state.annotations.some(a =>
+        a.type === 'second_order' && normalizeAnnotation(a).clusterIds.includes(c.id) && isSecRefutational(a, c.id)))
+    : state.clusters;
 }
 
 async function moveClusterOrder(clusterId, direction) {
   const fromIdx = state.clusters.findIndex(c => c.id === clusterId);
-  const toIdx = fromIdx + direction;
-  if (fromIdx < 0 || toIdx < 0 || toIdx >= state.clusters.length) return;
+  // ▲ / ▼ move past the next row on view (rows hidden by a filter are skipped, as hidden study columns are)
+  const visible = matrixVisibleClusters();
+  const vIdx = visible.findIndex(c => c.id === clusterId);
+  const neighbour = visible[vIdx + direction];
+  if (fromIdx < 0 || vIdx < 0 || !neighbour) return;
 
   const movedCluster = state.clusters[fromIdx];
   const [moved] = state.clusters.splice(fromIdx, 1);
+  const nIdx = state.clusters.findIndex(c => c.id === neighbour.id);
+  const toIdx = direction < 0 ? nIdx : nIdx + 1;
   state.clusters.splice(toIdx, 0, moved);
   await persistClusterOrder();
 
@@ -1676,7 +1753,7 @@ async function moveClusterOrder(clusterId, direction) {
     action: `Reordered 3rd Order Theme Row "${movedCluster.thirdOrderTitle || 'Untitled'}"`,
     fromVal: `Row #${fromIdx + 1}`,
     toVal: `Row #${toIdx + 1}`,
-    detail: `Swapped with "${(state.clusters[fromIdx] && state.clusters[fromIdx].thirdOrderTitle) || 'Untitled'}". New row order: ${state.clusters.map((c, i) => (i + 1) + '. ' + (c.thirdOrderTitle || 'Untitled')).join(' | ')}`
+    detail: `Moved past "${neighbour.thirdOrderTitle || 'Untitled'}". New row order: ${state.clusters.map((c, i) => (i + 1) + '. ' + (c.thirdOrderTitle || 'Untitled')).join(' | ')}`
   });
 
   renderLoaClusterChips();
@@ -1869,19 +1946,33 @@ const PER_ROW_KEYS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
 const annRowState = (a, ids) => ({ id: a.id, member: ids.map(id => (a.clusterIds || []).includes(id)), keys: PER_ROW_KEYS.map(k => ids.map(id => (a[k] || {})[id])) });
 
 async function mergeRows(src, tgt, why) {
+  const ops = []; // every write of the merge goes in one transaction (see dbBatch)
   const srcTitle = clusterLabel(src), tgtTitle = clusterLabel(tgt);
   const secs = rowSecs(src);
   const ids = [src.id, tgt.id];
   const before = { src: deepCopy(src), tgt: pickFields(tgt, MERGE_ROW_FIELDS), anns: secs.map(a => annRowState(a, ids)), links: deepCopy(state.loa.links || []) };
   let moved = 0;
-  const differing = [];
+  const differing = [], rejudge = [];
+  // A judgement is a reading against the study that established the row (◆). When the two rows were established by different
+  // studies, a card's judgement in the source row does not carry over: it starts unjudged in the merged row, and the earlier
+  // judgement is kept in its cell note, to be read again.
+  const srcBase = rowBaseDocId(src), tgtBase = rowBaseDocId(tgt) || srcBase;
+  const baseDiffers = srcBase !== tgtBase;
+  const baseName = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'no single study'; };
   for (const s of secs) {
     normalizeAnnotation(s);
     s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
     if (!s.clusterIds.includes(tgt.id)) {
       s.clusterIds.push(tgt.id); moved++;
-      if (s.clusterRelations[src.id]) s.clusterRelations[tgt.id] = s.clusterRelations[src.id];
-      if (s.clusterComments[src.id]) s.clusterComments[tgt.id] = s.clusterComments[src.id];
+      const rs = secRelation(s, src.id);
+      if (baseDiffers && rs !== 'unjudged' && rs !== 'baseline') {
+        const d = state.docs.find(x => x.id === s.docId);
+        rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
+        s.clusterComments[tgt.id] = carryText(s.clusterComments[src.id] || '', `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(tgtBase)}`, srcTitle);
+      } else {
+        if (s.clusterRelations[src.id]) s.clusterRelations[tgt.id] = s.clusterRelations[src.id];
+        if (s.clusterComments[src.id]) s.clusterComments[tgt.id] = s.clusterComments[src.id];
+      }
       if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [tgt.id]: true };
     } else {
       // Already in both rows: the target row's judgement stays; a different reading in the source row is kept as a note
@@ -1897,7 +1988,7 @@ async function mergeRows(src, tgt, why) {
     s.clusterIds = s.clusterIds.filter(id => id !== src.id);
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
     if (s.aspectUsedInLoa) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[src.id]; }
-    await dbPut('annotations', s);
+    ops.push({ store: 'annotations', put: s });
   }
   normalizeCluster(tgt);
   ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation'].forEach(k => { tgt[k] = carryText(tgt[k], src[k], srcTitle); });
@@ -1912,7 +2003,7 @@ async function mergeRows(src, tgt, why) {
   // A row still waiting to be re-read after study #1 changed passes that on
   if (src.baselineChange && !tgt.baselineChange) tgt.baselineChange = src.baselineChange;
   tgt.historyFrom = [...new Set([...(tgt.historyFrom || []), src.id, ...(src.historyFrom || [])])];
-  await dbPut('clusters', tgt);
+  ops.push({ store: 'clusters', put: tgt });
   // Concept-map relations follow the row; a relation of the two rows to each other, or a duplicate, is dropped
   // (for a symmetric relation, A–C and C–A are the same relation)
   if (Array.isArray(state.loa.links)) {
@@ -1923,10 +2014,11 @@ async function mergeRows(src, tgt, why) {
       const key = pair + '|' + n.type;
       if (n.from !== n.to && !seen.has(key)) { seen.add(key); out.push(n); }
     });
-    state.loa = { ...state.loa, links: out }; await dbPut('meta', state.loa);
+    state.loa = { ...state.loa, links: out }; ops.push({ store: 'meta', put: state.loa });
   }
-  await dbDelete('clusters', src.id);
+  ops.push({ store: 'clusters', del: src.id });
   state.clusters = state.clusters.filter(c => c.id !== src.id);
+  await dbBatch(ops);
   pushUndoAction({ type: 'row_merge', label: `Merge "${srcTitle.slice(0, 24)}" into "${tgtTitle.slice(0, 24)}"`, srcId: src.id, tgtId: tgt.id, before,
     after: { tgt: pickFields(tgt, MERGE_ROW_FIELDS), anns: secs.map(a => annRowState(a, ids)), links: deepCopy(state.loa.links || []) } });
   await recordAuditLog({
@@ -1934,9 +2026,11 @@ async function mergeRows(src, tgt, why) {
     action: `Merged row "${srcTitle}" into "${tgtTitle}"`,
     detail: `${moved} construct(s) moved with their judgements and notes; ${secs.length - moved} were already in "${tgtTitle}".`
       + (differing.length ? ` Read differently in the two rows (the judgement in "${tgtTitle}" was kept; the other is noted on the card):\n${differing.join('\n')}\n` : ' ')
+      + (rejudge.length ? ` "${srcTitle}" was established by ${baseName(srcBase)} and "${tgtTitle}" by ${baseName(tgtBase)}, so ${rejudge.length} moved construct(s) start unjudged (their earlier judgement is noted on the card):\n${rejudge.join('\n')}\n` : '')
       + `Step A / Step B and other texts of "${srcTitle}" were added to "${tgtTitle}", marked with their origin. The CERQual ratings of "${tgtTitle}" were kept: re-read them for the merged finding.`,
     fromVal: `${srcTitle} + ${tgtTitle}`, toVal: tgtTitle, rationale: why
   });
+  return { rejudge: rejudge.length, baseName: baseName(tgtBase) };
 }
 
 async function splitRow(src, secIds, title, why) {
@@ -1947,7 +2041,12 @@ async function splitRow(src, secIds, title, why) {
   const beforeAnns = secs.map(a => annRowState(a, ids));
   const srcBase = rowBaseDocId(src);
   nw.baseDocId = secs.some(s => s.docId === srcBase) ? srcBase : secs[0].docId;
+  // If every card of the study that established this row moves, the row keeps its base (an interpretive choice, not a sort
+  // result) but the reviewer is told, so they can choose another study or "No single base" under ◆ Established by
+  const baseGone = !!srcBase && !rowSecs(src).some(s => s.docId === srcBase && !secs.includes(s));
+  const baseDoc = baseGone ? state.docs.find(d => d.id === srcBase) : null;
   nw.historyFrom = [src.id, ...(src.historyFrom || [])];
+  const ops = []; // the moves and the new row's record in one transaction (see dbBatch)
   for (const s of secs) {
     normalizeAnnotation(s);
     s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
@@ -1956,12 +2055,13 @@ async function splitRow(src, secIds, title, why) {
     if (s.clusterComments[src.id]) s.clusterComments[nw.id] = s.clusterComments[src.id];
     if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [nw.id]: true }; delete s.aspectUsedInLoa[src.id]; }
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
-    await dbPut('annotations', s);
+    ops.push({ store: 'annotations', put: s });
   }
-  await dbPut('clusters', nw);
+  ops.push({ store: 'clusters', put: nw });
   // The new row sits right below the one it was split from
   state.clusters = state.clusters.filter(c => c.id !== nw.id);
   state.clusters.splice(state.clusters.findIndex(c => c.id === src.id) + 1, 0, nw);
+  await dbBatch(ops);
   await persistClusterOrder();
   pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${srcTitle.slice(0, 24)}"`, srcId: src.id, newId: nw.id,
     before: { anns: beforeAnns }, after: { anns: secs.map(a => annRowState(a, ids)) } });
@@ -1971,6 +2071,7 @@ async function splitRow(src, secIds, title, why) {
     detail: secs.map(s => { const d = state.docs.find(x => x.id === s.docId); return `${d ? getDisplayName(d) : 'Study'} (p.${s.page}): ${s.note || String(s.text || '').slice(0, 60)}`; }).join('\n'),
     fromVal: srcTitle, toVal: `${srcTitle} | ${clusterLabel(nw)}`, rationale: why
   });
+  return { baseGone: baseDoc ? getDisplayName(baseDoc) : '' };
 }
 
 document.getElementById('rowOpsMergeBtn').onclick = async () => {
@@ -1978,9 +2079,10 @@ document.getElementById('rowOpsMergeBtn').onclick = async () => {
   if (!src || !tgt) return;
   const why = document.getElementById('rowOpsWhy').value.trim();
   closeRowOps();
-  await mergeRows(src, tgt, why);
+  const res = await mergeRows(src, tgt, why);
   renderLoaClusterChips(); renderMatrixView();
-  showSnackbar(`Merged into "${clusterLabel(tgt)}" — Ctrl+Z to undo`);
+  showSnackbar(`Merged into "${clusterLabel(tgt)}" — Ctrl+Z to undo`
+    + (res && res.rejudge ? `\nThe rows were established by different studies: ${res.rejudge} moved card(s) start unjudged against ${res.baseName} (the earlier judgement is in the card's note).` : ''));
 };
 document.getElementById('rowOpsSplitBtn').onclick = async () => {
   const src = rowOpsCluster; if (!src) return;
@@ -1989,7 +2091,8 @@ document.getElementById('rowOpsSplitBtn').onclick = async () => {
   const title = document.getElementById('rowOpsSplitTitle').value.trim();
   const why = document.getElementById('rowOpsWhy').value.trim();
   closeRowOps();
-  await splitRow(src, ids, title, why);
+  const res = await splitRow(src, ids, title, why);
   renderLoaClusterChips(); renderMatrixView();
-  showSnackbar(`Split ${ids.length} card(s) into a new row — Ctrl+Z to undo`);
+  showSnackbar(`Split ${ids.length} card(s) into a new row — Ctrl+Z to undo`
+    + (res && res.baseGone ? `\n"${clusterLabel(src)}" was established by ${res.baseGone}, which now has no construct in it: choose its base again under ◆ Established by (another study, or No single base).` : ''));
 };

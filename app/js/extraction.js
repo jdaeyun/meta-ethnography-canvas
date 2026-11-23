@@ -7,6 +7,7 @@
 // EXTRACTION SIDEBAR (With Clickable Reviewer Badge)
 // ========================================================
 function updateSidebar() {
+  flushAllPendingSaves(); // a label or note being typed is committed (saved + logged) before its box is rebuilt
   const list = document.getElementById('annotationsList');
   const prevScrollTop = list ? list.scrollTop : 0;
   list.innerHTML = '';
@@ -252,7 +253,6 @@ function updateSidebar() {
     bindPendingCommit(w.querySelector('.sec-conc-note'), updateSecConcordance);
 
     w.querySelector('.del').onclick = async () => {
-      if (!confirm('Delete this 2nd Order Construct? (Linked 1st Order quotes will be unlinked, and you can Undo with Ctrl+Z)')) return;
       const unlinkedIds = linked.map(f => f.id);
       pushUndoAction({
         type: 'delete_annotation',
@@ -266,6 +266,7 @@ function updateSidebar() {
       state.annotations = state.annotations.filter(x => x.id !== sec.id);
       updateSidebar();
       renderHighlights();
+      showUndoSnackbar(`Deleted the 2nd Order construct${unlinkedIds.length ? ` (${unlinkedIds.length} quote(s) unlinked)` : ''}`);
     };
 
     const clist = w.querySelector('.child-list');
@@ -421,12 +422,14 @@ async function addSelectionAsPassage(secId) {
 async function absorbAsPassage(source, target) {
   normalizeAnnotation(source); normalizeAnnotation(target);
   const doc = state.docs.find(d => d.id === target.docId);
-  const ok = confirm(
-    `Is this the SAME interpretation of the authors, stated in another place in ${getDisplayName(doc)}?\n\n` +
-    `  • ${secShortLabel(source)} (p.${source.page})\n  → becomes a further passage of: ${secShortLabel(target)} (p.${target.page})\n\n` +
-    `Use this only for repeated statements of one interpretation. Different interpretations — even closely related ones — should stay separate constructs; describe how they relate in the Study Overview.\n\n` +
-    `Its quotes and matrix placements move with it, and it can be split off again (↗) at any time.`
-  );
+  const ok = await askChoice({
+    title: `The same interpretation, stated elsewhere in ${getDisplayName(doc)}?`,
+    body: `${secShortLabel(source)} (p.${source.page})\n→ becomes a further passage of: ${secShortLabel(target)} (p.${target.page})\n\n` +
+      `Use this only for repeated statements of one interpretation. Different interpretations — even closely related ones — should stay separate constructs; describe how they relate in the Study Overview.\n\n` +
+      `Its quotes and matrix placements move with it, and it can be split off again (↗) at any time.`,
+    choices: [{ value: 'yes', tone: 'primary', label: 'Yes, the same interpretation: make it a further passage' }],
+    cancelLabel: 'No, keep them separate'
+  });
   if (!ok) return;
   const children = quotesOf(source.id);
   pushAnnoSnapshotUndo(`Passage attach: "${secShortLabel(source)}" → "${secShortLabel(target)}"`, [target, source, ...children]);
@@ -517,21 +520,21 @@ async function splitOffPassage(sec, pid) {
 async function removePassage(sec, pid) {
   const p = sec.passages.find(x => x.id === pid);
   if (!p) return;
-  if (p.absorbed && !confirm('This passage was a separate construct before. Remove it entirely? (Use ↗ Split off to keep it as its own construct. Ctrl+Z to undo.)')) return;
   const affectedQuotes = (p.absorbed?.movedQuoteIds || []).map(id => state.annotations.find(a => a.id === id)).filter(Boolean);
   pushAnnoSnapshotUndo(`Removed passage p.${p.page} from "${secShortLabel(sec)}"`, [sec, ...affectedQuotes]);
   sec.passages = sec.passages.filter(x => x.id !== pid);
   await dbPut('annotations', sec);
   updateSidebar();
   renderHighlights();
-  showSnackbar('Passage removed — Ctrl+Z to undo');
+  showUndoSnackbar(p.absorbed ? 'Passage removed (it was a separate construct before; ↗ Split off keeps it as its own)' : 'Passage removed');
 }
 async function wrapFirstOrderInSecondOrder(f, initialConceptLabel = '') {
   const doc = state.docs.find(d => d.id === f.docId);
-  const label = initialConceptLabel || f.note || prompt(
-    'Enter a 2nd Order Construct / Conceptual Label for this descriptive quote (e.g., "[Descriptive Theme]Delayed Access"):',
-    f.note ? f.note : '[Descriptive] '
-  );
+  const label = initialConceptLabel || f.note || await askReason({
+    title: 'Your label for this quote',
+    context: `The quote becomes a reviewer-wrapped 2nd Order construct (${getDisplayName(doc)}, p.${f.page}): a reviewer wording, not the authors' term.`,
+    label: 'Conceptual label (e.g., "[Descriptive] Delayed access")', confirmLabel: 'Wrap as 2nd Order', value: '[Descriptive] ', singleLine: true
+  });
   if (label === null) return null;
 
   const wrapperSec = normalizeAnnotation({
@@ -677,12 +680,12 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
   }
 
   c.querySelector('.del').onclick = async () => {
-    if (!confirm('Delete this 1st Order Quote? (You can Undo with Ctrl+Z)')) return;
     pushUndoAction({ type: 'delete_annotation', label: `1st Order Quote (p.${f.page})`, annotations: [{ ...f }] });
     await dbDelete('annotations', f.id);
     state.annotations = state.annotations.filter(x => x.id !== f.id);
     updateSidebar();
     renderHighlights();
+    showUndoSnackbar('Deleted the 1st Order quote');
   };
   if (isLinked) {
     c.querySelector('.unl').onclick = async () => {
@@ -873,19 +876,11 @@ async function toggleAnnotationOrderType(annoId) {
     const linkedChildren = quotesOf(a.id);
     const hasClusters = Array.isArray(a.clusterIds) && a.clusterIds.length > 0;
     if ((a.passages || []).length) {
-      alert(`This construct has ${a.passages.length} additional passage(s). Split them off (↗) before switching it to a 1st Order quote.`);
+      showSnackbar(`This construct has ${a.passages.length} additional passage(s). Split them off (↗) before switching it to a 1st Order quote.`);
       return;
     }
-    if (linkedChildren.length > 0 || hasClusters) {
-      const ok = confirm(
-        `Switch this 2nd Order construct to a 1st Order Quote?
-` +
-        (linkedChildren.length ? `• ${linkedChildren.length} linked quote(s) will be unlinked.
-` : '') +
-        (hasClusters ? `• It will be removed from ${a.clusterIds.length} Matrix row(s).` : '')
-      );
-      if (!ok) return;
-    }
+    // Undoable (Ctrl+Z): no question first; the notice says what changed and offers Undo
+    const switchNotice = [linkedChildren.length ? `${linkedChildren.length} linked quote(s) unlinked` : '', hasClusters ? `removed from ${a.clusterIds.length} matrix row(s)` : ''].filter(Boolean).join(', ');
     pushUndoAction({
       type: 'toggle_order_type',
       label: `Switch 2nd ➔ 1st Order (p.${a.page})`,
@@ -916,6 +911,7 @@ async function toggleAnnotationOrderType(annoId) {
       toVal: '1st Order Quote',
       isMinorOp: true
     });
+    showUndoSnackbar(`Switched to a 1st Order quote${switchNotice ? ' (' + switchNotice + ')' : ''}`);
   }
 
   renderHighlights();
