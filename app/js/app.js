@@ -8,7 +8,10 @@
 // ========================================================
 async function promptReassignItemReviewer(item, storeName, refreshFn) {
   const currentRev = item.by || item.reviewer || state.reviewerId || 'Reviewer';
-  const nextRev = prompt(`Change Reviewer ID for this item (currently @${currentRev}):`, state.reviewerId || currentRev);
+  const nextRev = await askReason({
+    title: 'Change the reviewer of this item', context: `Currently attributed to @${currentRev}. The change is recorded in the Audit Trail.`,
+    label: 'Reviewer ID', confirmLabel: 'Change', value: state.reviewerId || currentRev, singleLine: true
+  });
   if (nextRev === null) return;
   const clean = nextRev.trim();
   if (!clean || clean === currentRev) return;
@@ -217,21 +220,26 @@ window.addEventListener('DOMContentLoaded', async () => {
     const existingCount = state.annotations.filter(a => a.by === oldRev).length +
                           state.clusters.filter(c => c.by === oldRev).length;
     if (existingCount > 0) {
-      const doBulk = confirm(
-        `Reviewer ID changed from @${oldRev} to @${nextRev}.\n\n` +
-        `Would you also like to bulk-update your ${existingCount} existing constructs and rows from @${oldRev} to @${nextRev}?\n` +
-        `(Click [OK] to update all @${oldRev} items, or [Cancel] to only use @${nextRev} for new extractions)`
-      );
-      if (doBulk) {
+      const how = await askChoice({
+        title: `Reviewer ID changed from @${oldRev} to @${nextRev}`,
+        body: `${existingCount} existing construct(s) and row(s) are attributed to @${oldRev}.`,
+        choices: [
+          { value: 'new', tone: 'primary', label: `Use @${nextRev} for new work only`, hint: `Existing items stay attributed to @${oldRev}.` },
+          { value: 'all', tone: 'plain', label: `Attribute all @${oldRev} items to @${nextRev}`, hint: 'For a change of name only (the same person): constructs, rows and audit trail entries. Recorded in the Audit Trail.' }
+        ]
+      });
+      if (how === 'all') {
         for (const a of state.annotations) {
           if (a.by === oldRev) { a.by = nextRev; await dbPut('annotations', a); }
         }
         for (const c of state.clusters) {
           if (c.by === oldRev) { c.by = nextRev; await dbPut('clusters', c); }
         }
+        let nLogs = 0;
         for (const l of state.logs) {
-          if (l.reviewer === oldRev) { l.reviewer = nextRev; await dbPut('logs', l); }
+          if (l.reviewer === oldRev) { l.reviewer = nextRev; nLogs++; await dbPut('logs', l); }
         }
+        await recordAuditLog({ category: 'audit_edit', action: `Attributed all items of @${oldRev} to @${nextRev}`, detail: `${existingCount} construct(s) / row(s) and ${nLogs} audit trail entries.`, fromVal: '@' + oldRev, toVal: '@' + nextRev });
         updateSidebar();
         if (!divMatrix.classList.contains('hidden')) renderMatrixView();
         if (!divAudit.classList.contains('hidden')) renderAuditView();

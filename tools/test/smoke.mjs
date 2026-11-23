@@ -36,7 +36,8 @@ async function openDemo(url = BASE + '?demo') {
   // The app asks for reasons in its own dialog (#reasonModal). Like the browser dialogs above, it is answered automatically
   // (page.reasonAnswer, default no reason) unless a test sets page.autoReason = false to drive it itself.
   // Choices (#choiceModal, e.g. clean restore / merge) likewise: page.choiceAnswer is the value to pick (default the first option).
-  page.autoReason = true; page.reasonAnswer = ''; page.choiceAnswer = null;
+  // A notice (the choice dialog with only OK) is acknowledged and its text kept in page.notices.
+  page.autoReason = true; page.reasonAnswer = ''; page.choiceAnswer = null; page.notices = [];
   const reasonLoop = setInterval(async () => {
     if (!page.autoReason || page.isClosed()) return;
     try {
@@ -45,7 +46,13 @@ async function openDemo(url = BASE + '?demo') {
         await page.click('#reasonModalConfirmBtn', { timeout: 1000 });
       }
       if (await page.isVisible('#choiceModal')) {
-        await page.click(page.choiceAnswer ? `#choiceModalOptions .choice-option[data-value="${page.choiceAnswer}"]` : '#choiceModalOptions .choice-option', { timeout: 1000 });
+        if ((await page.locator('#choiceModalOptions .choice-option').count()) === 0) {
+          page.notices.push(await page.innerText('#choiceModal'));
+          await page.click('#choiceModalCancelBtn', { timeout: 1000 });
+        } else {
+          const want = page.choiceAnswer ? `#choiceModalOptions .choice-option[data-value="${page.choiceAnswer}"]` : '';
+          await page.click(want && (await page.locator(want).count()) ? want : '#choiceModalOptions .choice-option', { timeout: 1000 });
+        }
       }
     } catch (e) { /* page busy or closing */ }
   }, 120);
@@ -371,8 +378,9 @@ await group('Extracted text edits, attribution changes and late reasons leave a 
   check('editing extracted text is logged with old and new wording', (await logCount(p)) === before + 1 && ed.action.includes('extracted text') && ed.toVal === 'Corrected passage text' && !!ed.fromVal);
   check('the entry is tagged with its row', (ed.clusterIds || []).length > 0);
   before = await logCount(p);
-  p.removeAllListeners('dialog'); p.on('dialog', d => d.type() === 'prompt' ? d.accept('NewRev') : d.accept());
-  await p.locator('.cl-rev-btn').first().click(); await p.waitForTimeout(400);
+  p.reasonAnswer = 'NewRev';
+  await p.locator('.cl-rev-btn').first().click(); await p.waitForTimeout(600);
+  p.reasonAnswer = '';
   const at = await p.evaluate(() => state.logs[0]);
   check('changing the attributed reviewer is logged', (await logCount(p)) === before + 1 && at.category === 'audit_edit' && at.toVal === '@NewRev');
   await tab(p, 'audit'); await p.waitForTimeout(500);
@@ -403,7 +411,7 @@ await group('MERGE restore never overwrites local work', async () => {
   const after = await p.evaluate(() => ({ title: state.clusters[0].thirdOrderTitle, aim: state.loa.aim, n: state.annotations.length, log: state.logs[0] }));
   check('local row title and aim are kept', after.title === local.title && after.aim === local.aim);
   check('items only in the backup are added', after.n === local.n + 1);
-  check('conflicts are reported and the merge is logged', alerts.some(a => a.includes('Kept YOUR version')) && after.log.category === 'project_data' && after.log.detail.includes(local.title));
+  check('conflicts are reported and the merge is logged', p.notices.some(a => a.includes('Kept YOUR version')) && after.log.category === 'project_data' && after.log.detail.includes(local.title));
   await p.context().close();
 });
 
@@ -1046,7 +1054,7 @@ await group('Compatibility: a format-1 (v1.4.7) backup opens with the same meani
   const newer = JSON.stringify({ ...JSON.parse(json), formatVersion: 999, appVersion: '9.9.9' });
   alerts.length = 0;
   await p.setInputFiles('#jsonFileInput', { name: 'future.json', mimeType: 'application/json', buffer: Buffer.from(newer) }); await p.waitForTimeout(1500);
-  check('a file from a newer version is refused with a clear message, and nothing changes', alerts.some(a => a.includes('newer version')) && JSON.stringify(await meaning()) === JSON.stringify(before));
+  check('a file from a newer version is refused with a clear message, and nothing changes', p.notices.some(a => a.includes('newer version')) && JSON.stringify(await meaning()) === JSON.stringify(before));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });
@@ -1424,6 +1432,67 @@ await group('Review fixes 3: restore choice, card removal, row moves under a fil
   const c = await hp.evaluate(() => { const cv = document.querySelector('#pdfPagesWrapper canvas'); return { w: cv.width, css: parseFloat(cv.style.width) }; });
   check('PDF pages are sharp on HiDPI screens (canvas at 2× its CSS size)', Math.abs(c.w / c.css - 2) < 0.02, JSON.stringify(c));
   await ctx.close();
+});
+
+await group('Compare remembers what was set aside; the text sketch can be written from the map', async () => {
+  const p = await openDemo();
+  const r = await p.evaluate(async () => {
+    const mkPeer = text => {
+      const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, reviewerId: 'Peer' }));
+      const base = peer.annotations.find(a => a.type === 'second_order');
+      peer.annotations.push({ ...base, id: 'peer_aside_1', text, clusterIds: [], clusterRelations: {}, clusterComments: {} });
+      return new File([JSON.stringify(peer)], 'peer.json');
+    };
+    await processPeerJsonFile(mkPeer('A reading only the peer has, set aside after discussion'));
+    setCompareTab('unique'); renderComparisonTabContent();
+    const before = state.peerComparison.peerOnlyAnnos.some(x => x.peerAnno.id === 'peer_aside_1');
+    // Set aside the one we made
+    const idx = state.peerComparison.peerOnlyAnnos.findIndex(x => x.peerAnno.id === 'peer_aside_1');
+    const btns = [...document.querySelectorAll('.imp-dismiss')];
+    btns[idx].click(); await new Promise(res => setTimeout(res, 300));
+    const stored = (state.loa.peerSetAside || []).some(x => x.peerId === 'peer_aside_1' && x.reviewer === 'Peer');
+    // Second round: the same file again
+    await processPeerJsonFile(mkPeer('A reading only the peer has, set aside after discussion'));
+    const again = state.peerComparison.peerOnlyAnnos.some(x => x.peerAnno.id === 'peer_aside_1');
+    const listedApart = (state.peerComparison.setAsideAnnos || []).some(x => x.peerAnno.id === 'peer_aside_1');
+    setCompareTab('unique'); renderComparisonTabContent();
+    const box = !!document.querySelector('.set-aside-box');
+    // The peer changed the text since: it is shown again
+    await processPeerJsonFile(mkPeer('A reading only the peer has, rewritten since it was set aside'));
+    const changedBack = state.peerComparison.peerOnlyAnnos.some(x => x.peerAnno.id === 'peer_aside_1');
+    // Reconsider brings it back into the list and forgets the record
+    await processPeerJsonFile(mkPeer('A reading only the peer has, set aside after discussion'));
+    setCompareTab('unique'); renderComparisonTabContent();
+    const rb = document.querySelector('.set-aside-box .reconsider-btn'); if (!rb) return { before, stored, again, listedApart, box, changedBack, reconsidered: false }; rb.click(); await new Promise(res => setTimeout(res, 300));
+    const reconsidered = state.peerComparison.peerOnlyAnnos.some(x => x.peerAnno.id === 'peer_aside_1') && !(state.loa.peerSetAside || []).some(x => x.peerId === 'peer_aside_1');
+    return { before, stored, again, listedApart, box, changedBack, reconsidered };
+  });
+  check('setting aside is remembered in the project', r.before && r.stored, JSON.stringify(r));
+  check('the same construct in the next file is not shown as new, but listed as set aside earlier', !r.again && r.listedApart && r.box, JSON.stringify(r));
+  check('a construct whose text changed since is shown again', r.changedBack);
+  check('Reconsider takes it back into the list', r.reconsidered);
+  // Text sketch from the map
+  await tab(p, 'matrix'); await p.waitForTimeout(400);
+  await p.click('#toggleLoaDrawerBtn'); await p.waitForTimeout(300);
+  await p.fill('#loaFlowInput', 'my own sketch'); p.choiceAnswer = 'add';
+  await p.click('#loaFlowFromMapBtn'); await p.waitForTimeout(600);
+  const flow = await p.inputValue('#loaFlowInput');
+  const nLinks = await p.evaluate(() => getLoaLinks().length);
+  check('Write from the map adds one line per relation below the sketch', flow.startsWith('my own sketch\n') && flow.split('\n').length === nLinks + 1 && /\[.+\] (➔|⇄|⚡|⊃|≈) \[.+\]/.test(flow), flow);
+  p.choiceAnswer = null;
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('No browser dialogs: alert(), confirm() and prompt() are not used', async () => {
+  // A browser may suppress its own dialogs ("Don't allow this page to show more dialogs"): confirm() then returns false and
+  // prompt() null without asking. The app asks in its own dialogs (askChoice, askReason, showNotice) and the snackbar.
+  const offenders = [];
+  for (const f of fs.readdirSync(path.join(ROOT, 'app/js'))) {
+    const code = fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+    for (const m of code.matchAll(/(?<![\w.$])(alert|confirm|prompt)\s*\(/g)) offenders.push(`${f}: ${m[1]}()`);
+  }
+  check('no native dialog calls in app/js', offenders.length === 0, offenders.join(', '));
 });
 
 await group('Shared global scope: no top-level name is declared twice across the app scripts', async () => {

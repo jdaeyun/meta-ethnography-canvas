@@ -25,7 +25,7 @@ document.getElementById('addMemoBtn').addEventListener('click', async () => {
   const subType = document.getElementById('memoSubType').value;
   const targetRef = document.getElementById('memoTargetRef').value;
   const content = document.getElementById('memoContentInput').value.trim();
-  if (!content) return alert('Please enter memo content.');
+  if (!content) { showSnackbar('Write the memo first.'); return; }
 
   const cat = subType === 'Team Concordance Meeting' ? 'concordance' :
               subType === 'GRADE-CERQual Rationale' ? 'cerqual' :

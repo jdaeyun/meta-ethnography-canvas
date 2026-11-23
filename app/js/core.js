@@ -676,10 +676,11 @@ function showUndoSnackbar(message) {
 // suppress). choices: [{ value, label, hint, tone: 'primary' | 'danger' | 'plain' }]. Resolves to the chosen value, or null when
 // cancelled (Cancel, ×, Escape). Nothing is chosen by default: Enter does not pick an option.
 let choiceDismissOpen = null;
-function askChoice({ title = 'Choose', body = '', choices = [] } = {}) {
+function askChoice({ title = 'Choose', body = '', choices = [], cancelLabel = 'Cancel' } = {}) {
   const modal = document.getElementById('choiceModal');
   if (choiceDismissOpen) choiceDismissOpen();
   document.getElementById('choiceModalTitle').textContent = title;
+  document.getElementById('choiceModalCancelBtn').textContent = cancelLabel;
   document.getElementById('choiceModalBody').textContent = body;
   document.getElementById('choiceModalBody').classList.toggle('hidden', !body);
   const box = document.getElementById('choiceModalOptions');
@@ -714,12 +715,16 @@ function askChoice({ title = 'Choose', body = '', choices = [] } = {}) {
   });
 }
 
+// A message that must be read (an error, a long report): the choice dialog with one OK button, instead of alert()
+function showNotice(title, body) { return askChoice({ title, body, choices: [], cancelLabel: 'OK' }); }
+
 // Asks for the reason of a decision in a multi-line box (instead of prompt()). Resolves to the text ('' = no reason given),
 // or null when cancelled. cancelLabel: null means the decision is already made and cannot be cancelled: the second button
 // then records it without a reason. A text typed and then cancelled is kept as a draft for the same draftKey.
 const reasonDrafts = new Map();
 let reasonDismissOpen = null; // closes a dialog still open when a new question comes (its caller then goes on, not hangs)
-function askReason({ title = 'Why?', context = '', label = 'Why? (optional, saved in the Audit Trail)', confirmLabel = 'Record', cancelLabel = 'Cancel', draftKey = '' } = {}) {
+// value: initial text; singleLine: a short entry (one line, Enter records), e.g. a reviewer ID or a label.
+function askReason({ title = 'Why?', context = '', label = 'Why? (optional, saved in the Audit Trail)', confirmLabel = 'Record', cancelLabel = 'Cancel', draftKey = '', value = '', singleLine = false } = {}) {
   const modal = document.getElementById('reasonModal');
   const input = document.getElementById('reasonModalInput');
   const okBtn = document.getElementById('reasonModalConfirmBtn');
@@ -732,7 +737,10 @@ function askReason({ title = 'Why?', context = '', label = 'Why? (optional, save
   if (reasonDismissOpen) reasonDismissOpen();
   okBtn.textContent = confirmLabel;
   secBtn.textContent = cancelLabel === null ? 'Record without a reason' : cancelLabel;
-  input.value = (draftKey && reasonDrafts.get(draftKey)) || '';
+  input.value = (draftKey && reasonDrafts.get(draftKey)) || value || '';
+  input.rows = singleLine ? 1 : 5;
+  input.classList.toggle('resize-y', !singleLine); input.classList.toggle('resize-none', singleLine);
+  document.getElementById('reasonModalHint').classList.toggle('hidden', singleLine);
   return new Promise(resolve => {
     const finish = value => {
       reasonDismissOpen = null;
@@ -746,8 +754,8 @@ function askReason({ title = 'Why?', context = '', label = 'Why? (optional, save
     okBtn.onclick = () => finish(input.value.trim());
     secBtn.onclick = () => finish(cancelLabel === null ? '' : null);
     closeBtn.onclick = dismiss; // also Escape (modal handling in app.js clicks the close button)
-    input.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); finish(input.value.trim()); } };
+    input.onkeydown = e => { if (e.key === 'Enter' && (singleLine || e.ctrlKey || e.metaKey)) { e.preventDefault(); finish(input.value.trim()); } };
     modal.classList.remove('hidden'); modal.classList.add('flex');
-    setTimeout(() => input.focus(), 20);
+    setTimeout(() => { input.focus(); if (singleLine) input.select(); }, 20);
   });
 }

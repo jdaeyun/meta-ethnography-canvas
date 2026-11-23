@@ -155,6 +155,21 @@ function computePeerAnnotationMatches(cmp) {
   });
   cmp.localOnlyAnnos = state.annotations.filter(a => !localTaken.has(a.id));
   cmp.peerToLocalAnnoId = null; // rebuilt from the new pairs on the next import
+  // Constructs set aside in an earlier comparison with this reviewer do not come back as new; they are listed apart
+  cmp.setAsideAnnos = cmp.peerOnlyAnnos.filter(item => peerSetAsideRecord(cmp, item.peerAnno));
+  cmp.peerOnlyAnnos = cmp.peerOnlyAnnos.filter(item => !peerSetAsideRecord(cmp, item.peerAnno));
+}
+
+// ---- Set aside: remembered in the project (state.loa.peerSetAside), so the next file from the same reviewer does not
+// bring the same construct back as new. A construct whose text the reviewer has changed since is shown again. ----
+function peerSetAsideKey(pAnno) { return String(pAnno.text || '').normalize('NFC').replace(/\s+/g, ' ').trim().slice(0, 300); }
+function peerSetAsideRecord(cmp, pAnno) {
+  const list = Array.isArray(state.loa.peerSetAside) ? state.loa.peerSetAside : [];
+  return list.find(r => r.peerId === pAnno.id && r.reviewer === cmp.peerReviewer && r.textKey === peerSetAsideKey(pAnno)) || null;
+}
+async function savePeerSetAside(list) {
+  state.loa = { ...state.loa, id: 'loa_main', peerSetAside: list, updatedAt: Date.now() };
+  await dbPut('meta', state.loa);
 }
 
 // ---- Translation order of both reviewers: a different #1 or order can lead to a different reading (to discuss, not an error) ----
@@ -264,19 +279,18 @@ async function processPeerJsonFile(file) {
     const incomingProjCode = sanitizeProjectCode(peerData.projectCode || peerData.loa?.projectCode || '');
     const currentProjCode = sanitizeProjectCode(state.projectCode || '');
     if (currentProjCode && incomingProjCode && currentProjCode !== incomingProjCode) {
-      const proceed = confirm(
-        `⚠️ PROJECT CODE MISMATCH DETECTED!\n\n` +
-        `• Current Workspace Project Code: [${currentProjCode}]\n` +
-        `• Peer JSON File Project Code: [${incomingProjCode}]\n\n` +
-        `Are you sure you didn't select a JSON file from a different systematic review project?\n` +
-        `Click [OK] ONLY if you intentionally want to compare these two projects, or [Cancel] to abort safely.`
-      );
+      const proceed = await askChoice({
+        title: 'This file is from another project',
+        body: `This workspace: [${currentProjCode}]\nOther reviewer's file: [${incomingProjCode}] (${file.name})\n\nCheck that you picked the file of this review.`,
+        choices: [{ value: 'go', tone: 'danger', label: 'Compare these two projects anyway', hint: 'Nothing is changed until you import something.' }]
+      });
       if (!proceed) return;
     } else if (currentProjCode && !incomingProjCode) {
-      const proceed = confirm(
-        `⚠️ Notice: The selected Peer JSON file does not have a Project Code tag, while your workspace is set to [${currentProjCode}].\n\n` +
-        `Continue comparing with this file?`
-      );
+      const proceed = await askChoice({
+        title: 'This file has no project code',
+        body: `This workspace is [${currentProjCode}]; the other reviewer's file (${file.name}) has no project code.`,
+        choices: [{ value: 'go', tone: 'primary', label: 'Compare with this file' }]
+      });
       if (!proceed) return;
     }
 
@@ -302,7 +316,7 @@ async function processPeerJsonFile(file) {
     compareWorkspace.classList.add('flex');
     renderComparisonDashboard();
   } catch (err) {
-    alert('Error comparing JSON: ' + err.message);
+    showNotice('Could not compare with this file', err.message);
   }
 }
 
@@ -357,9 +371,38 @@ function renderComparisonTabContent() {
 
   if (state.activeCompareTab === 'studies') { renderCompareStudiesTab(container, cmp); return; }
 
+  // Constructs set aside earlier: listed apart (collapsed), each can be taken back into the list
+  const renderSetAside = () => {
+    const items = cmp.setAsideAnnos || [];
+    if (!items.length) return;
+    const box = document.createElement('details');
+    box.className = 'set-aside-box bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-600';
+    box.innerHTML = `<summary class="cursor-pointer font-semibold">Set aside earlier (${items.length}): not shown as new again</summary><div class="space-y-1.5 mt-2"></div>`;
+    const list = box.querySelector('div');
+    items.forEach(item => {
+      const p = item.peerAnno, rec = peerSetAsideRecord(cmp, p);
+      const row = document.createElement('div');
+      row.className = 'flex items-start justify-between gap-3 bg-white border border-slate-200 rounded px-2.5 py-1.5';
+      const studyName = item.doc ? getDisplayName(item.doc) : (item.peerDoc ? getDisplayName(item.peerDoc) : 'Unknown Study');
+      row.innerHTML = `<div class="flex-1"><b>${escapeHtml(studyName)}</b> p.${escapeHtml(p.page)} — <i>"${escapeHtml(String(p.text || '').slice(0, 140))}${String(p.text || '').length > 140 ? '…' : ''}"</i>
+          <div class="text-[11px] text-slate-400">Set aside ${rec && rec.at ? new Date(rec.at).toLocaleString() : ''}${rec && rec.by ? ' by @' + escapeHtml(rec.by) : ''}</div></div>
+        <button type="button" class="reconsider-btn shrink-0 px-2 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded cursor-pointer">Reconsider</button>`;
+      row.querySelector('.reconsider-btn').onclick = async () => {
+        await savePeerSetAside((state.loa.peerSetAside || []).filter(r => r !== rec));
+        cmp.setAsideAnnos = cmp.setAsideAnnos.filter(x => x !== item);
+        cmp.peerOnlyAnnos.push(item);
+        await recordAuditLog({ category: 'concordance', action: `Reconsidered a construct from @${cmp.peerReviewer} set aside earlier`, detail: `${studyName} (p.${p.page}): "${String(p.text || '').slice(0, 70)}..."` });
+        renderComparisonDashboard();
+      };
+      list.appendChild(row);
+    });
+    container.appendChild(box);
+  };
+
   const renderPeerOnly = () => {
     if (cmp.peerOnlyAnnos.length === 0) {
-      container.innerHTML = `<div class="p-10 text-center text-xs text-slate-400 bg-white rounded-xl border border-slate-200">🎉 All of @${escapeHtml(cmp.peerReviewer)}'s extracted constructs are either matched or resolved!</div>`;
+      container.innerHTML = `<div class="p-10 text-center text-xs text-slate-400 bg-white rounded-xl border border-slate-200">🎉 Each of @${escapeHtml(cmp.peerReviewer)}'s extracted constructs is matched, imported or set aside.</div>`;
+      renderSetAside();
       return;
     }
 
@@ -407,7 +450,7 @@ function renderComparisonTabContent() {
           <button class="imp-discuss px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1">
             <i class="ph ph-chats-circle"></i><span>Import as Discuss</span>
           </button>
-          <button class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-md cursor-pointer" title="Not imported now; the construct stays in the other reviewer's file">
+          <button class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-md cursor-pointer" title="Not imported; the construct stays in the other reviewer's file. Remembered in this project, so a later file from this reviewer does not show it as new again (unless its text has changed).">
             Set Aside
           </button>
         </div>
@@ -422,6 +465,9 @@ function renderComparisonTabContent() {
       };
       card.querySelector('.imp-dismiss').onclick = async () => {
         cmp.peerOnlyAnnos.splice(idx, 1);
+        (cmp.setAsideAnnos = cmp.setAsideAnnos || []).push(item);
+        const list = Array.isArray(state.loa.peerSetAside) ? state.loa.peerSetAside : [];
+        await savePeerSetAside([...list, { peerId: p.id, reviewer: cmp.peerReviewer, textKey: peerSetAsideKey(p), at: Date.now(), by: state.reviewerId || '' }]);
         await recordAuditLog({
           category: 'concordance',
           action: `Set Aside Peer-Only Construct from @${cmp.peerReviewer}`,
@@ -431,6 +477,7 @@ function renderComparisonTabContent() {
       };
       container.appendChild(card);
     });
+    renderSetAside();
   };
 
   const renderMatched = (pairs, emptyMsg) => {
@@ -535,8 +582,9 @@ function renderComparisonTabContent() {
   } else if (tab === 'unique') {
     if (cmp.peerOnlyAnnos.length === 0 && cmp.localOnlyAnnos.length === 0) {
       container.innerHTML = `<div class="p-10 text-center text-xs text-slate-400 bg-white rounded-xl border border-slate-200">No unique extractions — both reviewers' constructs overlap.</div>`;
+      renderSetAside();
     } else {
-      if (cmp.peerOnlyAnnos.length > 0) renderPeerOnly();
+      if (cmp.peerOnlyAnnos.length > 0) renderPeerOnly(); else renderSetAside();
       if (cmp.localOnlyAnnos.length > 0) renderLocalOnly();
     }
   } else if (tab === 'aligned') {

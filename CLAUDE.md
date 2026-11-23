@@ -106,6 +106,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   Items imported in Compare before what they belong to is here keep the peer's links in `_peerParentIds` (a quote waiting for its
   2nd order construct) / `_peerRows` (a construct waiting for its row: per peer row id, the judgement, cell note and line-of-argument
   mark): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.
+  `loa.peerSetAside` (optional, same kind) remembers the peer constructs set aside in Compare (peer id, reviewer, text key), so the next
+  file from that reviewer does not show them as new.
   Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
   was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
@@ -113,9 +115,13 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 - Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit
   (save + `recordAuditLog`) then also runs on tab switch, matrix re-render and page leave, so a saved text never lacks its log entry.
   `flushAllPendingSaves()` returns a promise (null when nothing is pending): await it before reading the trail (backup, exports).
-- Dialogs: ask for a reason with `askReason({ title, context, label, confirmLabel, cancelLabel, draftKey })` (core.js; resolves to the
-  text, '' = none, null = cancelled; `cancelLabel: null` when the decision is already made), never `prompt()`. A deletion that Ctrl+Z
-  undoes does not ask first: push the undo action, then `showUndoSnackbar(message)`. Completion notices use `showSnackbar()`, not `alert()`.
+- Dialogs: no `alert()`, `confirm()` or `prompt()` (a browser may suppress them, so confirm() silently returns false; smoke test
+  "No browser dialogs"). Ask for a reason or a short entry with `askReason({ title, context, label, confirmLabel, cancelLabel, draftKey,
+  value, singleLine })` (resolves to the text, '' = none, null = cancelled; `cancelLabel: null` when the decision is already made).
+  Choose between actions with `askChoice({ title, body, choices: [{ value, label, hint, tone }] })`: every button names what it does,
+  and closing it (Cancel, ×, Esc) always means "change nothing". A message that must be read: `showNotice(title, body)`; short
+  notices and input hints: `showSnackbar()`. A deletion that Ctrl+Z undoes does not ask first: push the undo action, then
+  `showUndoSnackbar(message)`.
 - Where fields live: the Research Aim & Overall Model drawer (Tab 2) holds what is thought out during the analysis (aim, Item 12, alternative
   interpretations, map, Item 16, team models, line of argument; saved with its button). Fields that describe the method for the write-up
   (`WRITEUP_FIELDS` in loa.js) sit beside the Methods Summary in Tab 4 and commit one by one; a gap `PH(text, fieldKey)` links to its field.

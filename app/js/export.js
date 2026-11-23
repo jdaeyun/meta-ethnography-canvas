@@ -1136,7 +1136,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
 document.getElementById('downloadWordDocBtn').addEventListener('click', async () => {
   await flushAllPendingSaves();
   if (typeof docx === 'undefined') {
-    alert('The bundled Word library (app/vendor/docx/index.umd.js) failed to load. Check that the app/vendor folder is next to me_canvas.html (offline edition: extract the whole ZIP), then reload the page.');
+    showNotice('Word export is not available', 'The bundled Word library (app/vendor/docx/index.umd.js) failed to load. Check that the app/vendor folder is next to me_canvas.html (offline edition: extract the whole ZIP), then reload the page.');
     return;
   }
 

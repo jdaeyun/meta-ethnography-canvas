@@ -27,6 +27,34 @@ function insertTextIntoLoaFlow(snippet) {
   el.setSelectionRange(nextPos, nextPos);
 }
 
+// The map (state.loa.links) is the structured record; the text sketch can be written from it, then extended by hand
+function flowTextFromMap() {
+  const label = id => `[${clusterLabel(state.clusters.find(c => c.id === id))}]`;
+  return getLoaLinks().map(l => `${label(l.from)} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${label(l.to)}`).join('\n');
+}
+document.getElementById('loaFlowFromMapBtn').addEventListener('click', async () => {
+  const el = document.getElementById('loaFlowInput');
+  const text = flowTextFromMap();
+  if (!text) { showSnackbar('The map has no relations yet: add them under Concept relationship map first.'); return; }
+  let next = text;
+  if (el.value.trim()) {
+    const how = await askChoice({
+      title: 'Write the sketch from the map',
+      body: 'The sketch already has text.',
+      choices: [
+        { value: 'add', tone: 'primary', label: 'Add the map\'s relations below it', hint: 'Keeps what you wrote.' },
+        { value: 'replace', tone: 'danger', label: 'Replace it with the map\'s relations', hint: 'What is there now is removed from the field (the last saved version stays in the Audit Trail).' }
+      ]
+    });
+    if (!how) return;
+    next = how === 'add' ? el.value.replace(/\s+$/, '') + '\n' + text : text;
+  }
+  el.value = next;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.focus();
+  showSnackbar('Written from the map. Save & Log to Trail to keep it.');
+});
+
 document.querySelectorAll('.loa-op-btn').forEach(btn => {
   btn.addEventListener('click', () => insertTextIntoLoaFlow(btn.dataset.op));
 });
@@ -201,7 +229,7 @@ function buildFlowMapSvg(prefix) {
 
 function downloadConceptMapSvg() {
   let svg = buildConceptMapSvg('dl', 640, 360);
-  if (!svg) return alert('Add at least one relation to draw the map first.');
+  if (!svg) { showSnackbar('Add at least one relation to draw the map first.'); return; }
   // Standalone file: fixed pixel size instead of the responsive width, plus a legend line
   const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
   const W = vb ? +vb[1] : 640, H = vb ? +vb[2] : 360;
@@ -333,9 +361,9 @@ document.addEventListener('click', async (ev) => {
   const from = document.getElementById('loaLinkFrom').value, to = document.getElementById('loaLinkTo').value;
   const type = document.getElementById('loaLinkType').value;
   const note = document.getElementById('loaLinkNote').value.trim();
-  if (!from || !to || from === to) { alert('Choose two different 3rd Order rows.'); return; }
+  if (!from || !to || from === to) { showSnackbar('Choose two different 3rd Order rows.'); return; }
   const dup = (state.loa.links || []).some(l => l.type === type && ((l.from === from && l.to === to) || (!isDirectedLink(type) && l.from === to && l.to === from)));
-  if (dup) { alert('This relation already exists.'); return; }
+  if (dup) { showSnackbar('This relation already exists.'); return; }
   const link = { id: 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, type, note };
   state.loa.links = [...(state.loa.links || []), link];
   state.loa.updatedAt = Date.now();
@@ -383,7 +411,7 @@ function modelFromPeerLoa(peerLoa, peerClusters, reviewer) {
 }
 function modelIsEmpty(m) { return !(m.title || m.flow || m.narrative || (m.links && m.links.length)); }
 async function addTeamModel(model, how) {
-  if (modelIsEmpty(model)) { alert('This model is empty (no title, flow, narrative or relations).'); return false; }
+  if (modelIsEmpty(model)) { showSnackbar('This model is empty (no title, sketch, narrative or relations).'); return false; }
   state.loa.teamModels = [...(Array.isArray(state.loa.teamModels) ? state.loa.teamModels : []), model];
   state.loa.updatedAt = Date.now();
   await dbPut('meta', state.loa);
@@ -431,16 +459,20 @@ function renderTeamModels() {
       ${m.flow ? `<div class="font-mono text-[11px] bg-slate-50 border border-slate-200 rounded px-1 py-0.5">${escapeHtml(m.flow)}</div>` : ''}
       ${(m.links || []).length ? `<div class="space-y-0.5">${m.links.map(l => `<div>${counts[teamLinkKey(l)] === models.length ? '✓' : '◐'} ${escapeHtml(l.from)} <b style="color:${(LINK_TYPES[l.type] || LINK_TYPES.leads).color}">${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym}</b> ${escapeHtml(l.to)}</div>`).join('')}</div>` : ''}
       ${m.narrative ? `<details><summary class="cursor-pointer text-slate-500">Narrative</summary><div class="whitespace-pre-wrap text-slate-700">${escapeHtml(m.narrative)}</div></details>` : ''}`;
-    card.querySelector('.tm-adopt').onclick = () => {
+    card.querySelector('.tm-adopt').onclick = async () => {
       const cur = ['loaTitleInput', 'loaFlowInput', 'loaNarrativeInput'].some(id => document.getElementById(id).value.trim());
-      if (cur && !confirm('Replace the title / flow / narrative currently in the fields with this model? (Nothing is saved until you click "Save & Log to Trail".)')) return;
+      if (cur && !(await askChoice({
+        title: `Load @${m.reviewer}'s model as a draft?`,
+        body: 'The title, text sketch and narrative now in the fields are replaced. Nothing is saved until you click "Save & Log to Trail".',
+        choices: [{ value: 'load', tone: 'primary', label: 'Replace the fields with this model' }]
+      }))) return;
       document.getElementById('loaTitleInput').value = m.title || '';
       document.getElementById('loaFlowInput').value = m.flow || '';
       document.getElementById('loaNarrativeInput').value = m.narrative || '';
       showSnackbar(`Loaded @${m.reviewer}'s model as a draft — edit, then Save & Log to Trail.`);
     };
     card.querySelector('.tm-del').onclick = async () => {
-      if (!confirm(`Remove @${m.reviewer}'s model record? (The removal is logged.)`)) return;
+      if (!(await askChoice({ title: `Remove @${m.reviewer}'s model record?`, body: 'The removal is recorded in the Audit Trail; it cannot be undone with Ctrl+Z.', choices: [{ value: 'remove', tone: 'danger', label: 'Remove the model record' }] }))) return;
       state.loa.teamModels = models.filter(x => x.id !== m.id);
       state.loa.updatedAt = Date.now();
       await dbPut('meta', state.loa);

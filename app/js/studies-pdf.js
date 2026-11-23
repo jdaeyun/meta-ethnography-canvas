@@ -1494,7 +1494,7 @@ function extractSurnameFromAuthorString(rawAuthor) {
 async function autoExtractCitationFromPdf() {
   const doc = state.docs.find(d => d.id === state.activeDocId);
   if (!doc || !state.activePdfDoc) {
-    return alert('Please load a PDF binary first.');
+    showSnackbar('Open a study whose PDF is loaded first.'); return;
   }
 
   let detectedTitle = '';
@@ -1629,7 +1629,7 @@ async function autoExtractCitationFromPdf() {
   }
 
   if (!detectedTitle && !detectedAuthor && !detectedYear) {
-    return alert('Could not auto-detect citation metadata from this PDF (it may be a scanned image without OCR).');
+    showSnackbar('No citation details found in this PDF (it may be a scanned image without OCR). Enter them by hand.'); return;
   }
 
   if (detectedAuthor) document.getElementById('metaAuthor').value = detectedAuthor;

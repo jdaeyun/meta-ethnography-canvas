@@ -330,20 +330,20 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     if (replaceCleanly) markBackupDone();
     if (state.docs.some(d => !d.hasBinary)) showMissingPdfModal();
     else if (replaceCleanly) showSnackbar('Backup restored.');
-    else alert(mergeSummaryText(mergeReport)); // the list of kept local versions is worth reading: stays a dialog
-    if (!replaceCleanly && mergeReport.conflicts.length && state.docs.some(d => !d.hasBinary)) alert(mergeSummaryText(mergeReport));
+    else showNotice('Backup merged', mergeSummaryText(mergeReport)); // the list of kept local versions is worth reading
+    if (!replaceCleanly && mergeReport.conflicts.length && state.docs.some(d => !d.hasBinary)) showNotice('Backup merged', mergeSummaryText(mergeReport));
   } catch (err) {
-    alert('Failed to restore JSON: ' + err.message);
+    showNotice('The backup could not be restored', err.message);
   }
   e.target.value = '';
 });
 
 document.getElementById('resetProjectBtn').addEventListener('click', async () => {
-  const ok = confirm(
-    'Reset Project (Start Blank):\n\n' +
-    'Are you sure you want to clear all studies, PDFs, constructs, matrix rows, and audit logs?\n' +
-    '(Tip: Use "Backup" first if you want to save your current project as a JSON file.)'
-  );
+  const ok = await askChoice({
+    title: 'Reset the project (start blank)?',
+    body: 'All studies, PDFs, constructs, matrix rows and audit trail entries in this browser are removed. This cannot be undone: use Backup first if you may need this project again.',
+    choices: [{ value: 'reset', tone: 'danger', label: 'Remove everything and start blank' }]
+  });
   if (!ok) return;
 
   if (pageObserver) {

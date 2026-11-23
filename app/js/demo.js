@@ -59,7 +59,8 @@ async function seedDemoIfEmpty() {
 }
 
 document.getElementById('demoResetBtn')?.addEventListener('click', async () => {
-  if (!confirm('Reset the demo to its original state? Any changes you made in the demo will be lost. Your own projects are not affected.')) return;
+  const ok = await askChoice({ title: 'Reset the demo?', body: 'The demo goes back to its original state; changes you made in the demo are lost. Your own projects are not affected.', choices: [{ value: 'reset', tone: 'danger', label: 'Reset the demo' }] });
+  if (!ok) return;
   await clearDemoStores();
   ['me_reviewer_id', 'me_project_code', 'me_hidden_studies', 'me_demo_build'].forEach(lsRemove);
   location.reload();
