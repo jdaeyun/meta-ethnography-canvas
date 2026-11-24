@@ -260,38 +260,8 @@ async function commitOps(ops, { quiet = false } = {}) {
   if (!ops.length) return;
   if (ops.some(o => 'del' in o)) await flushAllPendingSaves();
   await dbBatch(ops, { quiet });
-  applyOpsToState(ops);
+  applyOps(state, ops); // (logic.js)
   invalidateMatrixIndex();
-}
-const STATE_LIST_OF_STORE = { docs: 'docs', annotations: 'annotations', clusters: 'clusters', logs: 'logs' };
-/** @param {DbOp[]} ops */
-function applyOpsToState(ops) {
-  const gone = {}, index = {};
-  let logsAdded = false;
-  const indexOf = key => index[key] || (index[key] = new Map(state[key].map((r, i) => [r && r.id, i])));
-  for (const o of ops) {
-    if (o.store === 'meta') {
-      if (!('del' in o) && o.put && o.put.id === 'loa_main' && state.loa !== o.put) state.loa = o.put;
-      continue;
-    }
-    const key = STATE_LIST_OF_STORE[o.store];
-    if (!key) continue; // pdf_binaries: not kept in memory
-    if ('del' in o) { (gone[key] = gone[key] || new Set()).add(o.del); continue; }
-    const rec = o.put;
-    if (gone[key]) gone[key].delete(rec.id); // deleted and written again in one batch: it stays
-    const at = indexOf(key).get(rec.id);
-    if (at === undefined) {
-      index[key].set(rec.id, state[key].length);
-      state[key].push(rec);
-      if (key === 'logs') logsAdded = true;
-    } else if (state[key][at] !== rec) {
-      const cur = state[key][at];
-      Object.keys(cur).forEach(k => { if (!(k in rec)) delete cur[k]; });
-      Object.assign(cur, rec);
-    }
-  }
-  Object.keys(gone).forEach(key => { if (gone[key].size) state[key] = state[key].filter(r => !gone[key].has(r && r.id)); });
-  if (logsAdded) state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)); // newest first, as at startup
 }
 async function dbGet(store, key) {
   const db = await initDB();
@@ -605,10 +575,7 @@ function rowsTouchedByPlacement(a) {
   (a.clusterIds || []).forEach(id => {
     const row = state.clusters.find(c => c.id === id);
     if (!row) return;
-    let ch = false;
-    if (row.baseDocId === '') { row.baseDocId = a.docId; ch = true; }
-    if (row.cellStatus && row.cellStatus[a.docId]) { row.cellStatus = { ...row.cellStatus }; delete row.cellStatus[a.docId]; ch = true; }
-    if (ch) changed.push(row);
+    if (applyPlacementToRow(row, a.docId)) changed.push(row); // (the rule itself: logic.js)
   });
   return changed;
 }
@@ -659,10 +626,7 @@ function secEvidenceText(s) {
 function rowHistoryIds(c) { return new Set([c.id, ...((c && c.historyFrom) || [])]); }
 function logIsForRow(l, c) { const ids = rowHistoryIds(c); return (l.clusterIds || []).some(id => ids.has(id)); }
 function clusterById(cid) { return state.clusters.find(c => c && c.id === cid) || null; }
-function rowBaseDocId(c) {
-  const id = c && c.baseDocId;
-  return id && state.docs.some(d => d.id === id) ? id : null;
-}
+function rowBaseDocId(c) { return rowBaseIn(state, c); }
 function isRowBase(sec, cid) { const b = rowBaseDocId(clusterById(cid)); return !!b && sec.docId === b; }
 function isSecRefutational(sec, cid) {
   return !isRowBase(sec, cid) && !!(sec.clusterRelations && sec.clusterRelations[cid] === 'refutational');
@@ -671,12 +635,8 @@ function isSecRefutational(sec, cid) {
 // and refutational translation is the one most often overlooked (eMERGe criterion 13).
 // 'other_aspect': the construct belongs near the row but neither agrees nor contrasts with it: it speaks to another aspect
 // of the topic (Noblit & Hare's third relation, the material of a line of argument; eMERGe criterion 12).
-const CELL_RELATIONS = ['unjudged', 'reciprocal', 'refutational', 'other_aspect'];
-function secRelation(sec, cid) {
-  if (isRowBase(sec, cid)) return 'baseline';
-  const r = sec.clusterRelations && sec.clusterRelations[cid];
-  return CELL_RELATIONS.includes(r) ? r : 'unjudged';
-}
+// (CELL_RELATIONS: logic.js)
+function secRelation(sec, cid) { return relationIn(state, sec, cid); }
 // A row's reciprocal / refutational character is derived from its judged cells (each study's relation is set per cell),
 // not stored per row: 'reciprocal', 'refutational' (no judged study is reciprocal), 'mixed', 'aspects' (only different
 // aspects), 'unjudged' (nothing judged yet),

@@ -233,13 +233,11 @@ function renderAuditTimeline() {
 
     // Entries about the trail itself (a deletion, a restored entry, a changed attribution) cannot be deleted: the trail keeps its own history
     if (card.querySelector('.del-log')) card.querySelector('.del-log').onclick = async () => {
-      pushUndoAction({
-        type: 'delete_log',
-        label: `Audit Log (${log.action.slice(0, 30)})`,
-        log: JSON.parse(JSON.stringify(log)) // with its lists (row ids, earlier reasons) as they were
-      });
-      await dbDelete('logs', log.id);
-      state.logs = state.logs.filter(x => x.id !== log.id);
+      const change = beginChange(`Audit Log (${log.action.slice(0, 30)})`, [{ store: 'logs', id: log.id }], { undoLogs: [{
+        kind: 'trail_restore', targetId: log.id, category: 'audit_edit', action: `Restored a deleted audit trail entry (Undo): ${log.action}`,
+        detail: '', clusterIds: log.clusterIds || null }] });
+      await commitOps([{ store: 'logs', del: log.id }]);
+      finishChange(change);
       // Keep the trail honest: the deletion itself is recorded (with the removed entry's content)
       await recordAuditLog({
         kind: 'trail_delete', targetId: log.id,

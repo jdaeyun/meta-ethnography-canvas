@@ -36,6 +36,46 @@ function clearUndoStack() {
   updateUndoButtonUI();
 }
 
+// ---- A change: the generic Undo (revertChange / tidyRefsOps, logic.js) ----
+// An undoable operation names the records it will touch BEFORE it changes them (beginChange: they are copied as they are),
+// does its work, then calls finishChange (they are copied as it left them, with the records it made) and the change goes on
+// the stack. Ctrl+Z puts back what the operation changed and is still as it left it; later work is kept (and named in the
+// trail). undoLogs: the audit entries Ctrl+Z writes (recordAuditLog arguments; clusterIds narrowed to rows still here).
+/** @param {string} label @param {{ store: string, id: any }[]} keys @param {{ undoLogs?: any[], before?: Record<string, any> }} [opts] */
+function beginChange(label, keys, { undoLogs = [], before = {} } = {}) {
+  const seen = new Set();
+  const records = [];
+  keys.forEach(({ store, id }) => {
+    const k = store + '|' + id;
+    if (id === undefined || id === null || seen.has(k)) return;
+    seen.add(k);
+    // before[k]: the record as it was, when the caller changed it in memory before (e.g. a map box dragged)
+    records.push({ store, id, before: k in before ? deepCopy(before[k]) : (deepCopy(recordOf(state, store, id)) ?? null), after: null });
+  });
+  return { type: 'change', label, records, undoLogs };
+}
+/** @param {any} change @param {{ store: string, id: any }[]} [created] */
+function finishChange(change, created = []) {
+  const seen = new Set(change.records.map(r => r.store + '|' + r.id));
+  created.forEach(({ store, id }) => { if (!seen.has(store + '|' + id)) { seen.add(store + '|' + id); change.records.push({ store, id, before: null, after: null }); } });
+  change.records.forEach(r => { r.after = deepCopy(recordOf(state, r.store, r.id)) ?? null; });
+  pushUndoAction(change);
+}
+// What was kept, in words for the trail
+function describeKept(kept) {
+  const what = { annotations: 'a construct / quote', clusters: 'a 3rd Order row', docs: 'a study', meta: 'the overall model', logs: 'a trail entry' };
+  return [...new Set(kept.map(k => `${what[k.store] || k.store}${k.path ? ` (${k.path.split('.')[0]})` : ' (changed or deleted since)'}`))].join('; ');
+}
+function refreshAfterUndo() {
+  renderHighlights();
+  updateSidebar();
+  renderLoaClusterChips();
+  renderLoaMap();
+  updateAuditBadge();
+  if (!divMatrix.classList.contains('hidden')) renderMatrixView();
+  if (!divAudit.classList.contains('hidden')) renderAuditTimeline();
+}
+
 // One undo at a time: a fast second Ctrl+Z waits for nothing and is ignored while the first is still writing
 let undoBusy = false;
 async function performUndo() {
@@ -48,83 +88,20 @@ async function performUndoStep() {
   const last = state.undoStack.pop();
   updateUndoButtonUI();
 
-  if (last.type === 'delete_annotation') {
-    // The construct, its quotes' links and its within-study relationships come back in one transaction (as they went);
-    // a placement in a row that was deleted in the meantime is not brought back
-    const ops = [];
-    const back = last.annotations.map(raw => normalizeAnnotation(JSON.parse(JSON.stringify(raw))));
-    back.forEach(a => dropGoneLinks(a, back)); // a quote may belong to a construct coming back with it
-    back.forEach(a => ops.push({ store: 'annotations', put: a }));
-    if (last.unlinkedChildrenIds && last.parentId) {
-      for (const cid of last.unlinkedChildrenIds) {
-        const child = state.annotations.find(x => x.id === cid);
-        if (child && child.type === 'first_order') { linkQuote(child, last.parentId); ops.push({ store: 'annotations', put: child }); } // not one switched to a construct since
-      }
+  if (last.type === 'change') {
+    const { ops, kept } = revertChange(last, state);
+    const { ops: tidy, dropped } = tidyRefsOps(state, ops); // never back pointing at what was deleted since
+    await commitOps(tidy);
+    state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0)); // a row back in its place
+    const rows = new Set(state.clusters.map(c => c.id));
+    const keptText = kept.length ? `Kept what was changed after it: ${describeKept(kept)}.` : '';
+    const droppedText = dropped.length ? `Not brought back (deleted since): ${dropped.join('; ')}.` : '';
+    for (const l of (last.undoLogs || [])) {
+      const ids = (l.clusterIds || []).filter(id => rows.has(id));
+      await recordAuditLog({ ...l, clusterIds: ids.length ? ids : null, detail: [l.detail, keptText, droppedText].filter(Boolean).join('\n') });
     }
-    restoreConceptLinksOps(last, ops);
-    ops.push(...placementRowOps(back)); // a card back in a row: no "not addressed / different aspect" note for its study there
-    await commitOps(ops); // (puts them back into state.annotations)
-    // The deletion was logged, so is its undoing; a construct placed in rows concerns those rows (a key decision, as its
-    // deletion was)
-    for (const a of last.annotations) {
-      const isSec = a.type === 'second_order';
-      const rows = isSec ? (a.clusterIds || []).filter(id => state.clusters.some(c => c.id === id)) : [];
-      const doc = state.docs.find(d => d.id === a.docId);
-      await recordAuditLog({
-        kind: isSec ? 'construct_restore' : 'quote_restore',
-        category: 'reading_extraction',
-        action: `Restored a deleted ${isSec ? '2nd Order construct' : '1st Order quote'} (Undo): ${doc ? getDisplayName(doc) : 'Study'}, p.${a.page}`,
-        detail: `${a.note ? a.note + ': ' : ''}"${String(a.text || '').slice(0, 80)}..."`,
-        clusterIds: rows.length ? rows : null
-      });
-    }
-    renderHighlights();
-    updateSidebar();
-    if (!divMatrix.classList.contains('hidden')) renderMatrixView();
-  } else if (last.type === 'annotation_snapshots') {
-    // Generic restore: put every snapshotted annotation back, delete the ones the operation created (one transaction);
-    // never a placement in a row that was deleted in the meantime
-    // (a quote's construct may be one of the snapshots: e.g. a construct absorbed as a passage comes back with its quotes)
-    const copies = last.snapshots.map(snap => normalizeAnnotation(JSON.parse(JSON.stringify(snap))));
-    copies.forEach(c => dropGoneLinks(c, copies));
-    const snapIds = new Set(last.snapshots.map(x => x.id));
-    const gone = (last.createdIds || []).filter(id => !snapIds.has(id));
-    await commitOps([...copies.map(c => ({ store: 'annotations', put: c })), ...gone.map(id => ({ store: 'annotations', del: id })), ...placementRowOps(copies)]);
-    // Passages and constructs placed in rows: the undoing belongs to those rows' history
-    const rowIds = [...new Set((last.snapshots || []).flatMap(a => (a.type === 'second_order' && a.clusterIds) || []))].filter(id => state.clusters.some(c => c.id === id));
-    await recordAuditLog({ kind: 'undo_extraction', category: 'reading_extraction', action: `Undid: ${last.label}`, detail: '', clusterIds: rowIds.length ? rowIds : null });
-    renderHighlights();
-    updateSidebar();
-    if (!divMatrix.classList.contains('hidden')) renderMatrixView();
-  } else if (last.type === 'delete_cluster') {
-    // The row, its cards' placements and its concept-map relations come back in one transaction (as they went)
-    const ops = [{ store: 'clusters', put: last.cluster }];
-    for (const secId of (last.assignedSecIds || [])) {
-      const sec = state.annotations.find(a => a.id === secId && a.type === 'second_order'); // not one switched to a quote since
-      if (sec) {
-        normalizeAnnotation(sec);
-        putIntoRow(sec, last.cluster.id, (last.perRow || {})[secId] || {}); // with what it had there
-        ops.push({ store: 'annotations', put: sec });
-      }
-    }
-    if ((last.removedLinks || []).length) {
-      const have = new Set((state.loa.links || []).map(l => l.id));
-      const rows = new Set([...state.clusters.map(c => c.id), last.cluster.id]); // never a relation to a row that is gone
-      state.loa = { ...state.loa, links: [...(state.loa.links || []), ...last.removedLinks.filter(l => !have.has(l.id) && rows.has(l.from) && rows.has(l.to))] };
-      ops.push({ store: 'meta', put: state.loa });
-    }
-    await commitOps(ops); // (the row is added to state.clusters: back to its place by its order)
-    state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
-    // The deletion is in the trail, so its undoing is too (else Appendix A says "deleted" while Table 2 shows the row)
-    await recordAuditLog({
-      clusterIds: [last.cluster.id],
-      category: 'third_order',
-      action: 'Restored 3rd Order Row (Undo)',
-      toVal: last.cluster.thirdOrderTitle || '(Untitled Row)',
-      detail: `${(last.assignedSecIds || []).length} construct(s) placed in it again.`
-    });
-    renderLoaClusterChips();
-    if (!divMatrix.classList.contains('hidden')) renderMatrixView();
+    if (kept.length || dropped.length) showSnackbar(`Undone: ${last.label}` + (droppedText ? `\n${droppedText}` : '') + (keptText ? `\n${keptText}` : ''));
+    refreshAfterUndo();
   } else if (last.type === 'delete_study') {
     const d = last.doc;
     // The study, its PDF and its constructs come back in one transaction (as they went); a construct's placement in a row
@@ -158,17 +135,6 @@ async function performUndoStep() {
     renderStudyList();
     await switchStudy(d.id);
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
-  } else if (last.type === 'delete_log') {
-    await commitOps([{ store: 'logs', put: last.log }]); // (back in the trail, newest first)
-    await recordAuditLog({
-      kind: 'trail_restore', targetId: last.log.id,
-      category: 'audit_edit',
-      action: `Restored a deleted audit trail entry (Undo): ${last.log.action}`,
-      detail: '',
-      clusterIds: last.log.clusterIds || null
-    });
-    updateAuditBadge();
-    if (!divAudit.classList.contains('hidden')) renderAuditTimeline();
   } else if (last.type === 'row_merge' || last.type === 'row_split') {
     // Put back only what the merge / split changed and is still as it left it; later edits are kept (and named in the log)
     const same = (x, y) => JSON.stringify(x === undefined ? null : x) === JSON.stringify(y === undefined ? null : y);
@@ -298,57 +264,7 @@ async function performUndoStep() {
       detail: kept.length ? `Kept what was changed after it: ${[...new Set(kept)].join('; ')}.` : '' });
     renderLoaClusterChips();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
-  } else if (last.type === 'unassign_cluster') {
-    const sec = state.annotations.find(a => a.id === last.secId && a.type === 'second_order'); // not one switched to a quote since
-    // The row may have been deleted since (and that deletion not undone): never put a card back into a row that is gone
-    if (sec && !state.clusters.some(c => c.id === last.clusterId)) {
-      showSnackbar('That row no longer exists, so the card stays out of it.');
-    } else if (sec) {
-      normalizeAnnotation(sec);
-      putIntoRow(sec, last.clusterId, last.fields || {}); // with its judgement, note and line-of-argument mark there
-      await commitOps([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]); // back in the row: no empty-cell note for its study there
-      // The removal was logged (with the minor operations), so is its undoing
-      await recordAuditLog({ clusterIds: [last.clusterId], category: 'matrix_mapping', action: `Undid: ${last.label}`, detail: 'The construct is back in the row with its judgement, note and line-of-argument mark.', isMinorOp: true });
-    }
-    updateSidebar();
-    if (!divMatrix.classList.contains('hidden')) renderMatrixView();
-  } else if (last.type === 'map_layout') {
-    // Places of the boxes in the line-of-argument map (layout only: no audit entry, as for the move itself)
-    state.loa.mapPositions = { ...(state.loa.mapPositions || {}) };
-    if (last.before) state.loa.mapPositions[last.layout] = last.before; else delete state.loa.mapPositions[last.layout];
-    await dbPut('meta', state.loa);
-    renderLoaMap();
-  } else if (last.type === 'toggle_order_type') {
-    // Back to its type with its links, row placements (only rows that still exist) and within-study relationships, in one transaction
-    const ops = [];
-    const idx = state.annotations.findIndex(a => a.id === last.snapshot.id);
-    const restored = idx >= 0 ? dropGoneLinks(normalizeAnnotation(JSON.parse(JSON.stringify(last.snapshot)))) : null;
-    if (restored) ops.push({ store: 'annotations', put: restored });
-    if (Array.isArray(last.unlinkedChildrenIds) && last.unlinkedChildrenIds.length > 0) {
-      for (const cid of last.unlinkedChildrenIds) {
-        const child = state.annotations.find(x => x.id === cid);
-        if (child && child.type === 'first_order') { linkQuote(child, last.snapshot.id); ops.push({ store: 'annotations', put: child }); }
-      }
-    }
-    if (restored) { restoreConceptLinksOps(last, ops); ops.push(...placementRowOps([restored])); }
-    await commitOps(ops); // (the restored record replaces the one in state.annotations)
-    const rows = restored ? liveClusterIds(restored) : [];
-    await recordAuditLog({ category: 'linking', action: `Undid: ${last.label}`, detail: 'Back to its type before the switch, with its links and row placements.', clusterIds: rows.length ? rows : null, isMinorOp: true });
-    renderHighlights();
-    updateSidebar();
-    if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   }
-  showSnackbar(`Undid: ${last.label}`);
-}
-
-// A construct's within-study relationships (Appendix C) removed with it: put them back on their study (ops for dbBatch)
-function restoreConceptLinksOps(last, ops) {
-  if (!(last.removedConceptLinks || []).length) return;
-  const d = state.docs.find(x => x.id === last.conceptLinksDocId);
-  if (!d) return;
-  const have = new Set((d.conceptLinks || []).map(l => l.id));
-  d.conceptLinks = [...(d.conceptLinks || []), ...last.removedConceptLinks.filter(l => !have.has(l.id))];
-  ops.push({ store: 'docs', put: d });
 }
 
 // ========================================================

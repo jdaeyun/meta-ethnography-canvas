@@ -345,6 +345,377 @@ function putIntoRow(a, rowId, fields = {}) {
 }
 
 
+// ======================= Applying written ops to a project in memory (core.js commitOps; the scenario tests) =======================
+// The same ops dbBatch wrote, applied to a project object ({ docs, annotations, clusters, logs, loa }): a record already there
+// under its id stays the same object (its content is replaced, so a view holding it sees the change), a new one is appended,
+// a deleted one leaves its list. 'meta' / 'loa_main' replaces project.loa; pdf_binaries are not kept in memory.
+const STORE_LIST = { docs: 'docs', annotations: 'annotations', clusters: 'clusters', logs: 'logs' };
+/** @param {any} project @param {{ store: string, put?: any, del?: any }[]} ops */
+function applyOps(project, ops) {
+  const gone = {}, index = {};
+  let logsAdded = false;
+  const indexOf = key => index[key] || (index[key] = new Map((project[key] || []).map((r, i) => [r && r.id, i])));
+  for (const o of ops) {
+    if (o.store === 'meta') {
+      if (!('del' in o) && o.put && o.put.id === 'loa_main' && project.loa !== o.put) project.loa = o.put;
+      continue;
+    }
+    const key = STORE_LIST[o.store];
+    if (!key) continue;
+    if (!Array.isArray(project[key])) project[key] = [];
+    if ('del' in o) { (gone[key] = gone[key] || new Set()).add(o.del); continue; }
+    const rec = o.put;
+    if (gone[key]) gone[key].delete(rec.id); // deleted and written again in one batch: it stays
+    const at = indexOf(key).get(rec.id);
+    if (at === undefined) {
+      index[key].set(rec.id, project[key].length);
+      project[key].push(rec);
+      if (key === 'logs') logsAdded = true;
+    } else if (project[key][at] !== rec) {
+      const cur = project[key][at];
+      Object.keys(cur).forEach(k => { if (!(k in rec)) delete cur[k]; });
+      Object.assign(cur, rec);
+    }
+  }
+  Object.keys(gone).forEach(key => { if (gone[key].size) project[key] = project[key].filter(r => !gone[key].has(r && r.id)); });
+  if (logsAdded) project.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)); // newest first, as at startup
+  return project;
+}
+
+// ======================= A construct in a row, read from a project (core.js reads `state` through these) =======================
+// How a study's construct relates to a row it was placed in ('baseline' = the study that established the row, ◆)
+const CELL_RELATIONS = ['unjudged', 'reciprocal', 'refutational', 'other_aspect'];
+/** @param {any} project @param {any} row */
+function rowBaseIn(project, row) {
+  const id = row && row.baseDocId;
+  return id && (project.docs || []).some(d => d.id === id) ? id : null;
+}
+/** @param {any} project @param {any} sec @param {string} rowId */
+function relationIn(project, sec, rowId) {
+  const b = rowBaseIn(project, (project.clusters || []).find(c => c && c.id === rowId));
+  if (b && sec.docId === b) return 'baseline';
+  const r = sec.clusterRelations && sec.clusterRelations[rowId];
+  return CELL_RELATIONS.includes(r) ? r : 'unjudged';
+}
+/** @param {any} project @param {string} rowId */
+function rowSecsIn(project, rowId) {
+  return (project.annotations || []).filter(a => a && a.type === 'second_order' && (a.clusterIds || []).includes(rowId));
+}
+// A construct of study docId is in the row: a row whose base is not set yet ('') takes that study's, and the study's
+// empty-cell record there ("— not addressed" / "◇ different aspect") no longer applies. Changes the row given; true if it did.
+/** @param {any} row @param {string} docId */
+function applyPlacementToRow(row, docId) {
+  let ch = false;
+  if (row.baseDocId === '') { row.baseDocId = docId; ch = true; }
+  if (row.cellStatus && row.cellStatus[docId]) { row.cellStatus = { ...row.cellStatus }; delete row.cellStatus[docId]; ch = true; }
+  return ch;
+}
+
+// ======================= Undo of a change: put back what it changed that is still as it left it =======================
+// Most undoable operations are recorded as a change: each record they touched, as it was before (null = it did not exist)
+// and as they left it (null = they deleted it). Undo works out the way back from those two against the project as it is
+// now, so nothing has to be written per operation, and a new field is covered without touching Undo:
+//  - a record the operation made is deleted; one it deleted comes back (unless it is back already);
+//  - a field the operation changed goes back if it is still as the operation left it; if it was changed since, the later
+//    change is kept and named (kept). Objects are compared key by key (a construct's judgement in one row, an empty-cell
+//    record of one study), lists of ids or of records with an id as sets (what the operation added is taken out, what it
+//    removed is put back; what was added since stays).
+// What comes back is then tidied against the project as it is now (tidyRefsOps): nothing returns pointing at a row, a
+// construct or a study deleted in the meantime. (Row merge / split and study deletion keep their own Undo: they renumber
+// rows / studies, carry later work over between rows, and bring back a PDF.)
+const deepCopy = o => (o === undefined ? undefined : JSON.parse(JSON.stringify(o)));
+/** @param {any} project @param {string} store @param {any} id */
+function recordOf(project, store, id) {
+  if (store === 'meta') return id === 'loa_main' ? project.loa : undefined;
+  const list = project[STORE_LIST[store]];
+  return Array.isArray(list) ? list.find(r => r && r.id === id) : undefined;
+}
+const sameValue = (x, y) => (x === undefined || y === undefined ? x === y : stableJson(x) === stableJson(y));
+const setItemKey = x => (isPlainObject(x) ? 'id:' + x.id : 'v:' + stableJson(x));
+const isSetLike = list => list.every(x => x === null || typeof x !== 'object' || (isPlainObject(x) && x.id !== undefined && x.id !== null));
+function revertValue(cur, before, after, path, kept) {
+  if (sameValue(before, after)) return cur;           // not changed by the operation
+  if (sameValue(cur, after)) return deepCopy(before); // not changed since
+  const objOrNone = v => v === undefined || isPlainObject(v);
+  if (isPlainObject(cur) && objOrNone(before) && objOrNone(after)) {
+    const b = before || {}, a = after || {}, out = { ...cur };
+    new Set([...Object.keys(b), ...Object.keys(a), ...Object.keys(cur)]).forEach(k => {
+      const v = revertValue(cur[k], b[k], a[k], path + '.' + k, kept);
+      if (v === undefined) delete out[k]; else out[k] = v;
+    });
+    return before === undefined && !Object.keys(out).length ? undefined : out;
+  }
+  const listOrNone = v => v === undefined || Array.isArray(v);
+  if (Array.isArray(cur) && listOrNone(before) && listOrNone(after) && isSetLike([...cur, ...(before || []), ...(after || [])])) {
+    const b = before || [], a = after || [];
+    const bBy = new Map(b.map(x => [setItemKey(x), x])), aBy = new Map(a.map(x => [setItemKey(x), x]));
+    const out = cur.filter(x => { const k = setItemKey(x); return !(aBy.has(k) && !bBy.has(k)); }) // what it added goes
+      .map(x => { const k = setItemKey(x); return bBy.has(k) && aBy.has(k) && sameValue(x, aBy.get(k)) ? deepCopy(bBy.get(k)) : x; });
+    const have = new Set(out.map(setItemKey));
+    b.forEach(x => { const k = setItemKey(x); if (!aBy.has(k) && !have.has(k)) { out.push(deepCopy(x)); have.add(k); } }); // what it removed comes back
+    // Nothing else changed since: exactly as before (in its order)
+    if (out.length === b.length && out.every(x => bBy.has(setItemKey(x)) && sameValue(x, bBy.get(setItemKey(x))))) return deepCopy(b);
+    return out;
+  }
+  kept.push(path);
+  return cur;
+}
+// Returns the ops that undo the change, and what was kept because it was changed since ([{ store, id, path }];
+// path '' = the whole record).
+/** @param {{ records: { store: string, id: any, before: any, after: any }[] }} change @param {any} project */
+function revertChange(change, project) {
+  /** @type {{ store: string, put?: any, del?: any }[]} */ const ops = [];
+  const kept = [];
+  for (const r of change.records || []) {
+    const cur = recordOf(project, r.store, r.id);
+    if (r.before == null && r.after == null) continue;
+    if (r.before == null) { if (cur) ops.push({ store: r.store, del: r.id }); continue; } // made by the operation
+    if (r.after == null) { // deleted by the operation
+      if (!cur) ops.push({ store: r.store, put: deepCopy(r.before) });
+      else kept.push({ store: r.store, id: r.id, path: '' });
+      continue;
+    }
+    if (!cur) { kept.push({ store: r.store, id: r.id, path: '' }); continue; } // deleted since: stays deleted
+    const paths = [];
+    const next = revertValue(cur, r.before, r.after, '', paths);
+    if (!sameValue(next, cur)) ops.push({ store: r.store, put: next });
+    paths.forEach(p => kept.push({ store: r.store, id: r.id, path: p.slice(1) }));
+  }
+  return { ops, kept };
+}
+
+// The ops, made consistent with the project they are written into (Undo, anything that brings records back): a construct
+// keeps only placements in rows that exist (and per-row fields only for those); a quote keeps links only to constructs of its
+// own study and has no place in rows; a study keeps "same primary study as" only for another study here, and within-study
+// relationships only between its own constructs; the model's map relations only between rows here; a row has no empty-cell
+// record for a study with a construct in it; and a construct placed in a row does there what placing does
+// (applyPlacementToRow). Returns { ops, dropped } (dropped: what was not brought back, in words).
+/** @param {any} project @param {{ store: string, put?: any, del?: any }[]} ops */
+function tidyRefsOps(project, ops) {
+  const maps = {};
+  ['docs', 'annotations', 'clusters'].forEach(k => { maps[k] = new Map((project[k] || []).map(r => [r.id, r])); });
+  let loa = project.loa || {};
+  ops.forEach(o => {
+    if (o.store === 'meta') { if (o.put && o.put.id === 'loa_main') loa = o.put; return; }
+    const m = maps[o.store];
+    if (!m) return;
+    if ('del' in o) m.delete(o.del); else m.set(o.put.id, o.put);
+  });
+  const out = ops.map(o => ({ ...o }));
+  const at = new Map();
+  out.forEach((o, i) => { if (!('del' in o)) at.set(o.store + '|' + o.put.id, i); });
+  const copied = new Set();
+  // The record as it will be written, as a copy that may be changed (added to the ops if it was not in them)
+  const edit = (store, id) => {
+    const k = store + '|' + id;
+    if (!at.has(k)) { out.push({ store, put: maps[store].get(id) }); at.set(k, out.length - 1); }
+    const i = at.get(k);
+    if (!copied.has(k)) { out[i] = { store, put: deepCopy(out[i].put) }; copied.add(k); maps[store].set(id, out[i].put); }
+    return out[i].put;
+  };
+  const dropped = [];
+  const rowIds = new Set(maps.clusters.keys());
+  const puts = store => out.filter(o => o.store === store && !('del' in o)).map(o => o.put);
+  // Constructs and quotes
+  puts('annotations').forEach(a0 => {
+    let a = a0;
+    const fix = () => (a === a0 ? (a = edit('annotations', a0.id)) : a);
+    if (a.type === 'second_order') {
+      const ids = Array.isArray(a.clusterIds) ? a.clusterIds : [];
+      const live = [...new Set(ids.filter(id => rowIds.has(id)))];
+      if (live.length !== ids.length) { if (ids.some(id => !rowIds.has(id))) dropped.push('a placement in a row deleted since'); fix().clusterIds = live; }
+      ANNOTATION_ROW_FIELDS.forEach(k => {
+        if (isPlainObject(a[k]) && Object.keys(a[k]).some(id => !live.includes(id))) fix()[k] = Object.fromEntries(Object.entries(a[k]).filter(([id]) => live.includes(id)));
+      });
+      if (Array.isArray(a.parentIds) && a.parentIds.length) fix().parentIds = [];
+    } else {
+      if (Array.isArray(a.clusterIds) && a.clusterIds.length) fix().clusterIds = [];
+      ANNOTATION_ROW_FIELDS.forEach(k => { if (a[k] !== undefined && Object.keys(a[k] || {}).length) delete fix()[k]; });
+      if (a.type === 'first_order' && Array.isArray(a.passages) && a.passages.length) delete fix().passages;
+      if (a.type === 'first_order') {
+        const own = id => { const p = maps.annotations.get(id); return !!p && p.type === 'second_order' && p.docId === a.docId; };
+        const ps = Array.isArray(a.parentIds) ? a.parentIds : [];
+        if (ps.some(id => !own(id))) { dropped.push('a link to a construct deleted since'); fix().parentIds = ps.filter(own); }
+      }
+    }
+  });
+  // What placing a construct does in its rows
+  puts('annotations').filter(a => a.type === 'second_order').forEach(a => (a.clusterIds || []).forEach(rid => {
+    const row = maps.clusters.get(rid);
+    if (row && (row.baseDocId === '' || (row.cellStatus && row.cellStatus[a.docId]))) applyPlacementToRow(edit('clusters', rid), a.docId);
+  }));
+  // Rows: no empty-cell record for a study with a construct in the row
+  const secs = [...maps.annotations.values()].filter(a => a && a.type === 'second_order');
+  puts('clusters').forEach(c => {
+    const stale = Object.keys(c.cellStatus || {}).filter(d => secs.some(a => a.docId === d && (a.clusterIds || []).includes(c.id)));
+    if (stale.length) { const e = edit('clusters', c.id); e.cellStatus = { ...e.cellStatus }; stale.forEach(d => delete e.cellStatus[d]); }
+  });
+  // Studies
+  puts('docs').forEach(d => {
+    if (d.companionOf && (d.companionOf === d.id || !maps.docs.has(d.companionOf))) edit('docs', d.id).companionOf = '';
+    const links = Array.isArray(d.conceptLinks) ? d.conceptLinks : [];
+    if (!links.length) return;
+    const own = new Set(secs.filter(a => a.docId === d.id).flatMap(a => [a.id, ...(a.passages || []).map(p => p.absorbed && p.absorbed.snapshot && p.absorbed.snapshot.id).filter(Boolean)]));
+    const keep = links.filter(l => own.has(l.from) && own.has(l.to));
+    if (keep.length !== links.length) { dropped.push('a within-study relationship to a construct deleted since'); edit('docs', d.id).conceptLinks = keep; }
+  });
+  // The model's map relations
+  const loaOp = out.findIndex(o => o.store === 'meta' && o.put && o.put.id === 'loa_main');
+  if (loaOp >= 0 && Array.isArray(out[loaOp].put.links)) {
+    const keep = liveRowLinks(out[loaOp].put.links, rowIds);
+    if (keep.length !== out[loaOp].put.links.length) { dropped.push('a map relation to a row deleted since'); out[loaOp] = { store: 'meta', put: { ...out[loaOp].put, links: keep } }; }
+  }
+  return { ops: out, dropped: [...new Set(dropped)] };
+}
+
+// ======================= Merging and splitting 3rd Order rows (matrix.js) =======================
+// What a merge / split writes, worked out from the project without changing it: the caller writes plan.ops (commitOps) and
+// keeps plan.before / plan.after for Undo. helpers give the names used in the notes and the log: docName(id) (null for a
+// study not here), relLabel(rel) ('Reciprocal'…), rowTitle(row). Without them, ids and relation keys are used (tests).
+const MERGE_ROW_FIELDS = ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation', 'cellStatus', 'baseDocId', 'historyFrom', 'baselineChange'];
+const pickFields = (c, fields) => { const o = {}; fields.forEach(f => { o[f] = c[f] === undefined ? undefined : deepCopy(c[f]); }); return o; };
+const annRowState = (a, ids) => ({ id: a.id, member: ids.map(id => (a.clusterIds || []).includes(id)), keys: ANNOTATION_ROW_FIELDS.map(k => ids.map(id => (a[k] || {})[id])) });
+// Text carried from another row is kept, marked with where it came from
+const carryText = (into, from, title) => from && from.trim() ? (into && into.trim() ? into.trim() + '\n\n' : '') + `[From row "${title}"] ` + from.trim() : (into || '');
+function rowPlanHelpers(project, h = {}) {
+  return {
+    docName: h.docName || (id => ((project.docs || []).some(d => d.id === id) ? String(id) : null)),
+    relLabel: h.relLabel || (r => r),
+    rowTitle: h.rowTitle || (c => (c && c.thirdOrderTitle && c.thirdOrderTitle.trim()) || '(Untitled row)')
+  };
+}
+// A construct as a copy whose row fields can be changed (the record in the project is not touched)
+const copyForRows = a => ({ ...a, clusterIds: [...(a.clusterIds || [])], clusterRelations: { ...(a.clusterRelations || {}) }, clusterComments: { ...(a.clusterComments || {}) } });
+
+// Row src goes into row tgt. A judgement is a reading against the study that established the row (◆): when the two rows were
+// established by different studies, a card's judgement in the source row does not carry over; it starts unjudged in the
+// merged row and the earlier judgement is kept in its cell note, to be read again. A target row with "No single base" (null)
+// stays so; one whose base is not set yet ('') takes the source row's. Texts of the source row are added, marked with their
+// origin; empty-cell records are kept where the merged row still has nothing of that study; map relations follow the row.
+/** @param {any} project @param {string} srcId @param {string} tgtId @param {any} [helpers] */
+function planMergeRows(project, srcId, tgtId, helpers) {
+  const H = rowPlanHelpers(project, helpers);
+  const src = (project.clusters || []).find(c => c.id === srcId), tgt0 = (project.clusters || []).find(c => c.id === tgtId);
+  if (!src || !tgt0 || src === tgt0) return null;
+  const srcTitle = H.rowTitle(src), tgtTitle = H.rowTitle(tgt0);
+  const secs0 = rowSecsIn(project, src.id);
+  const ids = [src.id, tgt0.id];
+  const loa = project.loa || {};
+  const before = { src: deepCopy(src), tgt: pickFields(tgt0, MERGE_ROW_FIELDS), anns: secs0.map(a => annRowState(a, ids)), links: deepCopy(loa.links || []) };
+  /** @type {{ store: string, put?: any, del?: any }[]} */ const ops = [];
+  let moved = 0;
+  const differing = [], rejudge = [];
+  const tgtNoBase = tgt0.baseDocId === null;
+  const srcBase = rowBaseIn(project, src), tgtBase = tgtNoBase ? null : (rowBaseIn(project, tgt0) || srcBase);
+  const baseDiffers = srcBase !== tgtBase;
+  const baseName = id => (id && H.docName(id)) || 'the row as a whole (no single base)';
+  const studyName = id => H.docName(id) || 'Study';
+  const rel = r => H.relLabel(r);
+  const secs = secs0.map(copyForRows);
+  for (const s of secs) {
+    if (!s.clusterIds.includes(tgt0.id)) {
+      moved++;
+      // What the card takes into the merged row; nothing left there from an earlier placement comes back (putIntoRow)
+      const from = rowFieldsOf(s, src.id);
+      const rs = relationIn(project, s, src.id);
+      const judged = rs !== 'unjudged' && rs !== 'baseline';
+      const asNote = text => carryText(from.clusterComments || '', text, srcTitle);
+      let next;
+      if (baseDiffers && s.docId === tgtBase) {
+        // The study that established the target row: its base (◆) there, not judged; a judgement from the source row goes into its note
+        next = { clusterComments: (judged ? asNote(`judged ${rel(rs)} against ${baseName(srcBase)} there; establishes the merged row`) : from.clusterComments) || undefined };
+      } else if (baseDiffers && rs === 'baseline') {
+        // The study that established the source row: judged like any other study in the merged row
+        rejudge.push(`${studyName(s.docId)} (p.${s.page})`);
+        next = { clusterComments: asNote(`established that row; to judge against ${baseName(tgtBase)}`) };
+      } else if (baseDiffers && rs !== 'unjudged') {
+        rejudge.push(`${studyName(s.docId)} (p.${s.page})`);
+        next = { clusterComments: asNote(`judged ${rel(rs)} against ${baseName(srcBase)} there; to judge again against ${baseName(tgtBase)}`) };
+      } else {
+        next = from; // same base: the judgement, note and line-of-argument mark carry over
+      }
+      putIntoRow(s, tgt0.id, next);
+    } else {
+      // Already in both rows: the target row's judgement stays; a different reading in the source row is kept as a note
+      const rs = relationIn(project, s, src.id), rt = relationIn(project, s, tgt0.id);
+      let carried = s.clusterComments[src.id] && s.clusterComments[src.id] !== s.clusterComments[tgt0.id] ? s.clusterComments[src.id] : '';
+      if (rs !== rt && rs !== 'unjudged' && rs !== 'baseline') {
+        carried = `judged ${rel(rs)} there` + (carried ? ` — ${carried}` : '');
+        differing.push(`${studyName(s.docId)} (p.${s.page}): ${rel(rs)} in "${srcTitle}", ${rel(rt)} in "${tgtTitle}"`);
+      }
+      if (carried) { const there = rowFieldsOf(s, tgt0.id); putIntoRow(s, tgt0.id, { ...there, clusterComments: carryText(there.clusterComments, carried, srcTitle) }); }
+    }
+    takeOutOfRow(s, src.id); // the source row goes
+    ops.push({ store: 'annotations', put: s });
+  }
+  const tgt = { ...tgt0, cellStatus: { ...(tgt0.cellStatus || {}) }, historyFrom: [...(tgt0.historyFrom || [])] };
+  ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation'].forEach(k => { tgt[k] = carryText(tgt[k], src[k], srcTitle); });
+  const movedIds = new Set(secs.map(s => s.id));
+  const docsInTgt = new Set([...secs.filter(s => s.clusterIds.includes(tgt.id)), ...rowSecsIn(project, tgt.id).filter(a => !movedIds.has(a.id))].map(a => a.docId));
+  Object.entries(src.cellStatus || {}).forEach(([docId, v]) => { if (!docsInTgt.has(docId) && !tgt.cellStatus[docId]) tgt.cellStatus[docId] = v; });
+  Object.keys(tgt.cellStatus).forEach(docId => { if (docsInTgt.has(docId)) delete tgt.cellStatus[docId]; });
+  if (!tgtNoBase && !rowBaseIn(project, tgt) && rowBaseIn(project, src)) tgt.baseDocId = src.baseDocId;
+  if (src.baselineChange && !tgt.baselineChange) tgt.baselineChange = src.baselineChange; // still to be re-read after study #1 changed
+  tgt.historyFrom = [...new Set([...tgt.historyFrom, src.id, ...(src.historyFrom || [])])];
+  ops.push({ store: 'clusters', put: tgt });
+  const links = Array.isArray(loa.links) ? moveRowLinks(loa.links, src.id, tgt.id) : null;
+  if (links) ops.push({ store: 'meta', put: { ...loa, links } });
+  ops.push({ store: 'clusters', del: src.id });
+  const after = { tgt: pickFields(tgt, MERGE_ROW_FIELDS), anns: secs.map(a => annRowState(a, ids)), links: deepCopy(links || loa.links || []) };
+  return { ops, before, after, moved, alreadyThere: secs.length - moved, differing, rejudge, srcTitle, tgtTitle,
+    srcBaseName: baseName(srcBase), tgtBaseName: baseName(tgtBase) };
+}
+
+// Cards secIds of row src go into a new row nw (a record not in the project yet), placed right below src; every row is
+// numbered again. "No single base" stays so in the new row; otherwise the new row keeps the source row's base when that
+// study's card moves with it, and is established by the first moved card's study when it does not. When the new row has
+// another base, the moved cards start unjudged there (the earlier judgement kept in the card's note), as in a merge.
+/** @param {any} project @param {string} srcId @param {string[]} secIds @param {any} newRow @param {any} [helpers] */
+function planSplitRow(project, srcId, secIds, newRow, helpers) {
+  const H = rowPlanHelpers(project, helpers);
+  const src = (project.clusters || []).find(c => c.id === srcId);
+  if (!src) return null;
+  const secs0 = rowSecsIn(project, src.id).filter(s => secIds.includes(s.id));
+  if (!secs0.length) return null;
+  const srcTitle = H.rowTitle(src);
+  const nw = { ...newRow, historyFrom: [src.id, ...(src.historyFrom || [])] };
+  const ids = [src.id, nw.id];
+  const beforeAnns = secs0.map(a => annRowState(a, ids));
+  const srcBase = rowBaseIn(project, src);
+  nw.baseDocId = src.baseDocId === null ? null : secs0.some(s => s.docId === srcBase) ? srcBase : secs0[0].docId;
+  const newBase = rowBaseIn(project, nw);
+  const baseChanges = src.baseDocId !== null && newBase !== srcBase;
+  const baseName = id => (id && H.docName(id)) || 'the row as a whole (no single base)';
+  const rel = r => H.relLabel(r);
+  const rejudge = [];
+  // Every card of the study that established the row moves: the row keeps its base, but the reviewer is told
+  const baseGone = !!srcBase && !rowSecsIn(project, src.id).some(s => s.docId === srcBase && !secIds.includes(s.id));
+  /** @type {{ store: string, put?: any, del?: any }[]} */ const ops = [];
+  const secs = secs0.map(copyForRows);
+  for (const s of secs) {
+    const rs = relationIn(project, s, src.id); // read before the card leaves the row
+    const from = takeOutOfRow(s, src.id);
+    const judged = rs !== 'unjudged' && rs !== 'baseline';
+    const asNote = text => carryText(from.clusterComments || '', text, srcTitle);
+    let next;
+    if (baseChanges && rs !== 'unjudged' && s.docId !== newBase) {
+      rejudge.push(`${H.docName(s.docId) || 'Study'} (p.${s.page})`);
+      next = { clusterComments: asNote(rs === 'baseline' ? `established that row; to judge against ${baseName(newBase)}` : `judged ${rel(rs)} against ${baseName(srcBase)} there; to judge again against ${baseName(newBase)}`) };
+    } else if (baseChanges && s.docId === newBase) {
+      next = { clusterComments: (judged ? asNote(`judged ${rel(rs)} against ${baseName(srcBase)} there; establishes the new row`) : from.clusterComments) || undefined };
+    } else {
+      next = from; // same base: the judgement, note and (with a ◇ judgement) line-of-argument mark carry over
+    }
+    putIntoRow(s, nw.id, next);
+    ops.push({ store: 'annotations', put: s });
+  }
+  const order = (project.clusters || []).filter(c => c.id !== nw.id);
+  order.splice(order.findIndex(c => c.id === src.id) + 1, 0, nw);
+  order.forEach((c, i) => ops.push({ store: 'clusters', put: c === nw ? Object.assign(nw, { order: i }) : { ...c, order: i } }));
+  return { ops, newRow: nw, before: { anns: beforeAnns }, after: { anns: secs.map(a => annRowState(a, ids)) }, rejudge, srcTitle,
+    srcBaseName: baseName(srcBase), newBaseName: baseName(newBase), baseGone: baseGone ? (H.docName(srcBase) || '') : '' };
+}
+
 // ======================= Merge of a backup into the open project (backup.js) =======================
 // Empty at every depth: an object counts as empty when all of its values are (e.g. appraisalItems { CASP: {} }, which the app
 // creates as soon as a study's appraisal is looked at)
