@@ -20,7 +20,7 @@ async function attachPdfFileToDoc(doc, file, { buffer = null, sha = '' } = {}) {
   const sameFile = !!sha && sha === doc.sha256;
   if (!sameFile) doc.fpDone = false; // fingerprint the newly attached file
   await dbBatch([{ store: 'pdf_binaries', put: { id: doc.id, data } }, { store: 'docs', put: doc }]); // the PDF and its study together
-  if (!sameFile) ensureDocFingerprints();
+  ensureDocFingerprints(); // only studies not yet fingerprinted are read (e.g. one whose DOI was never looked for)
 }
 
 // ---- Study fingerprints: recognise the same paper in a co-reviewer's file, whatever it is called ----
