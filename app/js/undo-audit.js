@@ -48,29 +48,23 @@ async function performUndoStep() {
   updateUndoButtonUI();
 
   if (last.type === 'delete_annotation') {
-    for (const a of last.annotations) {
-      await dbPut('annotations', a);
-      if (!state.annotations.find(x => x.id === a.id)) {
-        state.annotations.push(a);
-      }
-    }
+    // The construct, its quotes' links and its within-study relationships come back in one transaction (as they went);
+    // a placement in a row that was deleted in the meantime is not brought back
+    const ops = [];
+    const back = last.annotations.map(raw => dropGoneRows(normalizeAnnotation(JSON.parse(JSON.stringify(raw)))));
+    back.forEach(a => ops.push({ store: 'annotations', put: a }));
     if (last.unlinkedChildrenIds && last.parentId) {
       for (const cid of last.unlinkedChildrenIds) {
         const child = state.annotations.find(x => x.id === cid);
-        if (child) {
-          linkQuote(child, last.parentId);
-          await dbPut('annotations', child);
-        }
+        if (child) { linkQuote(child, last.parentId); ops.push({ store: 'annotations', put: child }); }
       }
     }
-    if ((last.removedConceptLinks || []).length) {
-      const d = state.docs.find(x => x.id === last.conceptLinksDocId);
-      if (d) {
-        const have = new Set((d.conceptLinks || []).map(l => l.id));
-        d.conceptLinks = [...(d.conceptLinks || []), ...last.removedConceptLinks.filter(l => !have.has(l.id))];
-        await dbPut('docs', d);
-      }
-    }
+    restoreConceptLinksOps(last, ops);
+    await dbBatch(ops);
+    back.forEach(a => {
+      const idx = state.annotations.findIndex(x => x.id === a.id);
+      if (idx >= 0) state.annotations[idx] = a; else state.annotations.push(a);
+    });
     // The deletion was logged, so is its undoing; a construct placed in rows concerns those rows (a key decision, as its
     // deletion was)
     for (const a of last.annotations) {
@@ -88,19 +82,17 @@ async function performUndoStep() {
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   } else if (last.type === 'annotation_snapshots') {
-    // Generic restore: put every snapshotted annotation back, delete the ones the operation created
-    for (const snap of last.snapshots) {
-      const copy = normalizeAnnotation(JSON.parse(JSON.stringify(snap)));
+    // Generic restore: put every snapshotted annotation back, delete the ones the operation created (one transaction);
+    // never a placement in a row that was deleted in the meantime
+    const copies = last.snapshots.map(snap => dropGoneRows(normalizeAnnotation(JSON.parse(JSON.stringify(snap)))));
+    const snapIds = new Set(last.snapshots.map(x => x.id));
+    const gone = (last.createdIds || []).filter(id => !snapIds.has(id));
+    await dbBatch([...copies.map(c => ({ store: 'annotations', put: c })), ...gone.map(id => ({ store: 'annotations', del: id }))]);
+    copies.forEach(copy => {
       const idx = state.annotations.findIndex(a => a.id === copy.id);
       if (idx >= 0) state.annotations[idx] = copy; else state.annotations.push(copy);
-      await dbPut('annotations', copy);
-    }
-    const snapIds = new Set(last.snapshots.map(x => x.id));
-    for (const id of (last.createdIds || [])) {
-      if (snapIds.has(id)) continue;
-      await dbDelete('annotations', id);
-      state.annotations = state.annotations.filter(a => a.id !== id);
-    }
+    });
+    if (gone.length) state.annotations = state.annotations.filter(a => !gone.includes(a.id));
     // Passages and constructs placed in rows: the undoing belongs to those rows' history
     const rowIds = [...new Set((last.snapshots || []).flatMap(a => (a.type === 'second_order' && a.clusterIds) || []))].filter(id => state.clusters.some(c => c.id === id));
     await recordAuditLog({ category: 'reading_extraction', action: `Undid: ${last.label}`, detail: '', clusterIds: rowIds.length ? rowIds : null });
@@ -108,24 +100,27 @@ async function performUndoStep() {
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   } else if (last.type === 'delete_cluster') {
-    await dbPut('clusters', last.cluster);
-    if (!state.clusters.find(c => c.id === last.cluster.id)) {
-      state.clusters.push(last.cluster);
-      state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
-    }
+    // The row, its cards' placements and its concept-map relations come back in one transaction (as they went)
+    const ops = [{ store: 'clusters', put: last.cluster }];
     for (const secId of (last.assignedSecIds || [])) {
       const sec = state.annotations.find(a => a.id === secId);
       if (sec) {
         normalizeAnnotation(sec);
         if (!sec.clusterIds.includes(last.cluster.id)) sec.clusterIds.push(last.cluster.id);
         Object.entries((last.perRow || {})[secId] || {}).forEach(([k, v]) => { sec[k] = { ...(sec[k] || {}), [last.cluster.id]: v }; });
-        await dbPut('annotations', sec);
+        ops.push({ store: 'annotations', put: sec });
       }
     }
     if ((last.removedLinks || []).length) {
       const have = new Set((state.loa.links || []).map(l => l.id));
-      state.loa = { ...state.loa, links: [...(state.loa.links || []), ...last.removedLinks.filter(l => !have.has(l.id))] };
-      await dbPut('meta', state.loa);
+      const rows = new Set([...state.clusters.map(c => c.id), last.cluster.id]); // never a relation to a row that is gone
+      state.loa = { ...state.loa, links: [...(state.loa.links || []), ...last.removedLinks.filter(l => !have.has(l.id) && rows.has(l.from) && rows.has(l.to))] };
+      ops.push({ store: 'meta', put: state.loa });
+    }
+    await dbBatch(ops);
+    if (!state.clusters.find(c => c.id === last.cluster.id)) {
+      state.clusters.push(last.cluster);
+      state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
     }
     // The deletion is in the trail, so its undoing is too (else Appendix A says "deleted" while Table 2 shows the row)
     await recordAuditLog({
@@ -194,7 +189,8 @@ async function performUndoStep() {
     const opId = last.type === 'row_merge' ? last.tgtId : last.newId; // the row the cards were moved into
     const ids = [last.srcId, opId];
     const kept = [];
-    const PER_ROW = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+    const ops = []; // written in one transaction at the end (as the merge / split was)
+    const PER_ROW = ANNOTATION_ROW_FIELDS;
     for (let i = 0; i < last.before.anns.length; i++) {
       const b = last.before.anns[i], af = last.after.anns[i];
       const a = state.annotations.find(x => x.id === b.id);
@@ -211,7 +207,7 @@ async function performUndoStep() {
           else a[k] = { ...(a[k] || {}), [rid]: b.keys[ki][j] };
         } else if (!same(cur, b.keys[ki][j])) kept.push(`${k === 'clusterRelations' ? 'a judgement' : k === 'clusterComments' ? 'a cell note' : 'a line-of-argument mark'} on p.${a.page}`);
       }));
-      await dbPut('annotations', normalizeAnnotation(a));
+      ops.push({ store: 'annotations', put: normalizeAnnotation(a) });
     }
     if (last.type === 'row_merge') {
       const tgt = state.clusters.find(c => c.id === last.tgtId);
@@ -220,10 +216,10 @@ async function performUndoStep() {
           if (same(tgt[f], last.after.tgt[f])) { if (last.before.tgt[f] === undefined) delete tgt[f]; else tgt[f] = last.before.tgt[f]; }
           else kept.push(`"${f}" of the merged row`);
         });
-        await dbPut('clusters', tgt);
+        ops.push({ store: 'clusters', put: tgt });
       }
       const src = normalizeCluster(last.before.src);
-      await dbPut('clusters', src);
+      ops.push({ store: 'clusters', put: src });
       if (!state.clusters.some(c => c.id === src.id)) state.clusters.push(src);
       state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
       // Concept-map relations: back to before, plus any relation added since, minus any removed since; never one to a row
@@ -237,7 +233,8 @@ async function performUndoStep() {
       if (removedSince.size) kept.push(`${removedSince.size} concept-map relation(s) removed since`);
       const rowsNow = new Set(state.clusters.map(c => c.id));
       state.loa = { ...state.loa, links: [...last.before.links.filter(l => !removedSince.has(l.id)), ...added].filter(l => rowsNow.has(l.from) && rowsNow.has(l.to)) };
-      await dbPut('meta', state.loa);
+      ops.push({ store: 'meta', put: state.loa });
+      await dbBatch(ops);
     } else {
       // Only the row the split created goes; every other row (including rows added since) stays in its place. What was put
       // into that row after the split is not lost: cards go to the original row, its texts are added there marked with
@@ -250,7 +247,7 @@ async function performUndoStep() {
           a.clusterIds = a.clusterIds.filter(x => x !== nw.id);
           if (!a.clusterIds.includes(srcRow.id)) a.clusterIds.push(srcRow.id);
           PER_ROW.forEach(k => { if (a[k] && nw.id in a[k]) { a[k] = { ...a[k] }; if (!(srcRow.id in a[k])) a[k][srcRow.id] = a[k][nw.id]; delete a[k][nw.id]; } });
-          await dbPut('annotations', a);
+          ops.push({ store: 'annotations', put: a });
           kept.push(`a card placed in "${nwTitle}" after the split (p.${a.page}), now in the original row`);
         }
         const carry = (into, from) => from && from.trim() ? (into && into.trim() ? into.trim() + '\n\n' : '') + `[From row "${nwTitle}"] ` + from.trim() : (into || '');
@@ -258,7 +255,7 @@ async function performUndoStep() {
         ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation'].forEach(f => {
           if ((nw[f] || '').trim()) { srcRow[f] = carry(srcRow[f], nw[f]); carried = true; }
         });
-        if (carried) { await dbPut('clusters', srcRow); kept.push(`the texts written in "${nwTitle}", added to the original row`); }
+        if (carried) { ops.push({ store: 'clusters', put: srcRow }); kept.push(`the texts written in "${nwTitle}", added to the original row`); }
         if ((state.loa.links || []).some(l => l.from === nw.id || l.to === nw.id)) {
           const seen = new Set(), out = [];
           state.loa.links.forEach(l => {
@@ -268,13 +265,15 @@ async function performUndoStep() {
             if (n.from === n.to || seen.has(key)) return;
             seen.add(key); out.push(n);
           });
-          state.loa = { ...state.loa, links: out }; await dbPut('meta', state.loa);
+          state.loa = { ...state.loa, links: out }; ops.push({ store: 'meta', put: state.loa });
           kept.push(`concept-map relations of "${nwTitle}", moved to the original row`);
         }
       }
-      await dbDelete('clusters', last.newId);
+      // The new row goes and the order is renumbered in the same transaction
+      ops.push({ store: 'clusters', del: last.newId });
       state.clusters = state.clusters.filter(c => c.id !== last.newId);
-      await persistClusterOrder();
+      state.clusters.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
+      await dbBatch(ops);
     }
     await recordAuditLog({ category: 'third_order', action: `Undid: ${last.label}`, clusterIds: ids,
       detail: kept.length ? `Kept what was changed after it: ${[...new Set(kept)].join('; ')}.` : '' });
@@ -312,27 +311,37 @@ async function performUndoStep() {
     await dbPut('meta', state.loa);
     renderLoaMap();
   } else if (last.type === 'toggle_order_type') {
+    // Back to its type with its links, row placements (only rows that still exist) and within-study relationships, in one transaction
+    const ops = [];
     const idx = state.annotations.findIndex(a => a.id === last.snapshot.id);
-    if (idx >= 0) {
-      const restored = normalizeAnnotation(JSON.parse(JSON.stringify(last.snapshot)));
-      state.annotations[idx] = restored;
-      await dbPut('annotations', restored);
-    }
+    const restored = idx >= 0 ? dropGoneRows(normalizeAnnotation(JSON.parse(JSON.stringify(last.snapshot)))) : null;
+    if (restored) ops.push({ store: 'annotations', put: restored });
     if (Array.isArray(last.unlinkedChildrenIds) && last.unlinkedChildrenIds.length > 0) {
       for (const cid of last.unlinkedChildrenIds) {
         const child = state.annotations.find(x => x.id === cid);
-        if (child) {
-          linkQuote(child, last.snapshot.id);
-          await dbPut('annotations', child);
-        }
+        if (child) { linkQuote(child, last.snapshot.id); ops.push({ store: 'annotations', put: child }); }
       }
     }
-    await recordAuditLog({ category: 'linking', action: `Undid: ${last.label}`, detail: 'Back to its type before the switch, with its links and row placements.', clusterIds: (last.snapshot.clusterIds || []).length ? last.snapshot.clusterIds : null, isMinorOp: true });
+    if (restored) restoreConceptLinksOps(last, ops);
+    await dbBatch(ops);
+    if (restored) state.annotations[idx] = restored;
+    const rows = restored ? liveClusterIds(restored) : [];
+    await recordAuditLog({ category: 'linking', action: `Undid: ${last.label}`, detail: 'Back to its type before the switch, with its links and row placements.', clusterIds: rows.length ? rows : null, isMinorOp: true });
     renderHighlights();
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   }
   showSnackbar(`Undid: ${last.label}`);
+}
+
+// A construct's within-study relationships (Appendix C) removed with it: put them back on their study (ops for dbBatch)
+function restoreConceptLinksOps(last, ops) {
+  if (!(last.removedConceptLinks || []).length) return;
+  const d = state.docs.find(x => x.id === last.conceptLinksDocId);
+  if (!d) return;
+  const have = new Set((d.conceptLinks || []).map(l => l.id));
+  d.conceptLinks = [...(d.conceptLinks || []), ...last.removedConceptLinks.filter(l => !have.has(l.id))];
+  ops.push({ store: 'docs', put: d });
 }
 
 // ========================================================

@@ -808,6 +808,7 @@ async function importPeerConstruct(item, status) {
     cmp.docMapPeerToLocal[item.peerDoc.id] = stub.id;
     cmp.unmatchedPeerDocs = cmp.unmatchedPeerDocs.filter(x => x.id !== item.peerDoc.id);
     cmp.matchedStudies.push({ localDoc: stub, peerDoc: item.peerDoc, how: 'added' });
+    if (!state.loa.baselineDocId) await checkBaselineChange(); // into an empty project: the first study added becomes #1 (as in handleFiles)
     renderStudyList();
   }
   if (!targetDocId) return;

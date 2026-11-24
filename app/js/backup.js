@@ -209,7 +209,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         if (d.companionOf) d.companionOf = toLocalDoc(d.companionOf);
         const existing = findLocalDoc(d);
         if (existing) {
-          const r = mergeFillEmpty(existing, d, ['id', 'hasBinary', 'order']);
+          const r = mergeFillEmpty(existing, d, ['id', 'hasBinary', 'order', 'fpDone']); // fpDone: bookkeeping, not content
           if (r.conflicts.length) mergeReport.conflicts.push(`Study ${getDisplayName(existing)}: ${r.conflicts.join(', ')}`);
           if (r.filled.length) { mergeReport.filled++; await dbPut('docs', existing); }
         } else {
@@ -301,6 +301,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     updateAuditBadge();
     renderStudyList();
+    if (replaceCleanly) await releaseWorkspaceView(); // the previous project's PDF and caches, even if no study is opened now
     state.activeDocId = state.docs[0]?.id || null;
     if (state.activeDocId) {
       await switchStudy(state.activeDocId);
@@ -335,14 +336,9 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
   e.target.value = '';
 });
 
-document.getElementById('resetProjectBtn').addEventListener('click', async () => {
-  const ok = await askChoice({
-    title: 'Reset the project (start blank)?',
-    body: 'All studies, PDFs, constructs, matrix rows and audit trail entries in this browser are removed. This cannot be undone: use Backup first if you may need this project again.',
-    choices: [{ value: 'reset', tone: 'danger', label: 'Remove everything and start blank' }]
-  });
-  if (!ok) return;
-
+// The workspace is being replaced (reset, clean restore): let go of the open PDF and of what was cached for the old project
+// (PDF search index, matrix row heights), so nothing of it lingers when the new project has no study to open
+async function releaseWorkspaceView() {
   if (pageObserver) {
     pageObserver.disconnect();
     pageObserver = null;
@@ -351,6 +347,19 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
     try { await state.activePdfDoc.destroy(); } catch (e) {}
     state.activePdfDoc = null;
   }
+  Object.assign(pdfSearchState, { docId: null, pageTexts: [], matches: [], activeIdx: -1, lastQuery: '' });
+  Object.keys(matrixRowHeights).forEach(k => delete matrixRowHeights[k]);
+}
+
+document.getElementById('resetProjectBtn').addEventListener('click', async () => {
+  const ok = await askChoice({
+    title: 'Reset the project (start blank)?',
+    body: 'All studies, PDFs, constructs, matrix rows and audit trail entries in this browser are removed. This cannot be undone: use Backup first if you may need this project again.',
+    choices: [{ value: 'reset', tone: 'danger', label: 'Remove everything and start blank' }]
+  });
+  if (!ok) return;
+
+  await releaseWorkspaceView();
 
   await Promise.all([
     dbClear('docs'),

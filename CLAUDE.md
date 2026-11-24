@@ -112,6 +112,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row. A placed card is judged 'reciprocal',
   'refutational' or 'other_aspect' (◇, Noblit & Hare's third relation; `aspectUsedInLoa[rowId]` marks those the line of
   argument draws on), or stays 'unjudged'.
+  A construct's per-row fields are `ANNOTATION_ROW_FIELDS` (core.js); whatever brings a construct back (Undo, split off a passage)
+  passes it through `dropGoneRows()`, so it never points to a row deleted in the meantime.
   Items imported in Compare before what they belong to is here keep the peer's links in `_peerParentIds` (a quote waiting for its
   2nd order construct) / `_peerRows` (a construct waiting for its row: per peer row id, the judgement, cell note, line-of-argument
   mark and the peer row's title, so a row of that title made here later takes it in): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.

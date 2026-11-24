@@ -1680,6 +1680,8 @@ await group('Review fixes 5: drawer autosave, merge across bases, split undo kee
     return { failed, unchanged: (after && after.note) === (before && before.note) };
   });
   check('a batch with a failing write stores none of its writes', atomic.failed && atomic.unchanged, JSON.stringify(atomic));
+  // The failed write opened a "could not be saved" notice: let it be answered before the restore below asks its own question
+  await settle(p);
   // Merge restore: an empty text here is filled from the backup's version of the same item
   const json = await p.evaluate(() => {
     const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode, formatVersion: PROJECT_FORMAT }));
@@ -2038,7 +2040,7 @@ await group('Line-of-argument map: boxes can be moved, keep their place per layo
   await tab(p, 'matrix'); await settle(p);
   await p.evaluate(async () => {
     const ids = state.clusters.map(c => c.id);
-    state.loa.links = [{ id: 'm1', from: ids[0], to: ids[1], type: 'leads', note: '' }, { id: 'm2', from: ids[1], to: ids[2], type: 'tension', note: '' }];
+    state.loa.links = [{ id: 'm1', from: ids[0], to: ids[1], type: 'leads', note: '' }, { id: 'm2', from: ids[1], to: ids[2], type: 'contradicts', note: '' }];
     state.loa.mapLayout = 'circle'; delete state.loa.mapPositions;
     await dbPut('meta', state.loa);
   });
@@ -2122,6 +2124,95 @@ await group('Appendix A rules still match the audit entries the app writes', asy
   rules.routine.forEach(r => test(r, 'routine'));
   test(rules.writeup, 'writeup');
   check('every Appendix A rule matches an action the app writes', dead.length === 0, dead.join('; '));
+});
+
+await group('Review fixes 8: switch and undo tidy per-row marks and relationships, one transaction per change, demo not unbacked, Escape, tabs, parallel loops', async () => {
+  const p = await openDemo();
+  check('loading the demo leaves no "not backed up" mark', await p.evaluate(() => !lsGet('unbackedSince') && document.getElementById('backupReminder').classList.contains('hidden')));
+  // Flow map: two relations between the same two rows of one column, and two feedback loops, do not draw on top of each other
+  const fl = await p.evaluate(() => {
+    const keep = state.loa.links;
+    const ids = state.clusters.map(c => c.id);
+    state.loa.links = [{ id: 't1', from: ids[0], to: ids[1], type: 'mutual' }, { id: 't2', from: ids[0], to: ids[1], type: 'contradicts' },
+      { id: 't3', from: ids[0], to: ids[2], type: 'leads' }, { id: 't4', from: ids[2], to: ids[0], type: 'mutual' }, { id: 't5', from: ids[2], to: ids[0], type: 'contradicts' }];
+    const svg = buildFlowMapSvg('t');
+    state.loa.links = keep;
+    const ds = [...svg.matchAll(/<path d="([^"]+)" fill="none"/g)].map(m => m[1]);
+    return { n: ds.length, distinct: new Set(ds).size };
+  });
+  check('parallel relations in the left-to-right map are drawn apart (same column and feedback loops too)', fl.n === 5 && fl.distinct === 5, JSON.stringify(fl));
+  // 2nd -> 1st switch: its line-of-argument marks and within-study relationships go; Ctrl+Z brings them back
+  const sw = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && !(a.passages || []).length && (a.clusterIds || []).length);
+    const doc = state.docs.find(d => d.id === sec.docId);
+    const other = state.annotations.find(a => a.type === 'second_order' && a.docId === doc.id && a.id !== sec.id);
+    if (!other) return { skip: true };
+    const rid = sec.clusterIds[0];
+    sec.aspectUsedInLoa = { [rid]: true };
+    doc.conceptLinks = [...(doc.conceptLinks || []), { id: 'cl_test', from: sec.id, to: other.id, type: 'leads', note: '' }];
+    await dbPut('annotations', sec); await dbPut('docs', doc);
+    await toggleAnnotationOrderType(sec.id);
+    const a = await dbGet('annotations', sec.id), d = await dbGet('docs', doc.id);
+    const switched = a.type === 'first_order' && !a.aspectUsedInLoa && !(d.conceptLinks || []).some(l => l.id === 'cl_test');
+    await performUndo();
+    const b = await dbGet('annotations', sec.id), d2 = await dbGet('docs', doc.id);
+    return { switched, back: b.type === 'second_order' && !!(b.aspectUsedInLoa || {})[rid] && (d2.conceptLinks || []).some(l => l.id === 'cl_test') };
+  });
+  if (!sw.skip) check('switching a construct to a quote drops its line-of-argument marks and within-study relationships; Ctrl+Z restores them', sw.switched && sw.back, JSON.stringify(sw));
+  await settle(p);
+  // Absorb a construct as a passage and split it off again: its line-of-argument mark moves with it and back
+  const ab = await p.evaluate(async () => {
+    const secs = state.annotations.filter(a => a.type === 'second_order' && !(a.passages || []).length);
+    let src, tgt;
+    for (const s1 of secs) {
+      const rid = (s1.clusterIds || [])[0];
+      const t = rid && secs.find(x => x.id !== s1.id && x.docId === s1.docId && !(x.clusterIds || []).includes(rid));
+      if (t) { src = s1; tgt = t; break; }
+    }
+    if (!src) return { skip: true };
+    const rid = src.clusterIds[0];
+    src.aspectUsedInLoa = { [rid]: true }; await dbPut('annotations', src);
+    await absorbAsPassage(src, tgt);
+    const t1 = await dbGet('annotations', tgt.id);
+    const moved = !!(t1.aspectUsedInLoa || {})[rid] && !(await dbGet('annotations', src.id));
+    const live = state.annotations.find(a => a.id === tgt.id);
+    await splitOffPassage(live, live.passages.find(x => x.absorbed).id);
+    const t2 = await dbGet('annotations', tgt.id), back = await dbGet('annotations', src.id);
+    return { moved, back: !!back && !!(back.aspectUsedInLoa || {})[rid] && !((t2.aspectUsedInLoa || {})[rid]) };
+  });
+  if (!ab.skip) check('a construct made a passage takes its line-of-argument mark along, and gets it back when split off', ab.moved && ab.back, JSON.stringify(ab));
+  else check('passage absorb: demo has suitable constructs', false, 'none');
+  await settle(p);
+  // Delete a construct, then its row, then undo the construct: it comes back without the row that is gone
+  const ud = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && (a.clusterIds || []).length);
+    const rid = sec.clusterIds[0];
+    sec.clusterRelations = { ...(sec.clusterRelations || {}), [rid]: 'reciprocal' }; sec.aspectUsedInLoa = { [rid]: true };
+    await dbPut('annotations', sec);
+    pushUndoAction({ type: 'delete_annotation', label: 'test', annotations: [JSON.parse(JSON.stringify(sec))], unlinkedChildrenIds: [], parentId: sec.id });
+    await dbDelete('annotations', sec.id); state.annotations = state.annotations.filter(a => a.id !== sec.id);
+    await dbDelete('clusters', rid); state.clusters = state.clusters.filter(c => c.id !== rid);
+    await performUndo();
+    const a = await dbGet('annotations', sec.id);
+    return { back: !!a, noGoneRow: !!a && !a.clusterIds.includes(rid) && !(rid in (a.clusterRelations || {})) && !(rid in (a.aspectUsedInLoa || {})) };
+  });
+  check('undoing a construct deletion never brings back a placement in a row deleted since', ud.back && ud.noGoneRow, JSON.stringify(ud));
+  await settle(p);
+  // Tabs
+  await tab(p, 'audit'); await settle(p);
+  const tabs = await p.evaluate(() => ['viewExtractBtn', 'viewMatrixBtn', 'viewAuditBtn', 'viewPubBtn'].map(id => { const b = document.getElementById(id); return b.getAttribute('role') + ':' + b.getAttribute('aria-selected'); }).join(','));
+  check('view buttons are tabs and say which one is selected', tabs === 'tab:false,tab:false,tab:true,tab:false', tabs);
+  await tab(p, 'extract'); await settle(p);
+  // Escape closes the project setup when it was opened to edit (it has a close button then), not at first start
+  await p.evaluate(() => openProjectSetupModal({ isInitialOrReset: false })); await settle(p);
+  await p.keyboard.press('Escape'); await settle(p);
+  check('Escape closes the project setup opened from the header', await p.evaluate(() => document.getElementById('reviewerLoginModal').classList.contains('hidden')));
+  await p.evaluate(() => openProjectSetupModal({ isInitialOrReset: true })); await settle(p);
+  await p.keyboard.press('Escape'); await settle(p);
+  check('Escape does not close the first-start project setup', await p.evaluate(() => !document.getElementById('reviewerLoginModal').classList.contains('hidden')));
+  await p.evaluate(() => document.getElementById('reviewerLoginModal').classList.add('hidden'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
 });
 
 await group('No browser dialogs: alert(), confirm() and prompt() are not used', async () => {

@@ -106,18 +106,16 @@ async function assignSecondOrderToCluster(sec, cluster) {
   delete sec.clusterRelations[cluster.id];
   if (sec.clusterComments) delete sec.clusterComments[cluster.id];
   if (sec.aspectUsedInLoa && sec.aspectUsedInLoa[cluster.id]) { sec.aspectUsedInLoa = { ...sec.aspectUsedInLoa }; delete sec.aspectUsedInLoa[cluster.id]; }
-  await dbPut('annotations', sec);
   normalizeCluster(cluster);
+  let rowChanged = false;
   // The first construct placed in a new row establishes it (◆); the reviewer can change this in the row header
-  if (cluster.baseDocId === '') {
-    cluster.baseDocId = sec.docId;
-    await dbPut('clusters', cluster);
-  }
+  if (cluster.baseDocId === '') { cluster.baseDocId = sec.docId; rowChanged = true; }
   // The study now has a construct in this row, so an earlier "not addressed / different aspect" note no longer applies
   const prevStatus = emptyCellInfo(cluster, sec.docId);
+  if (prevStatus) { delete cluster.cellStatus[sec.docId]; rowChanged = true; }
+  // The placement and what it changes in the row in one transaction
+  await dbBatch([{ store: 'annotations', put: sec }, ...(rowChanged ? [{ store: 'clusters', put: cluster }] : [])]);
   if (prevStatus) {
-    delete cluster.cellStatus[sec.docId];
-    await dbPut('clusters', cluster);
     await recordAuditLog({
       clusterIds: [cluster.id], category: 'relating_studies',
       action: `Cleared "${prevStatus.label}" for ${getDisplayName(state.docs.find(d => d.id === sec.docId))} in "${cluster.thirdOrderTitle || 'Untitled Row'}": a construct was placed there`,
@@ -1187,7 +1185,7 @@ function renderMatrixTable() {
         cluster.thirdOrderTitle = newTitle;
         await dbPut('clusters', cluster);
         renderLoaClusterChips();
-        if (await reattachWaitingForRow(cluster)) renderMatrixTable();
+        if (await reattachWaitingForRow(cluster)) { renderSecondOrderPool(); renderMatrixTable(); } // the pool's "waits for the row" badges too
         await recordAuditLog({
           clusterIds: [cluster.id],
           category: 'third_order',

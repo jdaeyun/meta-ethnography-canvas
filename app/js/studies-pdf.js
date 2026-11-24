@@ -229,8 +229,10 @@ async function checkBaselineChange() {
   const nowId = now ? now.id : null;
   if (prevId === nowId && (!now || prevName === getDisplayName(now))) return;
   state.loa = { ...state.loa, id: 'loa_main', baselineDocId: nowId, baselineDocName: now ? getDisplayName(now) : '' };
-  await dbPut('meta', state.loa);
-  if (!prevId || !nowId || prevId === nowId) return; // first study ever, or only the name changed
+  const bookkeeping = !prevId || !nowId || prevId === nowId; // first study ever, or only the name changed
+  // Only remembering which study is #1 (the change that caused it was saved and marked already): no backup reminder for it
+  await dbPut('meta', state.loa, { quiet: bookkeeping });
+  if (bookkeeping) return;
   await flagRowsForBaselineChange(prevId, prevName, now);
 }
 

@@ -218,8 +218,8 @@ async function dbPut(store, item, { quiet = false } = {}) {
 }
 // Several writes across stores in ONE transaction: all of them are stored, or none (a crash, a full disk or an error part way
 // leaves the project as it was). For operations that change several records at once: merging / splitting / deleting rows and
-// deleting a study. ops: [{ store, put: item } | { store, del: key }]
-async function dbBatch(ops) {
+// deleting a study. ops: [{ store, put: item } | { store, del: key }]. quiet: as for dbPut (writes the user did not make)
+async function dbBatch(ops, { quiet = false } = {}) {
   if (!ops.length) return;
   const stores = [...new Set(ops.map(o => o.store))];
   stores.forEach(invalidateMatrixIndex);
@@ -236,7 +236,7 @@ async function dbBatch(ops) {
       reject(err);
       return;
     }
-    tx.oncomplete = () => { flashSaveStatus('saved'); markUnbackedChange(); resolve(); };
+    tx.oncomplete = () => { if (!quiet) { flashSaveStatus('saved'); markUnbackedChange(); } resolve(); };
     tx.onerror = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error); };
     tx.onabort = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error || new Error('IndexedDB transaction aborted')); };
   });
@@ -276,7 +276,8 @@ async function dbDelete(store, key) {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).delete(key);
     tx.oncomplete = () => { flashSaveStatus('saved'); markUnbackedChange(); resolve(); };
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error); };
+    tx.onabort = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error || new Error('IndexedDB transaction aborted')); };
   });
 }
 async function dbClear(store) {
@@ -493,6 +494,21 @@ function unlinkQuote(f, secId) {
   f.parentIds = quoteParentIds(f).filter(id => id !== secId);
 }
 function clearQuoteLinks(f) { f.parentIds = []; }
+// A 2nd Order construct's per-row fields (keyed by 3rd Order row id), besides its clusterIds
+const ANNOTATION_ROW_FIELDS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+// Drop the construct's placements in rows that no longer exist (e.g. a construct brought back by Undo after its row was
+// deleted): its clusterIds and every per-row field. Returns the construct.
+function dropGoneRows(a) {
+  if (!a || a.type !== 'second_order') return a;
+  const live = new Set(state.clusters.map(c => c.id));
+  if (Array.isArray(a.clusterIds)) a.clusterIds = a.clusterIds.filter(id => live.has(id));
+  ANNOTATION_ROW_FIELDS.forEach(k => {
+    if (a[k] && typeof a[k] === 'object' && Object.keys(a[k]).some(id => !live.has(id))) {
+      a[k] = Object.fromEntries(Object.entries(a[k]).filter(([id]) => live.has(id)));
+    }
+  });
+  return a;
+}
 // Evidence of a 2nd order construct = primary passage + additional passages
 function secAllPassages(s) {
   return [{ text: s.text, page: s.page }, ...((s.passages || []).map(p => ({ text: p.text, page: p.page })))];

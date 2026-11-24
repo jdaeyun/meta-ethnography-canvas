@@ -510,12 +510,14 @@ async function absorbAsPassage(source, target) {
 
   addedClusterIds.forEach(cid => {
     target.clusterIds.push(cid);
-    if (source.clusterRelations[cid]) target.clusterRelations[cid] = source.clusterRelations[cid];
-    if (source.clusterComments[cid]) target.clusterComments[cid] = source.clusterComments[cid];
+    ANNOTATION_ROW_FIELDS.forEach(k => {
+      if (source[k] && source[k][cid]) target[k] = { ...(target[k] || {}), [cid]: source[k][cid] };
+    });
   });
-  for (const f of children) { unlinkQuote(f, source.id); linkQuote(f, target.id); await dbPut('annotations', f); }
-  await dbPut('annotations', target);
-  await dbDelete('annotations', source.id);
+  // (Its within-study relationships (Appendix C) stay on the study under its id: hidden while it is a passage, back when split off)
+  const ops = children.map(f => { unlinkQuote(f, source.id); linkQuote(f, target.id); return { store: 'annotations', put: f }; });
+  ops.push({ store: 'annotations', put: target }, { store: 'annotations', del: source.id });
+  await dbBatch(ops); // its quotes and both constructs in one transaction
   state.annotations = state.annotations.filter(a => a.id !== source.id);
 
   await recordAuditLog({
@@ -545,10 +547,10 @@ async function splitOffPassage(sec, pid) {
     // Give back the matrix rows it brought with it (only those the target did not have already)
     (p.absorbed.addedClusterIds || []).forEach(cid => {
       sec.clusterIds = sec.clusterIds.filter(x => x !== cid);
-      delete sec.clusterRelations[cid]; delete sec.clusterComments[cid];
+      ANNOTATION_ROW_FIELDS.forEach(k => { if (sec[k] && cid in sec[k]) { sec[k] = { ...sec[k] }; delete sec[k][cid]; } });
     });
-    restored.clusterIds = restored.clusterIds.filter(cid => state.clusters.some(c => c.id === cid));
-    for (const f of affectedQuotes) { unlinkQuote(f, sec.id); linkQuote(f, restored.id); await dbPut('annotations', f); }
+    dropGoneRows(restored); // placements in rows deleted since it was absorbed do not come back
+    affectedQuotes.forEach(f => { unlinkQuote(f, sec.id); linkQuote(f, restored.id); });
   } else {
     restored = normalizeAnnotation({
       id: 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
@@ -563,8 +565,8 @@ async function splitOffPassage(sec, pid) {
   // Patch the undo entry so that Undo also removes the re-created construct
   const top = state.undoStack[state.undoStack.length - 1];
   if (top && top.type === 'annotation_snapshots') top.createdIds = [restored.id];
-  await dbPut('annotations', sec);
-  await dbPut('annotations', restored);
+  // Both constructs and the quotes that go back with it in one transaction
+  await dbBatch([sec, restored, ...affectedQuotes].map(a => ({ store: 'annotations', put: a })));
   state.annotations.push(restored);
   await recordAuditLog({
     category: 'reading_extraction',
@@ -954,17 +956,18 @@ async function toggleAnnotationOrderType(annoId) {
       return;
     }
     // Undoable (Ctrl+Z): no question first; the notice says what changed and offers Undo
-    const switchNotice = [linkedChildren.length ? `${linkedChildren.length} linked quote(s) unlinked` : '', hasClusters ? `removed from ${a.clusterIds.length} matrix row(s)` : ''].filter(Boolean).join(', ');
+    // Its within-study relationships (Appendix C) are between constructs: they go with it, and Ctrl+Z puts them back
+    const removedConceptLinks = ((doc && doc.conceptLinks) || []).filter(l => l.from === a.id || l.to === a.id);
+    const switchNotice = [linkedChildren.length ? `${linkedChildren.length} linked quote(s) unlinked` : '', hasClusters ? `removed from ${a.clusterIds.length} matrix row(s)` : '', removedConceptLinks.length ? `${removedConceptLinks.length} within-study relationship(s) removed` : ''].filter(Boolean).join(', ');
     pushUndoAction({
       type: 'toggle_order_type',
       label: `Switch 2nd ➔ 1st Order (p.${a.page})`,
       snapshot: snapshotBefore,
-      unlinkedChildrenIds: linkedChildren.map(c => c.id)
+      unlinkedChildrenIds: linkedChildren.map(c => c.id),
+      removedConceptLinks, conceptLinksDocId: doc ? doc.id : null
     });
-    for (const child of linkedChildren) {
-      unlinkQuote(child, a.id);
-      await dbPut('annotations', child);
-    }
+    const ops = linkedChildren.map(child => { unlinkQuote(child, a.id); return { store: 'annotations', put: child }; });
+    if (removedConceptLinks.length) { doc.conceptLinks = doc.conceptLinks.filter(l => !removedConceptLinks.includes(l)); ops.push({ store: 'docs', put: doc }); }
     a.type = 'first_order';
     clearQuoteLinks(a);
     delete a.passages;
@@ -976,7 +979,10 @@ async function toggleAnnotationOrderType(annoId) {
     a.clusterIds = [];
     a.clusterComments = {};
     a.clusterRelations = {};
-    await dbPut('annotations', a);
+    delete a.aspectUsedInLoa;
+    delete a.notTranslatedNote;
+    ops.push({ store: 'annotations', put: a });
+    await dbBatch(ops); // the quote, its former quotes' links and its study's relationships in one transaction
     await recordAuditLog({
       category: 'linking',
       action: `Switched 2nd Order Construct to 1st Order Quote (${getDisplayName(doc)}, p.${a.page})`,

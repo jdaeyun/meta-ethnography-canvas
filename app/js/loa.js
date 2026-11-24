@@ -179,8 +179,12 @@ function buildFlowMapSvg(prefix) {
   const pos = {};
   const colHeights = cols.map(col => col.reduce((h, id) => h + (wrap(clusterLabel(state.clusters.find(c => c.id === id))).length * 14 + 14) + rowGap, -rowGap));
   let H = Math.max(160, Math.max(...colHeights) + padY * 2 + 20);
+  // Parallel relations of one pair part by these offsets. pairOff is measured along the link's own direction (for curves that
+  // bend to one side of it); sideOff is the same spread independent of direction (for loops that always go one way)
+  const flowOffsets = linkPairOffsets(links, 16);
+  const sideOff = l => (flowOffsets[l.id] || 0) * ([l.from, l.to].sort()[0] === l.from ? 1 : -1);
   // Same-column relations loop out to the right of their column (see below): leave room for the loops of the last column
-  const loopReach = l => 0.75 * (22 + 10 * Math.abs((orderIdx[l.to] || 0) - (orderIdx[l.from] || 0))) + 10;
+  const loopReach = l => 0.75 * (22 + 10 * Math.abs((orderIdx[l.to] || 0) - (orderIdx[l.from] || 0)) + Math.max(0, sideOff(l))) + 10;
   const lastColLoop = Math.max(0, ...links.filter(l => rank[l.from] === nCols - 1 && rank[l.to] === nCols - 1).map(loopReach));
   let W = padX * 2 + nCols * boxW + (nCols - 1) * colGap + Math.max(0, lastColLoop - padX);
   cols.forEach((col, ci) => {
@@ -193,6 +197,7 @@ function buildFlowMapSvg(prefix) {
       y += h + rowGap;
     });
   });
+  H += Math.max(0, ...links.map(sideOff)) * 0.75; // room below for the outer one of nested feedback loops
   // Boxes the reviewer moved keep their place (never off the top or left edge); the map grows to hold them and their links
   const moved = new Set();
   Object.entries(pos).forEach(([id, p]) => {
@@ -208,25 +213,25 @@ function buildFlowMapSvg(prefix) {
   Object.entries(LINK_TYPES).forEach(([k, v]) => {
     defs += `<marker id="${prefix}-fl-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${v.color}"/></marker>`;
   });
-  const flowOffsets = linkPairOffsets(links, 16);
   links.forEach(l => {
     const m = LINK_TYPES[l.type] || LINK_TYPES.leads;
     const a = pos[l.from], b = pos[l.to];
     let d;
-    const po = flowOffsets[l.id] || 0; // parallel relations of one pair: their curves part by this much
+    const po = flowOffsets[l.id] || 0, so = sideOff(l); // parallel relations of one pair: their curves part by this much
     // Read from where the boxes are, so a moved box is joined the same way as one in its column
     const ahead = b.x - b.w / 2 >= a.x + a.w / 2 + 10, behind = b.x + b.w / 2 <= a.x - a.w / 2 - 10;
     if (ahead) {                               // forward step: right edge → left edge
       const x1 = a.x + a.w / 2, x2 = b.x - b.w / 2 - 2, mx = (x1 + x2) / 2;
       d = `M${x1.toFixed(1)},${(a.y + po / 3).toFixed(1)} C${mx.toFixed(1)},${(a.y + po).toFixed(1)} ${mx.toFixed(1)},${(b.y + po).toFixed(1)} ${x2.toFixed(1)},${(b.y + po / 3).toFixed(1)}`;
-    } else if (behind) {                       // feedback loop: arc below the boxes
-      const x1 = a.x, x2 = b.x, y1 = a.y + a.h / 2, y2 = b.y + b.h / 2 + 2, low = Math.max(y1, y2) + 34;
+    } else if (behind) {                       // feedback loop: arc below the boxes (parallel ones nested)
+      const x1 = a.x + so, x2 = b.x + so, y1 = a.y + a.h / 2, y2 = b.y + b.h / 2 + 2, low = Math.max(y1, y2) + 34 + so;
       d = `M${x1.toFixed(1)},${y1.toFixed(1)} C${x1.toFixed(1)},${low.toFixed(1)} ${x2.toFixed(1)},${low.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
     } else {                                   // same column: loop out to the right so boxes in between are not crossed
       const x1 = a.x + a.w / 2, x2 = b.x + b.w / 2 + 2;
       const apart = moved.has(l.from) || moved.has(l.to) ? Math.round(Math.abs(b.y - a.y) / 50) : Math.abs(orderIdx[l.to] - orderIdx[l.from]);
-      const cx = Math.max(x1, x2) + 22 + 10 * apart;
-      d = `M${x1.toFixed(1)},${a.y.toFixed(1)} C${cx.toFixed(1)},${a.y.toFixed(1)} ${cx.toFixed(1)},${b.y.toFixed(1)} ${x2.toFixed(1)},${b.y.toFixed(1)}`;
+      const cx = Math.max(x1, x2) + Math.max(10, 22 + 10 * apart + so); // parallel loops nested
+      const ya = a.y + so / 4, yb = b.y + so / 4;
+      d = `M${x1.toFixed(1)},${ya.toFixed(1)} C${cx.toFixed(1)},${ya.toFixed(1)} ${cx.toFixed(1)},${yb.toFixed(1)} ${x2.toFixed(1)},${yb.toFixed(1)}`;
     }
     const markers = isDirectedLink(l.type) ? `marker-end="url(#${prefix}-fl-${l.type})"` : `marker-start="url(#${prefix}-fl-${l.type})" marker-end="url(#${prefix}-fl-${l.type})"`;
     paths += `<path d="${d}" fill="none" stroke="${m.color}" stroke-width="1.8" ${m.dash ? `stroke-dasharray="${m.dash}"` : ''} ${markers}><title>${escapeHtml(a.label)} ${m.label} ${escapeHtml(b.label)}${l.note ? ' — ' + escapeHtml(l.note) : ''}</title></path>`;
