@@ -321,8 +321,9 @@ function renderLoaAspects() {
     await recordAuditLog({
       clusterIds: [x.cluster.id],
       category: 'line_of_argument',
-      action: cb.checked ? `Line of argument draws on a different aspect: ${getDisplayName(x.doc)} (beside "${clusterLabel(x.cluster)}")`
-        : `Line of argument no longer draws on: ${getDisplayName(x.doc)} (beside "${clusterLabel(x.cluster)}")`,
+      // (a card placed in the row and judged ◇, or an empty cell marked ◇ beside it)
+      action: cb.checked ? `Line of argument draws on a different aspect: ${getDisplayName(x.doc)} (${x.sec ? 'in' : 'beside'} "${clusterLabel(x.cluster)}")`
+        : `Line of argument no longer draws on: ${getDisplayName(x.doc)} (${x.sec ? 'in' : 'beside'} "${clusterLabel(x.cluster)}")`,
       detail: x.note,
       fromVal: cb.checked ? 'Not used' : 'Used in the line of argument',
       toVal: cb.checked ? 'Used in the line of argument' : 'Not used'

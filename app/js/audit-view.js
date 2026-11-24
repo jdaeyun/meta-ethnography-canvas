@@ -27,11 +27,13 @@ function clusterTitleHistory(cluster) {
 
 document.getElementById('addMemoBtn').addEventListener('click', async () => {
   const subType = document.getElementById('memoSubType').value;
-  const targetRef = document.getElementById('memoTargetRef').value;
+  // The option's value is unique (rows and studies by id: two rows may share a title); the entry names it by its label
+  const refOpt0 = document.getElementById('memoTargetRef').selectedOptions[0];
+  const targetRef = refOpt0 && refOpt0.value ? refOpt0.dataset.ref : '';
   const content = document.getElementById('memoContentInput').value.trim();
   if (!content) { showSnackbar('Write the memo first.'); return; }
 
-  const cat = subType === 'Team Concordance Meeting' ? 'concordance' :
+  const cat = subType === 'Team Perspectives Meeting' ? 'concordance' : // (category key kept: older entries use it)
               subType === 'GRADE-CERQual Rationale' ? 'cerqual' :
               subType === 'Line of Argument' ? 'line_of_argument' : 'reflexive_memo';
 
@@ -59,7 +61,8 @@ function renderAuditView() {
   refSel.innerHTML = '<option value="">General (Whole Synthesis)</option>';
   state.clusters.forEach(c => {
     const opt = document.createElement('option');
-    opt.value = `3rd Order Row: ${c.thirdOrderTitle || 'Untitled'}`;
+    opt.value = `row:${c.id}`;
+    opt.dataset.ref = `3rd Order Row: ${c.thirdOrderTitle || 'Untitled'}`;
     opt.textContent = `3rd Order: ${c.thirdOrderTitle || '(Untitled Row)'}`;
     opt.dataset.clusterId = c.id;
     refSel.appendChild(opt);
@@ -70,11 +73,13 @@ function renderAuditView() {
   rowSel.value = state.clusters.some(c => c.id === prevRow) ? prevRow : 'all';
   state.docs.forEach(d => {
     const opt = document.createElement('option');
-    opt.value = `Study: ${getDisplayName(d)}`;
+    opt.value = `doc:${d.id}`;
+    opt.dataset.ref = `Study: ${getDisplayName(d)}`;
     opt.textContent = `Study: ${getDisplayName(d)}`;
     refSel.appendChild(opt);
   });
   refSel.value = currentVal;
+  if (refSel.selectedIndex < 0) refSel.value = ''; // the row or study chosen before is gone
 
   renderAuditTimeline();
 }

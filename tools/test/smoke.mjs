@@ -2498,6 +2498,53 @@ await group('Review fixes 11: history count without a second rebuild, peer rows,
   await p.context().close();
 });
 
+await group('Review fixes 12: memos on rows that share a title, the last study deleted, a row base not set yet', async () => {
+  const p = await openDemo();
+  // Two rows with the same title: a memo goes to the row chosen, not to the first of that title
+  await tab(p, 'audit'); await settle(p);
+  const memo = await p.evaluate(async () => {
+    const [a, b] = state.clusters;
+    const was = [a.thirdOrderTitle, b.thirdOrderTitle];
+    a.thirdOrderTitle = b.thirdOrderTitle = 'Same title'; await dbPut('clusters', a); await dbPut('clusters', b);
+    renderAuditView();
+    const sel = document.getElementById('memoTargetRef');
+    sel.value = 'row:' + b.id;
+    document.getElementById('memoContentInput').value = 'A memo on the second row';
+    document.getElementById('addMemoBtn').click();
+    return { bId: b.id, was };
+  });
+  await settle(p);
+  const m = await p.evaluate(async ({ bId, was }) => {
+    const log = state.logs.find(l => l.detail === 'A memo on the second row');
+    const [a, b] = state.clusters; a.thirdOrderTitle = was[0]; b.thirdOrderTitle = was[1]; await dbPut('clusters', a); await dbPut('clusters', b);
+    return { rows: log && log.clusterIds, action: log && log.action };
+  }, memo);
+  check('a memo goes to the row chosen even when two rows share a title', JSON.stringify(m.rows) === JSON.stringify([memo.bId]) && /Same title/.test(m.action || ''), JSON.stringify(m));
+  check('the memo type is worded as team perspectives', await p.evaluate(() => [...document.getElementById('memoSubType').options].every(o => !/concordance/i.test(o.value + o.textContent))));
+  // A row whose base is not set yet: choosing "No single base" stores it, so the next construct placed does not set one
+  await tab(p, 'matrix'); await settle(p);
+  const nb = await p.evaluate(async () => {
+    const c = state.clusters[0]; const was = c.baseDocId;
+    c.baseDocId = ''; await dbPut('clusters', c); renderMatrixTable();
+    return { id: c.id, was };
+  });
+  await settle(p);
+  const sel = p.locator(`#matrixTable tr[data-cluster-id="${nb.id}"] .cl-base-select`);
+  const shownUnset = await sel.evaluate(s => s.selectedOptions[0].value === '__unset');
+  await sel.evaluate(s => { s.value = ''; s.dispatchEvent(new Event('change')); }); // (the selector sits in the row's ⋯ tools)
+  await settle(p);
+  const nbr = await p.evaluate(async ({ id, was }) => { const c = state.clusters.find(x => x.id === id); const r = c.baseDocId; c.baseDocId = was; await dbPut('clusters', c); return r; }, nb);
+  check('a row whose base is not set yet says so, and "No single base" chosen there is stored', shownUnset && nbr === null, JSON.stringify({ shownUnset, nbr }));
+  await settle(p);
+  // The last study deleted: its PDF is closed, not only hidden
+  await tab(p, 'extract'); await settle(p);
+  const n = await p.evaluate(() => state.docs.length);
+  for (let i = 0; i < n; i++) { await p.locator('#studyList .del').first().click(); await settle(p); }
+  check('deleting the last study closes its PDF', await p.evaluate(() => state.docs.length === 0 && !state.activePdfDoc && !pageObserver && document.getElementById('pdfPageCountLabel').textContent === '0 pages'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('No browser dialogs: alert(), confirm() and prompt() are not used', async () => {
   // A browser may suppress its own dialogs ("Don't allow this page to show more dialogs"): confirm() then returns false and
   // prompt() null without asking. The app asks in its own dialogs (askChoice, askReason, showNotice) and the snackbar.

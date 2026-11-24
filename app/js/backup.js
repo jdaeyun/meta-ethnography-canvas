@@ -364,15 +364,7 @@ function dropGoneMapLinks() {
 // The workspace is being replaced (reset, clean restore): let go of the open PDF and of what was cached for the old project
 // (PDF search index, matrix row heights), so nothing of it lingers when the new project has no study to open
 async function releaseWorkspaceView() {
-  if (pageObserver) {
-    pageObserver.disconnect();
-    pageObserver = null;
-  }
-  if (state.activePdfDoc) {
-    try { await state.activePdfDoc.destroy(); } catch (e) {}
-    state.activePdfDoc = null;
-  }
-  Object.assign(pdfSearchState, { docId: null, pageTexts: [], matches: [], activeIdx: -1, lastQuery: '' });
+  await closeActivePdf();
   Object.keys(matrixRowHeights).forEach(k => delete matrixRowHeights[k]);
 }
 

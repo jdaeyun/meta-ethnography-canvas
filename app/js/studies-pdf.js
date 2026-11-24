@@ -431,6 +431,7 @@ function renderStudyList() {
         renderStudyList();
         if (state.activeDocId) switchStudy(state.activeDocId);
         else {
+          await closeActivePdf(); // the last study went: its PDF is let go, not only hidden behind the welcome guide
           renderWelcomeGuideIfNeeded();
           updateDocHeaderUI();
           updateSidebar();
@@ -1443,6 +1444,20 @@ async function ensurePdfTextIndex() {
   pdfSearchState.docId = docId;
   pdfSearchState.pageTexts = pageTexts;
   return pageTexts;
+}
+
+// No study is open any more (the last one deleted, a reset, a clean restore): let go of the PDF that was shown, its page
+// observer and its search index
+async function closeActivePdf() {
+  if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
+  if (state.activePdfDoc) {
+    try { await state.activePdfDoc.destroy(); } catch (e) { /* already closed */ }
+    state.activePdfDoc = null;
+  }
+  Object.assign(pdfSearchState, { docId: null, pageTexts: [] });
+  resetPdfSearchResults();
+  const label = document.getElementById('pdfPageCountLabel');
+  if (label) label.textContent = '0 pages';
 }
 
 // Another study opened: forget the hits of the previous one (the words typed stay, so Enter searches the new paper)

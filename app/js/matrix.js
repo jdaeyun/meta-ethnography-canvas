@@ -1027,7 +1027,8 @@ function renderMatrixTable() {
             <span class="font-semibold" title="The study whose construct established this row. Its cards here are the reading the other studies are translated into, so they get no Reciprocal / Refutational judgement. In index-paper approaches this is usually study #1; choose 'No single base' if you compare every concept with all the others.">◆ Established by</span>
             <select class="cl-base-select text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white max-w-full">
               ${opts.map(d => `<option value="${escapeHtml(d.id)}" ${d.id === base ? 'selected' : ''}>${escapeHtml(getDisplayName(d))}${state.docs[0] && state.docs[0].id === d.id ? ' (#1)' : ''}${rowDocs.includes(d) ? '' : ' (no construct here)'}</option>`).join('')}
-              <option value="" ${base ? '' : 'selected'}>No single base: judge every study</option>
+              ${cluster.baseDocId === '' ? `<option value="__unset" selected>Not set yet: the next construct placed sets it</option>` : ''}
+              <option value="" ${base || cluster.baseDocId === '' ? '' : 'selected'}>No single base: judge every study</option>
             </select>
           </div>`;
         })()}
@@ -1333,8 +1334,10 @@ function renderMatrixTable() {
     // Changing the study that established the row: logged, and its effect on the cards is stated
     const setRowBase = async (nextId, extraDetail = '') => {
       const prevId = rowBaseDocId(cluster);
-      if ((prevId || '') === (nextId || '')) return;
+      // Compared with what is stored: "No single base" (null) chosen for a row whose base is not set yet ('') is a change
+      if ((nextId || null) === cluster.baseDocId) return;
       const nameOf = id => { const d = id && state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'No single base'; };
+      const wasUnset = cluster.baseDocId === '';
       cluster.baseDocId = nextId || null;
       const clearedFlag = !!(cluster.baselineChange && nextId && state.docs[0] && nextId === state.docs[0].id);
       if (clearedFlag) delete cluster.baselineChange;
@@ -1349,13 +1352,13 @@ function renderMatrixTable() {
           clearedFlag ? 'The row is now based on the current study #1, so the re-reading note is cleared.' : '',
           extraDetail
         ].filter(Boolean).join(' '),
-        fromVal: nameOf(prevId),
+        fromVal: wasUnset ? 'Not set yet' : nameOf(prevId),
         toVal: nameOf(nextId)
       });
       renderMatrixView();
     };
     const baseSel = tdMeta.querySelector('.cl-base-select');
-    if (baseSel) baseSel.onchange = () => setRowBase(baseSel.value || null);
+    if (baseSel) baseSel.onchange = () => { if (baseSel.value !== '__unset') setRowBase(baseSel.value || null); };
     const rebaseBtn = tdMeta.querySelector('.cl-baseline-rebase');
     if (rebaseBtn) rebaseBtn.onclick = () => setRowBase(state.docs[0].id, 'Chosen after study #1 changed.');
     const baselineOkBtn = tdMeta.querySelector('.cl-baseline-ok');
