@@ -422,7 +422,13 @@ function getAppendixASpec(mode = getAppendixMode()) {
   // An audit trail entry deleted by mistake and restored with Ctrl+Z: the two cancel out (the full trail keeps both)
   const cancelled = new Set();
   all.forEach((l, i) => {
-    const m = /^Deleted an audit trail entry: ([\s\S]*)$/.exec(l.action || '');
+    // By the entry they are about (targetId); entries from before that was recorded, by their action text
+    if (l.kind === 'trail_delete' && l.targetId) {
+      const back = all.slice(i + 1).find(x => !cancelled.has(x) && x.kind === 'trail_restore' && x.targetId === l.targetId);
+      if (back) { cancelled.add(l); cancelled.add(back); }
+      return;
+    }
+    const m = !l.kind && /^Deleted an audit trail entry: ([\s\S]*)$/.exec(l.action || '');
     if (!m) return;
     const back = all.slice(i + 1).find(x => !cancelled.has(x) && x.action === `Restored a deleted audit trail entry (Undo): ${m[1]}`);
     if (back) { cancelled.add(l); cancelled.add(back); }
@@ -435,12 +441,12 @@ function getAppendixASpec(mode = getAppendixMode()) {
     if (ser) {
       const g = open.get(ser.key);
       if (g) {
-        g.n++; g.toVal = l.toVal || ''; g.lastT = l.timestamp; g.lastDetail = l.detail || '';
+        g.n++; g.toVal = l.toVal || ''; g.lastT = l.timestamp; g.lastDetail = l.detail || ''; if (l.targetLabel) g.targetLabel = l.targetLabel;
         const rv = l.reviewer || 'Unknown';
         if (g.reviewers.indexOf(rv) < 0) g.reviewers.push(rv);
         continue;
       }
-      const r = rowOf(l, { n: 1, firstT: l.timestamp, lastT: l.timestamp, lastDetail: l.detail || '', reviewers: [l.reviewer || 'Unknown'], seriesLabel: ser.label, rowIds });
+      const r = rowOf(l, { n: 1, firstT: l.timestamp, lastT: l.timestamp, lastDetail: l.detail || '', reviewers: [l.reviewer || 'Unknown'], seriesLabel: ser.label, rowIds, targetLabel: l.targetLabel || '' });
       rows.push(r); open.set(ser.key, r);
       continue;
     }
@@ -457,8 +463,9 @@ function getAppendixASpec(mode = getAppendixMode()) {
     if (!r.n || r.n < 2) return;
     r.when = `${fmt(r.firstT)} – ${fmt(r.lastT)}`;
     r.reviewer = r.reviewers.join(', ');
-    // The row it concerns, named at the end of the action in any of its forms: … for "Row", … on "Row", … ("Row")
-    const rowName = (r.action.match(/(?: for | on | \()"(.*)"\)?$/) || [])[1];
+    // The row it concerns: as named in the last edit (targetLabel); for entries from older versions, at the end of the action
+    // in any of its forms (… for "Row", … on "Row", … ("Row"))
+    const rowName = r.rowIds.length && r.targetLabel ? r.targetLabel : (r.action.match(/(?: for | on | \()"(.*)"\)?$/) || [])[1];
     r.action = `${r.seriesLabel} (${r.n} edits)${rowName !== undefined ? ': "' + rowName + '"' : ''}`;
     // The latest notes (e.g. the CERQual explanations) stay; Before ➔ After spans the first and the last edit
     r.detail = `${r.lastDetail ? r.lastDetail + '\n' : ''}(Before ➔ After: from the first to the last of these edits; each edit is in the full audit trail.)`;

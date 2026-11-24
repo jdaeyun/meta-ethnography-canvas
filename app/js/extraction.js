@@ -111,6 +111,7 @@ function updateSidebar() {
         linkQuote(f, sec.id);
         await dbPut('annotations', f);
         await recordAuditLog({
+          kind: 'quote_link',
           category: 'linking',
           action: `Linked 1st Order Quote to 2nd Order Construct (${getDisplayName(activeDoc)})`,
           detail: `Quote (p.${f.page}): "${f.text.slice(0, 80)}..."`,
@@ -250,6 +251,7 @@ function updateSidebar() {
     bindTextField(w.querySelector('.sec-note-input'), {
       get: () => sec.note, set: v => { sec.note = v; }, save: () => dbPut('annotations', sec),
       commit: (oldNote, newNote) => recordAuditLog({
+        kind: 'construct_label',
         clusterIds: liveClusterIds(sec), // rows that still exist; none for an unplaced construct
         category: 'matrix_mapping',
         action: `Updated 2nd Order Summary Label (${getDisplayName(state.docs.find(d => d.id === sec.docId))})`,
@@ -263,6 +265,7 @@ function updateSidebar() {
       sec.noteSource = e.target.value;
       await dbPut('annotations', sec);
       await recordAuditLog({
+        kind: 'label_source',
         category: 'linking',
         action: `Set 2nd Order label source to "${sec.noteSource === 'author' ? "Authors' own term" : 'Reviewer wording'}" (${getDisplayName(state.docs.find(d => d.id === sec.docId))}, p.${sec.page})`,
         detail: sec.note ? `Label: ${sec.note}` : '(no label)',
@@ -289,6 +292,7 @@ function updateSidebar() {
       pill.textContent = meta.label;
 
       await recordAuditLog({
+        kind: 'construct_team',
         category: 'concordance',
         action: `2nd Order Team Perspective Updated (${getDisplayName(activeDoc)}, p.${sec.page})`,
         detail: `Construct: ${sec.note || '"' + sec.text.slice(0, 60) + '..."'}${newNote ? '\nTeam Discussion Note: ' + newNote : ''}`,
@@ -324,6 +328,7 @@ function updateSidebar() {
       renderHighlights();
       // Deleting a construct is part of the reading (and of the matrix, if it was placed): the trail records it, like its undoing
       await recordAuditLog({
+        kind: 'construct_delete',
         category: 'reading_extraction',
         action: `Deleted a 2nd Order construct (${getDisplayName(state.docs.find(d => d.id === sec.docId))}, p.${sec.page})`,
         detail: `${sec.note ? sec.note + ': ' : ''}"${String(sec.text || '').slice(0, 80)}..."${(sec.clusterIds || []).length ? `\nIt was placed in ${sec.clusterIds.length} 3rd Order row(s).` : ''}${unlinkedIds.length ? `\n${unlinkedIds.length} linked quote(s) unlinked.` : ''}`,
@@ -422,6 +427,7 @@ function buildStudyConceptLinksBox(doc, seconds) {
     await dbPut('docs', doc);
     const secs = [from, to].map(id => state.annotations.find(a => a.id === id));
     await recordAuditLog({
+      kind: 'within_study_link',
       category: 'reading_extraction',
       action: `Recorded how two concepts relate within ${getDisplayName(doc)}`,
       detail: note, toVal: conceptLinkText(link),
@@ -435,7 +441,7 @@ function buildStudyConceptLinksBox(doc, seconds) {
     if (!link) return;
     doc.conceptLinks = doc.conceptLinks.filter(l => l !== link);
     await dbPut('docs', doc);
-    await recordAuditLog({ category: 'reading_extraction', action: `Removed a relationship between concepts within ${getDisplayName(doc)}`, fromVal: conceptLinkText(link) + (link.note ? ' — ' + link.note : '') });
+    await recordAuditLog({ kind: 'within_study_unlink', category: 'reading_extraction', action: `Removed a relationship between concepts within ${getDisplayName(doc)}`, fromVal: conceptLinkText(link) + (link.note ? ' — ' + link.note : '') });
     updateSidebar();
   });
   return box;
@@ -470,6 +476,7 @@ async function addSelectionAsPassage(secId) {
   sec.passages.push(p);
   await dbPut('annotations', sec);
   await recordAuditLog({
+    kind: 'passage_add',
     category: 'reading_extraction',
     action: `Added a further passage (p.${p.page}) to 2nd Order construct "${secShortLabel(sec)}" (${getDisplayName(state.docs.find(d => d.id === sec.docId))})`,
     detail: `Same author interpretation stated elsewhere in the paper: "${p.text.slice(0, 120)}${p.text.length > 120 ? '…' : ''}"`,
@@ -523,6 +530,7 @@ async function absorbAsPassage(source, target) {
   state.annotations = state.annotations.filter(a => a.id !== source.id);
 
   await recordAuditLog({
+    kind: 'passage_absorb',
     category: 'reading_extraction',
     action: `Recorded p.${source.page} as a further passage of 2nd Order construct "${secShortLabel(target)}" (${getDisplayName(doc)})`,
     detail: `The authors state the same interpretation in several places. Former separate construct: ${secShortLabel(source)}. ` +
@@ -572,6 +580,7 @@ async function splitOffPassage(sec, pid) {
   await dbBatch([sec, restored, ...affectedQuotes].map(a => ({ store: 'annotations', put: a })));
   state.annotations.push(restored);
   await recordAuditLog({
+    kind: 'passage_split',
     category: 'reading_extraction',
     action: `Split p.${p.page} off "${secShortLabel(sec)}" as a separate 2nd Order construct (${getDisplayName(state.docs.find(d => d.id === sec.docId))})`,
     detail: 'On re-reading, this passage expresses a different interpretation of the authors.'
@@ -626,6 +635,7 @@ async function wrapFirstOrderInSecondOrder(f, initialConceptLabel = '') {
   await dbPut('annotations', f);
 
   await recordAuditLog({
+    kind: 'wrap',
     category: 'linking',
     action: `[Reviewer-wrapped] Created 2nd Order Concept Wrapper from Unlinked 1st Order Quote (${getDisplayName(doc)}, p.${f.page})`,
     detail: `Quote: "${f.text.slice(0, 80)}..."`,
@@ -734,6 +744,7 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
       linkQuote(f, targetSecId);
       await dbPut('annotations', f);
       await recordAuditLog({
+        kind: 'quote_link',
         category: 'linking',
         action: `Linked 1st Order Quote to 2nd Order Construct (${getDisplayName(activeDoc)})`,
         detail: `Quote (p.${f.page}): "${f.text.slice(0, 80)}..."`,
@@ -754,6 +765,7 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
     updateSidebar();
     renderHighlights();
     await recordAuditLog({
+      kind: 'quote_delete',
       category: 'reading_extraction',
       action: `Deleted a 1st Order quote (${getDisplayName(state.docs.find(d => d.id === f.docId))}, p.${f.page})`,
       detail: `"${String(f.text || '').slice(0, 80)}..."`
@@ -765,6 +777,7 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
       if (parentSec) unlinkQuote(f, parentSec.id); else clearQuoteLinks(f);
       await dbPut('annotations', f);
       await recordAuditLog({
+        kind: 'quote_unlink',
         category: 'linking',
         action: 'Unlinked 1st Order Quote from 2nd Order Construct',
         detail: `Quote (p.${f.page}): "${f.text.slice(0, 70)}..."`,
@@ -949,6 +962,7 @@ async function toggleAnnotationOrderType(annoId) {
     normalizeAnnotation(a);
     await dbPut('annotations', a);
     await recordAuditLog({
+      kind: 'order_switch',
       category: 'linking',
       action: `Switched 1st Order Quote to 2nd Order Construct (${getDisplayName(doc)}, p.${a.page})`,
       detail: `"${a.text.slice(0, 80)}..."`,
@@ -997,6 +1011,7 @@ async function toggleAnnotationOrderType(annoId) {
     ops.push({ store: 'annotations', put: a });
     await dbBatch(ops); // the quote, its former quotes' links and its study's relationships in one transaction
     await recordAuditLog({
+      kind: 'order_switch',
       category: 'linking',
       action: `Switched 2nd Order Construct to 1st Order Quote (${getDisplayName(doc)}, p.${a.page})`,
       detail: `"${a.text.slice(0, 80)}..."`,

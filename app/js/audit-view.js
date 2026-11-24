@@ -43,6 +43,7 @@ document.getElementById('addMemoBtn').addEventListener('click', async () => {
   box.value = '';
   try {
     await recordAuditLog({
+      kind: 'memo',
       category: cat,
       action: `[${subType}] ${targetRef ? '— ' + targetRef : ''}`,
       detail: content,
@@ -241,6 +242,7 @@ function renderAuditTimeline() {
       state.logs = state.logs.filter(x => x.id !== log.id);
       // Keep the trail honest: the deletion itself is recorded (with the removed entry's content)
       await recordAuditLog({
+        kind: 'trail_delete', targetId: log.id,
         category: 'audit_edit',
         action: `Deleted an audit trail entry: ${log.action}`,
         detail: `Original entry (${new Date(log.timestamp).toLocaleString()}, @${log.reviewer || 'Unknown'}, ${getCategoryMeta(log.category).label})${log.detail ? ':\n' + log.detail : ''}`,

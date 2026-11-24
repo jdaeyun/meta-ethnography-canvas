@@ -686,6 +686,7 @@ WRITEUP_FIELDS.forEach(([key, id, category]) => {
     state.loa = { ...state.loa, id: 'loa_main', [key]: newVal, updatedAt: Date.now() };
     await dbPut('meta', state.loa);
     await recordAuditLog({
+      kind: key === 'reviewQuestion' ? 'review_question' : 'writeup', targetLabel: key,
       category,
       action: `Updated ${LOA_FIELD_LABELS[key]}`,
       fromVal: oldVal ? writeupFieldText(key, oldVal) : '(empty)',
@@ -762,6 +763,7 @@ async function saveLoaDrawer({ quiet = false } = {}) {
 
   if (aimChanged) {
     await recordAuditLog({
+      kind: 'aim',
       category: 'aim_question',
       action: 'Updated Phase 1 Research Aim',
       detail: newV.aim || '(cleared)',
@@ -771,6 +773,7 @@ async function saveLoaDrawer({ quiet = false } = {}) {
   }
   if (loaChanged) {
     await recordAuditLog({
+      kind: 'line_of_argument',
       category: 'line_of_argument',
       action: `Updated Line of Argument Synthesis${newV.title ? ': "' + newV.title + '"' : ''}`,
       detail: `${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
@@ -784,6 +787,7 @@ async function saveLoaDrawer({ quiet = false } = {}) {
   for (const cat of Object.keys(byCat)) {
     const keys = byCat[cat];
     await recordAuditLog({
+      kind: keys.length === 1 ? ({ alternativeInterpretations: 'alternative_interpretations', modelContext: 'model_context' })[keys[0]] : undefined, targetLabel: keys.join(' / '),
       category: cat,
       action: `Updated ${keys.map(k => LOA_FIELD_LABELS[k]).join(' / ')}`,
       detail: keys.map(k => `${LOA_FIELD_LABELS[k]}: ${newV[k] || '(cleared)'}`).join('\n'),
@@ -793,6 +797,7 @@ async function saveLoaDrawer({ quiet = false } = {}) {
   }
   if (relChanged) {
     await recordAuditLog({
+      kind: 'relate_outcome',
       category: 'relating_studies',
       action: 'Updated Phase 4: Outcome of Relating Studies (eMERGe item 12)',
       detail: newV.relateOutcome ? 'Outcome: ' + newV.relateOutcome : '(cleared)',

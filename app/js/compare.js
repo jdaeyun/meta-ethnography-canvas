@@ -514,6 +514,7 @@ function renderComparisonTabContent() {
         }
         await dbPut('annotations', l);
         await recordAuditLog({
+          kind: 'provisional_agreement',
           category: 'concordance',
           action: `Recorded provisional agreement (for now) with @${cmp.peerReviewer} (${dName}, p.${l.page})`,
           detail: `"${l.text.slice(0, 75)}..."`,
@@ -739,7 +740,7 @@ async function mergePeerAuditLogs() {
   cmp.logsMerged = true;
   if (added) {
     state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    await recordAuditLog({ category: 'concordance', action: `Merged ${added} audit trail entries from @${cmp.peerReviewer}`, detail: 'Both reviewers\' decisions now appear in one trail.', isMinorOp: false });
+    await recordAuditLog({ kind: 'peer_logs', category: 'concordance', action: `Merged ${added} audit trail entries from @${cmp.peerReviewer}`, detail: 'Both reviewers\' decisions now appear in one trail.', isMinorOp: false });
     updateAuditBadge();
   }
   return added;
@@ -929,6 +930,7 @@ async function importPeerConstructNow(item, status, redraw) {
 
   const doc = state.docs.find(d => d.id === targetDocId);
   await recordAuditLog({
+    kind: 'peer_import',
     category: 'concordance',
     action: `Imported Peer Construct from @${cmp.peerReviewer} as ${status.toUpperCase()} (${getDisplayName(doc)}, p.${imported.page})`,
     detail: `"${imported.text.slice(0, 80)}..."`,

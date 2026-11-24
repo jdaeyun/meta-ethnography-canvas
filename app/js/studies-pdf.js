@@ -780,6 +780,7 @@ async function saveCurrentMeta() {
 
   if (prevGroup !== doc.group) {
     await recordAuditLog({
+      kind: 'subgroup',
       category: 'context_appraisal',
       action: `Set subgroup for ${getDisplayName(doc)}`,
       fromVal: prevGroup || '(none)',
@@ -790,6 +791,7 @@ async function saveCurrentMeta() {
 
   if (prevSummary !== newSummary) {
     await recordAuditLog({
+      kind: 'appraisal',
       category: 'context_appraisal',
       action: `Updated Critical Appraisal / Richness for ${getDisplayName(doc)}`,
       detail: `Setting: ${doc.setting || '-'} | Sample: ${doc.participants || '-'} | Note: ${doc.contextNote || '-'}`,
@@ -800,6 +802,7 @@ async function saveCurrentMeta() {
 
   if (prevOverview !== doc.studyOverview) {
     await recordAuditLog({
+      kind: 'study_overview',
       category: 'reading_extraction',
       action: `${prevOverview ? 'Revised' : 'Wrote'} Study Overview / Key Metaphors for ${getDisplayName(doc)}`,
       detail: 'Phase 3–4: the account read as a whole (storyline, key metaphors and how they relate) before / alongside construct extraction.',
@@ -811,6 +814,7 @@ async function saveCurrentMeta() {
   if (prevCompanion !== doc.companionOf) {
     const other = state.docs.find(d => d.id === doc.companionOf);
     await recordAuditLog({
+      kind: 'companion',
       category: 'context_appraisal',
       action: doc.companionOf ? `Linked ${getDisplayName(doc)} as a companion paper (same primary study)` : `Unlinked companion paper: ${getDisplayName(doc)}`,
       detail: doc.companionOf ? `Same primary study as ${getDisplayName(other)} (eMERGe item 10).` : '',
@@ -848,6 +852,7 @@ function renderAppraisalDomains(doc) {
   updateStatus();
   const logChange = async (what, detail, from, to) => {
     await recordAuditLog({
+      kind: 'appraisal_answer',
       category: 'context_appraisal',
       action: `Appraisal (${tool} ${what}) for ${getDisplayName(doc)}: ${from ? 'changed' : 'recorded'}`,
       detail, fromVal: from || '', toVal: to || ''

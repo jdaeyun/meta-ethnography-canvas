@@ -195,10 +195,13 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   `isEvalSupported: false` (CVE-2024-4367) on every `getDocument` call.
 - Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`, `getAppendixASpec()`);
   change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
-  Appendix A shows the key decisions by default (`isKeyDecisionLog()`, repeated edits of one text folded by `APPENDIX_EDIT_SERIES`);
-  a new kind of audit entry that is routine bookkeeping belongs in `APPENDIX_ROUTINE`. The trail itself is never filtered.
-  The rules match the action text, so the smoke test "Appendix A rules still match" fails when a reworded action leaves a rule
-  matching nothing: update the rule together with the wording.
+  Appendix A shows the key decisions by default (`isKeyDecisionLog()`, repeated edits of one text folded into one line). The trail
+  itself is never filtered. It goes by each entry's `kind` (`recordAuditLog({ kind, targetLabel, targetId })`, registry `LOG_KINDS`
+  in logic.js: series / routine / writeup / key …), not by the action's wording, so UI text can be reworded freely. A new kind of
+  entry gets a kind registered there (routine bookkeeping: `routine: true`). The patterns `APPENDIX_EDIT_SERIES` / `APPENDIX_ROUTINE`
+  / `APPENDIX_WRITEUP` only read entries written before kinds existed: never change them. `kind`, `targetLabel`, `targetId` are
+  optional fields (older versions ignore them; no PROJECT_FORMAT step). The smoke test "Audit entries carry their kind" fails when
+  a call those patterns would recognise has no kind, or a kind is written but not registered (or registered but never written).
 - UI text is English.
 - The app must fit laptop widths: no overlap in the header or the view toolbars from 1024 px up (smoke test "Layout at laptop widths").
   Toolbars wrap (`flex-wrap`, `gap-*`, not `space-x-*`); long labels shorten below `xl` / `2xl` and keep the full text in `title`.

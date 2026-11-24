@@ -118,6 +118,7 @@ async function assignSecondOrderToCluster(sec, cluster) {
 
   const doc = state.docs.find(d => d.id === sec.docId);
   await recordAuditLog({
+    kind: 'place',
     clusterIds: [cluster.id],
     category: 'matrix_mapping',
     action: `Placed 2nd Order Construct in a 3rd Order Row`,
@@ -142,6 +143,7 @@ async function removeSecondOrderFromCluster(sec, cluster) {
 
   const doc = state.docs.find(d => d.id === sec.docId);
   await recordAuditLog({
+    kind: 'unplace',
     clusterIds: [cluster.id],
     category: 'matrix_mapping',
     action: `Removed 2nd Order Construct from a 3rd Order Row`,
@@ -303,6 +305,7 @@ async function seedIndexPaperRows() {
     }
     if (created.length > 0) {
       await recordAuditLog({
+        kind: 'auto_place',
         clusterIds: createdIds,
         category: 'matrix_mapping',
         action: `Auto-placed ${created.length} 2nd Order construct(s) of the #1 study (${getDisplayName(indexDoc)}; ${firstStudyMeta().long}) as initial 3rd Order rows`,
@@ -619,6 +622,7 @@ function renderSecondOrderPool() {
         sec.notTranslatedNote = next;
         await dbPut('annotations', sec);
         await recordAuditLog({
+          kind: 'not_translated',
           category: 'translation_process',
           action: 'Noted why a 2nd Order construct was not translated into any 3rd Order row',
           detail: `${docName} (p.${sec.page}): ${sec.note || '"' + String(sec.text || '').slice(0, 60) + '…"'}`,
@@ -706,6 +710,7 @@ function renderSecondOrderPool() {
           linkQuote(f, targetSecId);
           await dbPut('annotations', f);
           await recordAuditLog({
+            kind: 'quote_link',
             category: 'linking',
             action: `Linked 1st Order Quote to 2nd Order Construct (${docName})`,
             detail: `Quote (p.${f.page}): "${f.text.slice(0, 70)}..."`,
@@ -1184,6 +1189,7 @@ function renderMatrixTable() {
       commit: async (oldTitle, newTitle) => {
         if (await reattachWaitingForRow(cluster)) { renderSecondOrderPool(); renderMatrixTable(); } // the pool's "waits for the row" badges too
         await recordAuditLog({
+          kind: 'row_title', targetLabel: newTitle || '(Untitled)',
           clusterIds: [cluster.id],
           category: 'third_order',
           action: LOG_ACTION.rowTitle,
@@ -1201,6 +1207,7 @@ function renderMatrixTable() {
     bindTextField(tdMeta.querySelector('.cluster-trans'), {
       get: () => cluster.translationSummary, set: v => { cluster.translationSummary = v; }, onInput: refreshStepBWarn, save: saveRow,
       commit: (oldVal, newVal) => recordAuditLog({
+        kind: 'step_a', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
         clusterIds: [cluster.id],
         category: 'translation_process',
         action: `Updated Step A Translation Summary for "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
@@ -1212,6 +1219,7 @@ function renderMatrixTable() {
     bindTextField(tdMeta.querySelector('.cluster-note'), {
       get: () => cluster.synthesisNote, set: v => { cluster.synthesisNote = v; }, onInput: refreshStepBWarn, save: saveRow,
       commit: (oldNote, newNote) => recordAuditLog({
+        kind: 'step_b', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
         clusterIds: [cluster.id],
         category: 'third_order',
         action: `Updated Step B 3rd Order Definition & Interpretation for "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
@@ -1223,6 +1231,7 @@ function renderMatrixTable() {
     bindTextField(tdMeta.querySelector('.cluster-reflex'), {
       get: () => cluster.reflexiveNote, set: v => { cluster.reflexiveNote = v; }, save: saveRow,
       commit: (oldVal, newVal) => recordAuditLog({
+        kind: 'row_reflexive', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
         clusterIds: [cluster.id],
         category: 'reflexive_memo',
         action: `Reflexive note on "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
@@ -1248,6 +1257,7 @@ function renderMatrixTable() {
       pill.textContent = meta.label;
 
       await recordAuditLog({
+        kind: 'row_team', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
         clusterIds: [cluster.id],
         category: 'concordance',
         action: `3rd Order Team Perspective Updated ("${cluster.thirdOrderTitle || 'Untitled Row'}")`,
@@ -1352,6 +1362,7 @@ function renderMatrixTable() {
 
       if (prevSig !== sigOf()) {
         await recordAuditLog({
+          kind: 'row_cerqual', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
           clusterIds: [cluster.id],
           category: 'cerqual',
           action: `Updated GRADE-CERQual Assessment for "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
@@ -1570,6 +1581,7 @@ function renderMatrixTable() {
                 if (cmtView && !cmtInput.value.trim()) cmtView.textContent = placeholderFor(nextRel);
               }
               await recordAuditLog({
+                kind: 'judgement',
                 clusterIds: [cluster.id],
                 category: 'third_order',
                 action: `Judged construct as ${getCellRelationMeta(nextRel).label.replace(/^\S+\s/, '')} in "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
@@ -1589,6 +1601,7 @@ function renderMatrixTable() {
           bindTextField(card.querySelector('.sec-label-input'), {
             get: () => sec.note, set: v => { sec.note = v; }, save: saveSec,
             commit: (oldLabel, newLabel) => recordAuditLog({
+              kind: 'construct_label',
               clusterIds: liveClusterIds(sec),
               category: 'matrix_mapping',
               action: `Updated 2nd Order Summary Label (${getDisplayName(doc)})`,
@@ -1617,6 +1630,7 @@ function renderMatrixTable() {
             set: v => { sec.clusterComments = { ...(sec.clusterComments || {}), [cluster.id]: v.trim() }; },
             save: saveSec,
             commit: (oldVal, newVal) => recordAuditLog({
+              kind: 'cell_note',
               clusterIds: [cluster.id],
               category: 'third_order',
               action: `Updated note on how a concept fits "${cluster.thirdOrderTitle || 'Untitled Row'}" (${getDisplayName(doc)}, p.${sec.page})`,
@@ -1740,6 +1754,7 @@ async function moveClusterOrder(clusterId, direction) {
   await persistClusterOrder();
 
   await recordAuditLog({
+    kind: 'row_reorder',
     clusterIds: [movedCluster.id],
     category: 'third_order',
     action: `Reordered 3rd Order Theme Row "${movedCluster.thirdOrderTitle || 'Untitled'}"`,

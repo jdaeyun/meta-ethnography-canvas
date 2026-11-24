@@ -29,6 +29,7 @@ async function promptReassignItemReviewer(item, storeName, refreshFn) {
       ? `3rd Order row "${item.thirdOrderTitle || '(Untitled Row)'}"`
       : `${item.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} in ${getDisplayName(state.docs.find(d => d.id === item.docId))} (p.${item.page}): ${item.note || '"' + String(item.text || '').slice(0, 60) + '…"'}`;
   await recordAuditLog({
+    kind: 'reviewer_change',
     category: 'audit_edit',
     action: 'Changed the reviewer attributed to an item',
     detail: `The ${what} is now attributed to @${clean}.`,

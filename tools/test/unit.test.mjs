@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'app/js/logic.js'), 'utf8'), ctx, { filename: 'app/js/logic.js' });
-const L = vm.runInContext(`({ LOG_ACTION, appendixSeries, isMemoLog, isKeyDecisionLog, sanitizeProjectData, isEmptyValue, mergeFillEmpty,
+const L = vm.runInContext(`({ LOG_KINDS, LOG_ACTION, appendixSeries, isMemoLog, isKeyDecisionLog, sanitizeProjectData, isEmptyValue, mergeFillEmpty,
   mergeFillTexts, MERGE_FILL_TEXT, stableJson, sameRecord, computeTextSimilarity, isDirectedLink, linkPairOffsets, flowColumnRanks,
   joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds, checkInvariants })`, ctx);
 // Objects made inside the context have that context's prototypes: compare them as plain JSON
@@ -114,6 +114,26 @@ test('consistency rules: a consistent project passes, each kind of stale link is
   // A construct absorbed as a passage keeps its within-study relationships under its id: not a violation
   const absorbed = annotations.map(a => a.id === 's2' ? { ...a, passages: [{ id: 'p', absorbed: { snapshot: { id: 's9' } } }] } : a);
   assert.deepEqual(plain(L.checkInvariants({ docs: [{ id: 'd1', conceptLinks: [{ from: 's1', to: 's9' }] }], clusters: [], loa, annotations: absorbed.map(a => ({ ...a, clusterIds: [], clusterRelations: {} })) })), []);
+});
+
+test('Appendix A goes by the kind of an entry, so rewording an action changes nothing; old entries are read by their text', () => {
+  const K = L.isKeyDecisionLog;
+  // Reworded actions, same kinds
+  const ser = L.appendixSeries({ kind: 'step_a', action: 'Revised the translation summary', clusterIds: ['r1'] });
+  assert.equal(ser.label, 'Step A translation summary revised');
+  assert.equal(L.appendixSeries({ kind: 'step_a', action: 'x', clusterIds: ['r1'] }).key, ser.key, 'one series per row');
+  assert.ok(!K({ kind: 'quote_link', action: 'Joined a quote and a construct', category: 'x' }), 'routine by kind');
+  assert.ok(!K({ kind: 'writeup', action: 'Rewrote the reading process', category: 'reading_extraction' }));
+  assert.ok(K({ kind: 'construct_delete', action: 'Removed a concept', clusterIds: ['r1'] }) && !K({ kind: 'construct_delete', action: 'Removed a concept', clusterIds: [] }));
+  assert.ok(!K({ kind: 'judgement', action: 'Read as reciprocal', category: 'third_order', fromVal: '○ Not yet judged' }));
+  assert.ok(K({ kind: 'auto_place', action: 'Seeded rows', category: 'matrix_mapping' }), 'auto-placement is the one key matrix entry');
+  assert.ok(K({ kind: 'memo', action: 'A note without brackets' }));
+  // An action text that an old pattern matches, but with a kind that says otherwise: the kind wins
+  assert.ok(K({ kind: 'auto_place', action: 'Linked 1st Order Quote to …', category: 'matrix_mapping' }));
+  // Entries without a kind (older trails): by their text, as before
+  assert.equal(L.appendixSeries({ action: 'Updated Step A Translation Summary for "R"', clusterIds: ['r1'] }).label, 'Step A translation summary revised');
+  assert.ok(!K({ action: 'Linked 1st Order Quote to …', category: 'linking' }));
+  assert.ok(Object.values(L.LOG_KINDS).every(k => Object.keys(k).length > 0), 'every kind says how Appendix A treats it');
 });
 
 test('Appendix A: key decisions, routine bookkeeping, edit series', () => {

@@ -6,6 +6,42 @@
 // Audit actions that other code reads back (row title history, Appendix A): written and matched from one place
 const LOG_ACTION = { rowTitle: 'Refined 3rd Order Construct Title' };
 
+// What kind of entry an audit entry is, written with it (recordAuditLog({ kind, targetLabel })). Appendix A decides by the kind,
+// so rewording an action's text in the UI changes nothing here. The patterns further down read entries written before kinds
+// existed (they stay as they are in old trails), and only those.
+//   series: repeated edits of one text, shown as one line in Appendix A (its label; one series per row, or per targetLabel)
+//   routine: bookkeeping, in Appendix A only when a reason was recorded with it; writeup: the Methods wording itself (Tab 4)
+//   rowsKey: a key decision only when it concerns rows (clusterIds); changedKey: only when it changes an earlier judgement
+/** @type {Record<string, { series?: string, routine?: boolean, writeup?: boolean, key?: boolean, rowsKey?: boolean, changedKey?: boolean }>} */
+const LOG_KINDS = {
+  row_title: { series: 'Row title refined' },
+  step_a: { series: 'Step A translation summary revised' },
+  step_b: { series: 'Step B third-order interpretation revised' },
+  row_reflexive: { series: 'Reflexive note on the row revised' },
+  row_team: { series: 'Team perspective on the row revised' },
+  row_cerqual: { series: 'GRADE-CERQual assessment revised' },
+  aim: { series: 'Research aim revised' },
+  review_question: { series: 'Review question revised' },
+  line_of_argument: { series: 'Line of argument revised' },
+  relate_outcome: { series: 'Outcome of relating studies (Item 12) revised' },
+  alternative_interpretations: { series: 'Alternative interpretations revised' },
+  model_context: { series: 'Context where the model applies (Item 16) revised' },
+  writeup: { writeup: true },
+  memo: { key: true },
+  auto_place: { key: true },
+  construct_delete: { rowsKey: true },
+  construct_restore: { rowsKey: true },
+  judgement: { changedKey: true },
+  trail_delete: { key: true },
+  trail_restore: { key: true },
+  undo_extraction: { routine: true }
+};
+['quote_link', 'quote_unlink', 'order_switch', 'wrap', 'label_source', 'construct_label', 'place', 'unplace', 'passage_add', 'passage_absorb',
+  'passage_split', 'within_study_link', 'within_study_unlink', 'extract_edit', 'study_overview', 'quote_delete', 'quote_restore', 'peer_import',
+  'peer_logs', 'provisional_agreement', 'construct_team', 'row_reorder', 'cell_note', 'not_translated', 'subgroup', 'appraisal_answer',
+  'appraisal', 'companion', 'reviewer_change'].forEach(k => { LOG_KINDS[k] = { routine: true }; });
+
+// ---- Entries written before kinds existed: recognised by their action text ----
 // Edits of one text that are shown as one line in Appendix A (family name; same row for row texts)
 /** @type {[RegExp, string][]} */
 const APPENDIX_EDIT_SERIES = [
@@ -23,12 +59,13 @@ const APPENDIX_EDIT_SERIES = [
   [/^Updated Context where the model applies/, 'Context where the model applies (Item 16) revised']
 ];
 function appendixSeries(l) {
-  const hit = APPENDIX_EDIT_SERIES.find(([re]) => re.test(l.action || ''));
-  if (!hit) return null;
-  // Same row by id; entries from older versions without row ids are kept apart by their action text (it names the row)
-  return { label: hit[1], key: hit[1] + '|' + ((l.clusterIds || [])[0] || l.action || '') };
+  const kind = l.kind && LOG_KINDS[l.kind];
+  const label = kind ? kind.series : (APPENDIX_EDIT_SERIES.find(([re]) => re.test(l.action || '')) || [])[1];
+  if (!label) return null;
+  // Same row by id; else by what it is about (targetLabel); entries from older versions without row ids by their action text
+  return { label, key: label + '|' + ((l.clusterIds || [])[0] || l.targetLabel || l.action || '') };
 }
-function isMemoLog(l) { return /^\[[^\]]+\]/.test(l.action || '') && !/^\[Reviewer-wrapped\]/.test(l.action || ''); }
+function isMemoLog(l) { return l.kind ? l.kind === 'memo' : /^\[[^\]]+\]/.test(l.action || '') && !/^\[Reviewer-wrapped\]/.test(l.action || ''); }
 // Routine bookkeeping: shown in the full trail; in Appendix A only when a reason was recorded with it
 const APPENDIX_ROUTINE = [
   /^Linked 1st Order Quote/, /^Unlinked 1st Order Quote/, /^Switched (1st|2nd) Order/, /^\[Reviewer-wrapped\]/, /^Set 2nd Order label source/,
@@ -46,20 +83,30 @@ function isKeyDecisionLog(l) {
   if ((l.rationale || '').trim()) return true;
   if (isMemoLog(l)) return true;
   const a = l.action || '';
-  // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
-  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false; // undoing a passage step is routine like the step
-  // Restoring a deleted construct is a key decision when the construct is placed in rows (as its deletion is)
-  if (/^Restored a deleted 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
-  // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
-  if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
-  if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
-  if (l.category === 'linking' || (l.category === 'matrix_mapping' && !/^Auto-placed/.test(a))) return false;
+  const kind = l.kind && LOG_KINDS[l.kind];
+  if (kind) {
+    if (kind.routine || kind.writeup) return false;
+    // Deleting / restoring a construct is part of the reading; it is a decision about the synthesis when it was placed in a row
+    if (kind.rowsKey) return (l.clusterIds || []).length > 0;
+    // A first judgement of a placement is shown in Tables 2 / 2b: only a CHANGED judgement is a decision here
+    if (kind.changedKey) return !/Not yet judged/.test(l.fromVal || '');
+    if (kind.key || kind.series) return true;
+  } else {
+    // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
+    if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false; // undoing a passage step is routine like the step
+    if (/^Restored a deleted 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
+    // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
+    if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
+    if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
+    if (/^Judged construct as /.test(a)) return !/Not yet judged/.test(l.fromVal || '');
+    if (/^Deleted a 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
+  }
+  // By category, for entries of any age (an entry with a kind that says nothing above, or none)
+  const isAutoPlace = l.kind ? l.kind === 'auto_place' : /^Auto-placed/.test(a);
+  const isOutcome = l.kind ? l.kind === 'relate_outcome' : /^Updated Phase 4/.test(a);
+  if (l.category === 'linking' || (l.category === 'matrix_mapping' && !isAutoPlace)) return false;
   if (l.category === 'context_appraisal') return false; // reported per study in Table 1 / 1b
-  // Empty-cell statuses are shown in Table 2b; a first judgement of a placement is shown in Tables 2 / 2b: only a CHANGED judgement is a decision here
-  if (l.category === 'relating_studies' && !/^Updated Phase 4/.test(a)) return false;
-  if (/^Judged construct as /.test(a)) return !/Not yet judged/.test(l.fromVal || '');
-  // Deleting a construct is part of the reading; it is a decision about the synthesis only when it was placed in a row
-  if (/^Deleted a 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
+  if (l.category === 'relating_studies' && !isOutcome) return false; // empty-cell statuses are shown in Table 2b
   return true;
 }
 

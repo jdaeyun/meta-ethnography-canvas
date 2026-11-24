@@ -75,6 +75,7 @@ async function performUndoStep() {
       const rows = isSec ? (a.clusterIds || []).filter(id => state.clusters.some(c => c.id === id)) : [];
       const doc = state.docs.find(d => d.id === a.docId);
       await recordAuditLog({
+        kind: isSec ? 'construct_restore' : 'quote_restore',
         category: 'reading_extraction',
         action: `Restored a deleted ${isSec ? '2nd Order construct' : '1st Order quote'} (Undo): ${doc ? getDisplayName(doc) : 'Study'}, p.${a.page}`,
         detail: `${a.note ? a.note + ': ' : ''}"${String(a.text || '').slice(0, 80)}..."`,
@@ -100,7 +101,7 @@ async function performUndoStep() {
     if (gone.length) state.annotations = state.annotations.filter(a => !gone.includes(a.id));
     // Passages and constructs placed in rows: the undoing belongs to those rows' history
     const rowIds = [...new Set((last.snapshots || []).flatMap(a => (a.type === 'second_order' && a.clusterIds) || []))].filter(id => state.clusters.some(c => c.id === id));
-    await recordAuditLog({ category: 'reading_extraction', action: `Undid: ${last.label}`, detail: '', clusterIds: rowIds.length ? rowIds : null });
+    await recordAuditLog({ kind: 'undo_extraction', category: 'reading_extraction', action: `Undid: ${last.label}`, detail: '', clusterIds: rowIds.length ? rowIds : null });
     renderHighlights();
     updateSidebar();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
@@ -175,6 +176,7 @@ async function performUndoStep() {
       state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     }
     await recordAuditLog({
+      kind: 'trail_restore', targetId: last.log.id,
       category: 'audit_edit',
       action: `Restored a deleted audit trail entry (Undo): ${last.log.action}`,
       detail: '',
@@ -377,7 +379,10 @@ function restoreConceptLinksOps(last, ops) {
 // ========================================================
 // AUDIT LOGGING ENGINE (With Reviewer Stamp & Minor Op Filter)
 // ========================================================
-async function recordAuditLog({ category, action, detail = '', fromVal = '', toVal = '', rationale = '', reviewer = null, isMinorOp = false, clusterIds = null }) {
+// kind: what kind of entry this is (LOG_KINDS in logic.js): Appendix A goes by it, not by the action's wording.
+// targetLabel: what it is about, as named at the time (a row's title, a field); targetId: the record it is about (e.g. the
+// trail entry a deletion removed). All three are optional and stored only when given.
+async function recordAuditLog({ category, action, detail = '', fromVal = '', toVal = '', rationale = '', reviewer = null, isMinorOp = false, clusterIds = null, kind = undefined, targetLabel = undefined, targetId = undefined }) {
   if (isMinorOp && !state.logMinorOps) return null;
   const entry = {
     id: 'log_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
@@ -391,6 +396,9 @@ async function recordAuditLog({ category, action, detail = '', fromVal = '', toV
     toVal,
     rationale
   };
+  if (kind) entry.kind = kind;
+  if (targetLabel) entry.targetLabel = targetLabel;
+  if (targetId) entry.targetId = targetId;
   // Tag the entry with the 3rd Order row(s) it concerns, so a row's history survives title changes
   const cids = (Array.isArray(clusterIds) ? clusterIds : []).filter(Boolean);
   if (cids.length) entry.clusterIds = [...new Set(cids)];
@@ -408,6 +416,7 @@ async function logExtractedTextEdit(anno, oldText) {
   const doc = state.docs.find(d => d.id === anno.docId);
   const isSec = anno.type === 'second_order';
   await recordAuditLog({
+    kind: 'extract_edit',
     category: 'reading_extraction',
     action: isSec ? 'Edited the extracted text of a 2nd Order Construct' : 'Edited the extracted text of a 1st Order Quote',
     detail: `${getDisplayName(doc)} (p.${anno.page})${anno.note ? ': ' + anno.note : ''}`,

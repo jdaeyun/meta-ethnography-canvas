@@ -2122,38 +2122,52 @@ await group('Line-of-argument map: boxes can be moved, keep their place per layo
   await p.context().close();
 });
 
-await group('Appendix A rules still match the audit entries the app writes', async () => {
-  // Appendix A sorts entries by their action text (APPENDIX_EDIT_SERIES / APPENDIX_ROUTINE / APPENDIX_WRITEUP). If the wording of
-  // an entry changes, its rule would stop matching without any error: every rule must match some action the app can write.
+await group('Audit entries carry their kind: Appendix A does not depend on the wording', async () => {
+  // Appendix A goes by an entry's kind (LOG_KINDS, logic.js). The action-text patterns (APPENDIX_EDIT_SERIES / APPENDIX_ROUTINE /
+  // APPENDIX_WRITEUP) are kept only to read entries written before kinds existed. So: every audit call whose wording one of those
+  // patterns would recognise passes a kind; every kind written is registered; every registered kind is written somewhere.
   const p = await openDemo();
   const rules = await p.evaluate(() => ({
-    series: APPENDIX_EDIT_SERIES.map(x => x[0].source), routine: APPENDIX_ROUTINE.map(r => r.source), writeup: APPENDIX_WRITEUP.source,
-    labels: Object.values(LOA_FIELD_LABELS), shared: Object.values(LOG_ACTION)
+    patterns: [...APPENDIX_EDIT_SERIES.map(x => x[0].source), ...APPENDIX_ROUTINE.map(r => r.source), APPENDIX_WRITEUP.source],
+    kinds: Object.keys(LOG_KINDS)
   }));
   await p.context().close();
-  // The actions the app writes: the literals on each "action:" line, with ${a ? 'P' : 'Q'} read both ways and other ${…} as "1";
-  // plus the drawer / write-up entries built from their labels
-  const literals = [];
+  // Each recordAuditLog({ … }) call in the app (balanced braces), its action literals (${a ? 'P' : 'Q'} read both ways, other
+  // ${…} as "1") and the kinds it names
   const expand = t => {
     const m = t.match(/\$\{[^{}]*?\?\s*'([^']*)'\s*:\s*'([^']*)'\s*\}/);
     if (m) return [...expand(t.replace(m[0], m[1])), ...expand(t.replace(m[0], m[2]))];
     return [t.replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}/g, '1')];
   };
+  const calls = [];
   for (const f of fs.readdirSync(path.join(ROOT, 'app/js'))) {
-    for (const line of fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8').split('\n')) {
-      const at = line.indexOf('action:');
-      if (at < 0) continue;
-      for (const m of line.slice(at).matchAll(/`((?:[^`\\]|\\.)*)`|'((?:[^'\\]|\\.)*)'/g)) literals.push(...expand(m[1] ?? m[2]));
+    const src = fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8');
+    for (let i = src.indexOf('recordAuditLog({'); i >= 0; i = src.indexOf('recordAuditLog({', i + 1)) {
+      let depth = 0, j = i + 'recordAuditLog('.length;
+      for (; j < src.length; j++) { if (src[j] === '{') depth++; else if (src[j] === '}' && --depth === 0) break; }
+      const body = src.slice(i, j + 1);
+      const act = body.slice(body.indexOf('action:'));
+      const actLine = act.split('\n')[0];
+      const actions = [...actLine.matchAll(/`((?:[^`\\]|\\.)*)`|'((?:[^'\\]|\\.)*)'/g)].flatMap(m => expand(m[1] ?? m[2]));
+      // the kind expression: from "kind:" to the first comma outside brackets (it may be a condition or a small map of kinds)
+      let kindExpr = '';
+      const k0 = body.search(/\bkind:/);
+      if (k0 >= 0) {
+        let d = 0, e = k0 + 5;
+        for (; e < body.length; e++) { const ch = body[e]; if ('([{'.includes(ch)) d++; else if (')]}'.includes(ch)) { if (d === 0) break; d--; } else if (ch === ',' && d === 0) break; }
+        kindExpr = body.slice(k0 + 5, e);
+      }
+      calls.push({ where: `${f}:${src.slice(0, i).split('\n').length}`, actions, kinds: [...kindExpr.matchAll(/'([a-z_]+)'/g)].map(m => m[1]), hasKind: /\bkind:/.test(body) });
     }
   }
-  rules.labels.forEach(l => literals.push('Updated ' + l));
-  rules.shared.forEach(a => literals.push(a)); // actions written from LOG_ACTION (core.js)
-  const dead = [];
-  const test = (src, name) => { const re = new RegExp(src); if (!literals.some(t => re.test(t))) dead.push(`${name}: /${src}/`); };
-  rules.series.forEach(r => test(r, 'series'));
-  rules.routine.forEach(r => test(r, 'routine'));
-  test(rules.writeup, 'writeup');
-  check('every Appendix A rule matches an action the app writes', dead.length === 0, dead.join('; '));
+  const missing = calls.filter(c => !c.hasKind && c.actions.some(t => rules.patterns.some(src => new RegExp(src).test(t)))).map(c => c.where);
+  check('every audit call an Appendix A pattern would recognise passes its kind', missing.length === 0, missing.join(', '));
+  const written = new Set(calls.flatMap(c => c.kinds));
+  const unknown = [...written].filter(k => !rules.kinds.includes(k));
+  check('every kind the app writes is registered in LOG_KINDS', unknown.length === 0, unknown.join(', '));
+  const unused = rules.kinds.filter(k => !written.has(k));
+  check('every registered kind is written somewhere', unused.length === 0, unused.join(', '));
+  check('the scan found the audit calls', calls.length > 80, String(calls.length));
 });
 
 await group('Review fixes 8: switch and undo tidy per-row marks and relationships, one transaction per change, demo not unbacked, Escape, tabs, parallel loops', async () => {
