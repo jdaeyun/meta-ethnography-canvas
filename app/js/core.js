@@ -82,18 +82,28 @@ function flashSaveStatus(status = 'saved') {
 }
 
 const pendingSaveCleanups = new Set();
+// Saves and commits already started (a draft save whose pause is over, a commit begun on leaving the box): a deletion or a
+// backup waits for them too, or a write still running could land after the deletion and bring the record back
+const savesInFlight = new Set();
+function trackSave(promise) {
+  savesInFlight.add(promise);
+  promise.finally(() => savesInFlight.delete(promise)).catch(() => {});
+  return promise;
+}
 
-// Starts every pending save / commit at once. The state changes are synchronous; the database writes and audit
-// entries finish later, so a caller that shows them (Audit Trail, exports, backup) awaits the returned promise.
-// Returns null when nothing was pending, so callers can render at once in the usual case.
-function flushAllPendingSaves() {
-  if (pendingSaveCleanups.size === 0) return null;
-  const running = [];
+// Starts every pending save / commit at once and waits for those already running. The state changes are synchronous; the
+// database writes and audit entries finish later, so a caller that shows them (Audit Trail, exports, backup) or deletes a
+// record awaits the returned promise. Returns null when nothing was pending or running, so callers can render at once.
+// running: false waits only for what this call starts (commitOps uses that: it may itself run inside a commit, which must
+// not wait for itself).
+function flushAllPendingSaves({ running = true } = {}) {
+  if (pendingSaveCleanups.size === 0 && (!running || savesInFlight.size === 0)) return null;
+  const started = running ? [...savesInFlight].map(pr => pr.catch(() => {})) : [];
   for (const flushFn of Array.from(pendingSaveCleanups)) {
-    try { running.push(Promise.resolve(flushFn()).catch(e => console.error('Flush save error:', e))); }
+    try { started.push(Promise.resolve(flushFn()).catch(e => console.error('Flush save error:', e))); }
     catch (e) { console.error('Flush save error:', e); }
   }
-  return Promise.all(running);
+  return Promise.all(started);
 }
 
 // Text field whose "commit" (save + audit-log entry) must never be skipped.
@@ -101,17 +111,21 @@ function flushAllPendingSaves() {
 // (flushAllPendingSaves) or leaving the page. Use it instead of a bare `onchange` for every logged text field.
 function bindPendingCommit(el, commitFn) {
   let dirty = false;
-  const run = async () => {
-    if (!dirty) return;
+  const run = () => {
+    if (!dirty) return Promise.resolve();
     dirty = false;
     pendingSaveCleanups.delete(run);
-    await commitFn();
+    // A commit that fails (the browser refused the write) stays pending: the next leave, tab switch or flush tries again
+    return trackSave(Promise.resolve().then(commitFn).catch(err => {
+      dirty = true; pendingSaveCleanups.add(run);
+      throw err;
+    }));
   };
   run.isCommit = true;
   el.addEventListener('input', () => { dirty = true; pendingSaveCleanups.add(run); });
   // Leaving the box commits; the window losing focus (a look at the PDF in another window, another app) does not, so a text
   // being written is not logged in pieces. It is still committed on the next real leave, a tab switch or the page closing.
-  const onLeave = () => { if (document.hasFocus()) run(); };
+  const onLeave = () => { if (document.hasFocus()) run().catch(e => console.error('Commit error:', e)); };
   el.addEventListener('change', onLeave);
   el.addEventListener('blur', onLeave);
   return run;
@@ -128,21 +142,24 @@ function bindPendingCommit(el, commitFn) {
 /** @param {any} el @param {{ get: () => any, set: (v: string) => void, save: () => any, commit?: (prev: string, next: string) => any, onInput?: (v: string) => void, delay?: number }} o */
 function bindTextField(el, { get, set, save, commit, onInput, delay = 350 }) {
   let committed = String(get() || '').trim();
-  let timer = null;
+  let timer = null, editing = false;
   el.addEventListener('input', () => {
+    // An edit starts from the text as stored now (it may have been changed elsewhere since the box was built, e.g. on the
+    // same construct's card in another row), so its audit entry says what it changed
+    if (!editing) { editing = true; committed = String(get() || '').trim(); }
     set(el.value);
     if (onInput) onInput(el.value);
     flashSaveStatus('saving');
     clearTimeout(timer);
-    timer = setTimeout(() => { timer = null; Promise.resolve().then(save).catch(e => console.error('Save error:', e)); }, delay);
+    timer = setTimeout(() => { timer = null; trackSave(Promise.resolve().then(save)).catch(e => console.error('Save error:', e)); }, delay);
   });
   return bindPendingCommit(el, async () => {
     clearTimeout(timer); timer = null; // the commit writes the record itself
     const next = el.value.trim();
     set(next);
     const prev = committed;
-    committed = next;
-    await save();
+    await save(); // only once it is stored is it the committed text (a failed save is tried again, and logged then)
+    committed = next; editing = false;
     if (next !== prev && commit) await commit(prev, next);
   });
 }
@@ -258,7 +275,7 @@ async function dbBatch(ops, { quiet = false } = {}) {
 /** @param {DbOp[]} ops @param {{ quiet?: boolean }} [opts] */
 async function commitOps(ops, { quiet = false } = {}) {
   if (!ops.length) return;
-  if (ops.some(o => 'del' in o)) await flushAllPendingSaves();
+  if (ops.some(o => 'del' in o)) await flushAllPendingSaves({ running: false });
   await dbBatch(ops, { quiet });
   applyOps(state, ops); // (logic.js)
   invalidateMatrixIndex();

@@ -16,7 +16,7 @@ const L = vm.runInContext(`({ LOG_KINDS, LOG_ACTION, appendixSeries, isMemoLog, 
   mergeFillTexts, MERGE_FILL_TEXT, stableJson, sameRecord, computeTextSimilarity, isDirectedLink, linkPairOffsets, flowColumnRanks,
   joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds, checkInvariants,
   remapDocIds, remapDocRecord, purgeDocRefs, dropGoneDocRefs, purgeClusterRefs, moveRowLinks, liveRowLinks, takeOutOfRow, putIntoRow, rowFieldsOf,
-  setAsideConceptLinks, attachWaitingConceptLinks })`, ctx);
+  setAsideConceptLinks, attachWaitingConceptLinks, placementOpsFor })`, ctx);
 // Objects made inside the context have that context's prototypes: compare them as plain JSON
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -189,6 +189,15 @@ test('reference graph: map relations follow a merged row; duplicates and self-re
   assert.deepEqual(plain(L.liveRowLinks(links, new Set(['src', 'c']))).map(l => l.id), ['a', 'd']);
 });
 
+test('placing constructs: the rows they change, as copies (each row once); the project is not touched', () => {
+  const clusters = [{ id: 'r1', baseDocId: '', cellStatus: { d2: { status: 'absent' } } }, { id: 'r2', baseDocId: 'd1', cellStatus: {} }];
+  const annos = [{ id: 'a', docId: 'd2', type: 'second_order', clusterIds: ['r1', 'r2'] }, { id: 'b', docId: 'd3', type: 'second_order', clusterIds: ['r1'] }];
+  const ops = plain(L.placementOpsFor({ clusters }, annos));
+  assert.deepEqual(ops.map(o => o.put.id), ['r1'], 'only the row that changes, once');
+  assert.deepEqual([ops[0].put.baseDocId, ops[0].put.cellStatus], ['d2', {}], 'the first study placed establishes it; its empty-cell record goes');
+  assert.equal(clusters[0].baseDocId, '', 'the rows given are not changed');
+});
+
 test('a construct and a row: taking out returns what it had there; putting in brings nothing old back', () => {
   const a = { id: 's', clusterIds: ['r1'], clusterRelations: { r1: 'other_aspect' }, aspectUsedInLoa: { r1: true } };
   const had = plain(L.takeOutOfRow(a, 'r1'));
@@ -283,6 +292,9 @@ test('map: direction, parallel relations, flow columns with cycles and undirecte
 });
 
 test('PDF text and citations: CJK joins, author surnames, years', () => {
+  assert.deepEqual(plain(L.extractSurnameFromAuthorString('Smith, John, PhD')), { surname: 'Smith', hasEtAl: false }, 'a title after the name is not another author');
+  assert.deepEqual(plain(L.extractSurnameFromAuthorString('John Smith, PhD')), { surname: 'Smith', hasEtAl: false });
+  assert.equal(L.extractSurnameFromAuthorString('Smith, J, Lee, K').hasEtAl, true, 'two authors in "Surname, Initial" form');
   assert.equal(L.joinTextItems(['夜勤は', '孤独だ', 'Night', 'work']), '夜勤は孤独だ Night work');
   assert.equal(L.joinSeparator('word', 'next'), ' ');
   const S = s => plain(L.extractSurnameFromAuthorString(s));

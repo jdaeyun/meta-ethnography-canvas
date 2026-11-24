@@ -2831,6 +2831,78 @@ await group('Compare: a study added from the peer brings its within-study relati
   await p.context().close();
 });
 
+await group('Review fixes 10: saves still running are waited for, a refused save is tried again, marks and cards follow the reading', async () => {
+  const p = await openDemo();
+  const sv = await p.evaluate(async () => {
+    const el = document.createElement('input'); document.body.appendChild(el);
+    let stored = '', fail = true, done = false;
+    const run = bindTextField(el, { get: () => stored, set: () => {}, save: () => new Promise((res, rej) => setTimeout(() => {
+      if (fail) { fail = false; rej(new Error('refused')); } else { stored = el.value.trim(); done = true; res(); } }, 150)) });
+    el.value = 'first'; el.dispatchEvent(new Event('input'));
+    await run().catch(() => {});
+    const retried = pendingSaveCleanups.has(run); // the refused commit is pending again
+    el.value = 'second'; el.dispatchEvent(new Event('input'));
+    run(); // started (as on leaving the box), not awaited
+    const f = flushAllPendingSaves(); // e.g. a deletion right after: it waits for the commit already running
+    await f;
+    el.remove();
+    return { retried, waited: f !== null && done && stored === 'second' };
+  });
+  check('a commit whose save was refused stays pending and is tried again', sv.retried, JSON.stringify(sv));
+  check('flushAllPendingSaves waits for a commit already running (a deletion right after cannot be overwritten by it)', sv.waited, JSON.stringify(sv));
+  await tab(p, 'matrix'); await settle(p);
+  // ◇ judgement changed to another: the row's line-of-argument mark goes with it
+  const mk = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && (a.clusterIds || []).some(id => secRelation(a, id) !== 'baseline'));
+    const rid = sec.clusterIds.find(id => secRelation(sec, id) !== 'baseline');
+    sec.clusterRelations = { ...(sec.clusterRelations || {}), [rid]: 'other_aspect' }; sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [rid]: true };
+    await dbPut('annotations', sec); renderMatrixView();
+    return { id: sec.id, rid };
+  });
+  await settle(p);
+  await p.evaluate(({ rid }) => document.querySelector(`[data-cluster-id="${rid}"]`)?.scrollIntoView(), mk); await settle(p);
+  await p.evaluate(({ id, rid }) => {
+    const card = document.querySelector(`tr[data-cluster-id="${rid}"] .matrix-cell-card[data-sec-card="${id}"]`) || document.querySelector(`[data-cluster-id="${rid}"] [data-sec-card="${id}"]`);
+    const sel = card && card.querySelector('.rel-select');
+    if (sel) { sel.value = 'reciprocal'; sel.dispatchEvent(new Event('change')); }
+  }, mk);
+  await settle(p);
+  const mark = await p.evaluate(({ id, rid }) => { const a = state.annotations.find(x => x.id === id); return { rel: a.clusterRelations[rid], mark: !!(a.aspectUsedInLoa || {})[rid] }; }, mk);
+  check('judging a ◇ card otherwise takes its line-of-argument mark away', mark.rel === 'reciprocal' && !mark.mark, JSON.stringify(mark));
+  // One construct in two rows: a label typed on one card shows on the other
+  const sy = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && (a.clusterIds || []).length);
+    const other = state.clusters.find(c => !sec.clusterIds.includes(c.id));
+    await assignSecondOrderToCluster(sec, other);
+    renderMatrixView();
+    return { id: sec.id, rows: [...sec.clusterIds] };
+  });
+  await settle(p);
+  for (const rid of sy.rows) { await p.evaluate(r => document.querySelector(`[data-cluster-id="${r}"]`)?.scrollIntoView(), rid); await settle(p); }
+  const synced = await p.evaluate(({ id }) => {
+    const inputs = [...document.querySelectorAll(`.matrix-cell-card[data-sec-card="${id}"] .sec-label-input`)];
+    if (inputs.length < 2) return { skip: true, n: inputs.length };
+    inputs[0].focus(); inputs[0].value = 'Typed on one card'; inputs[0].dispatchEvent(new Event('input'));
+    return { other: inputs[1].value };
+  }, sy);
+  if (!synced.skip) check("a construct's label typed on its card in one row shows on its card in another row", synced.other === 'Typed on one card', JSON.stringify(synced));
+  await p.evaluate(() => document.activeElement && document.activeElement.blur()); await settle(p);
+  // Pool: opening "why not translated" by its summary does not leave the card undraggable
+  const dr = await p.evaluate(() => {
+    const nt = document.querySelector('#poolList .pool-nt, .pool-nt');
+    if (!nt) return { skip: true };
+    const card = nt.closest('[draggable]');
+    nt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    const during = card.draggable;
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    return { during, after: card.draggable };
+  });
+  if (!dr.skip) check('a pool card can be dragged again after its "why not translated" box is opened', dr.during === false && dr.after === true, JSON.stringify(dr));
+  await settle(p);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Content-Security-Policy: the app works under it, and no request can leave the site (http and file://)', async () => {
   for (const url of [BASE + '?demo', 'file://' + path.join(ROOT, 'me_canvas.html') + '?demo']) {
     const where = url.startsWith('file') ? 'file://' : 'http';

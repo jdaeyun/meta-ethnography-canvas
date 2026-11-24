@@ -84,6 +84,21 @@ function deleteConstruct(p, sid) {
     L.applyOps(p, ops);
   });
 }
+// A construct made (as splitting a passage off makes one): undoing it deletes it
+function addConstruct(p, docId, id) {
+  return recorded(p, [], () => L.applyOps(p, [{ store: 'annotations', put: { id, docId, type: 'second_order', page: '9', text: `made ${id}`, note: '', clusterIds: [], clusterRelations: {}, clusterComments: {}, passages: [] } }]),
+    [{ store: 'annotations', id }]);
+}
+function linkQuote(p, qid, sid) { const q = clone(sec(p, qid)); q.parentIds = [...new Set([...(q.parentIds || []), sid])]; L.applyOps(p, [{ store: 'annotations', put: q }]); }
+function relate(p, docId, from, to) {
+  const d = clone(p.docs.find(x => x.id === docId));
+  d.conceptLinks = [...(d.conceptLinks || []), { id: `k_${from}_${to}_${Math.random().toString(36).slice(2, 6)}`, from, to, type: 'leads' }];
+  L.applyOps(p, [{ store: 'docs', put: d }]);
+}
+function markEmpty(p, rid, docId) {
+  if (L.rowSecsIn(p, rid).some(a => a.docId === docId)) return;
+  const c = clone(row(p, rid)); c.cellStatus = { ...c.cellStatus, [docId]: { status: 'absent', note: '' } }; L.applyOps(p, [{ store: 'clusters', put: c }]);
+}
 function undo(p, change) {
   const { ops, kept } = L.revertChange(change, p);
   const t = L.tidyRefsOps(p, ops);
@@ -137,6 +152,26 @@ test('scenario: merging rows established by different studies starts the moved j
   assert.equal(m.rejudge.length, 1);
 });
 
+test('scenario: merging keeps the source row\'s "No single base" for a target not set yet, and its re-reading note only with its base', () => {
+  const p = makeProject();
+  const nb = clone(row(p, 'r1')); nb.baseDocId = null; L.applyOps(p, [{ store: 'clusters', put: nb }]);
+  L.applyOps(p, [{ store: 'clusters', put: { id: 'r0', thirdOrderTitle: 'Empty', order: 9, baseDocId: '', cellStatus: {}, historyFrom: [] } }]);
+  merge(p, 'r1', 'r0'); assertConsistent(p, 'merge into a row not set yet');
+  assert.equal(row(p, 'r0').baseDocId, null, 'no single base, not left unset');
+  place(p, 's_d3_2', 'r0');
+  assert.equal(L.relationIn(p, sec(p, 's_d3_2'), 'r0'), 'unjudged', 'a study placed later does not become its base');
+  // Re-reading note (study #1 changed): carried only into a row established by the same study
+  const q = makeProject();
+  const flagged = clone(row(q, 'r1')); flagged.baselineChange = { fromDocId: 'd1', toDocId: 'd2', fromName: 'd1', toName: 'd2' }; L.applyOps(q, [{ store: 'clusters', put: flagged }]);
+  const other = clone(row(q, 'r2')); other.baseDocId = 'd3'; L.applyOps(q, [{ store: 'clusters', put: other }]);
+  merge(q, 'r1', 'r2');
+  assert.ok(!row(q, 'r2').baselineChange, 'the merged row is established by d3: the note about d1 does not apply');
+  const t = makeProject();
+  const f2 = clone(row(t, 'r1')); f2.baselineChange = { fromDocId: 'd1', toDocId: 'd2' }; L.applyOps(t, [{ store: 'clusters', put: f2 }]);
+  merge(t, 'r1', 'r2');
+  assert.equal(row(t, 'r2').baselineChange.fromDocId, 'd1', 'same base: carried');
+});
+
 test('scenario: Undo of a row deletion, a removal from a row and a construct deletion gives back exactly what was there', () => {
   const p = makeProject();
   place(p, 's_d2_1', 'r1'); judge(p, 's_d2_1', 'r1', 'other_aspect');
@@ -183,17 +218,29 @@ test('scenario: Undo keeps what was changed after the operation, and brings noth
   assert.deepEqual(r2.kept.map(k => k.path), ['clusterRelations.r1']);
 });
 
+test('scenario: undoing the making of a construct lets go of what was linked to it since', () => {
+  const p = makeProject();
+  const ch = addConstruct(p, 'd2', 's_new');
+  linkQuote(p, 'q_d2', 's_new'); relate(p, 'd2', 's_new', 's_d2_1'); place(p, 's_new', 'r1');
+  assertConsistent(p, 'links to the new construct');
+  const r = undo(p, ch); assertConsistent(p, 'undo the making of a construct linked since');
+  assert.ok(!sec(p, 's_new'));
+  assert.deepEqual(plain(sec(p, 'q_d2').parentIds), ['s_d2_1'], "the quote's other link stays");
+  assert.ok(!p.docs[1].conceptLinks.some(l => l.from === 's_new' || l.to === 's_new'));
+  assert.deepEqual(r.dropped.sort(), ["a quote's link to a construct this undo removes", 'a within-study relationship to a construct this undo removes']);
+});
+
 // ---- Random walks: any order of the steps keeps the project consistent; Undo right after a step restores it exactly ----
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const STEPS = ['place', 'judge', 'merge', 'split', 'deleteRow', 'unplace', 'deleteConstruct', 'undo'];
+const STEPS = ['place', 'judge', 'merge', 'split', 'deleteRow', 'unplace', 'deleteConstruct', 'addConstruct', 'linkQuote', 'relate', 'markEmpty', 'undo', 'undo'];
 for (const seed of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765, 10946]) {
-  test(`random walk (seed ${seed}): 25 steps, consistent after each; an immediate Undo restores the project exactly`, () => {
+  test(`random walk (seed ${seed}): 80 steps, consistent after each; an immediate Undo restores the project exactly`, () => {
     const r = rng(seed);
     const pick = list => list[Math.floor(r() * list.length)];
     const p = makeProject();
     const undoable = [];
     let n = 0;
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 80; i++) {
       const step = pick(STEPS);
       const secs = p.annotations.filter(a => a.type === 'second_order');
       const placed = secs.filter(a => a.clusterIds.length);
@@ -210,12 +257,22 @@ for (const seed of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 
         const c = pick(p.clusters.filter(x => L.rowSecsIn(p, x.id).length));
         const cards = L.rowSecsIn(p, c.id);
         split(p, c.id, cards.filter(() => r() < 0.5).concat(cards[0]).map(s => s.id), `rs${seed}_${n++}`);
-      } else if (['deleteRow', 'unplace', 'deleteConstruct'].includes(step)) {
+      } else if (step === 'linkQuote') {
+        const q = pick(p.annotations.filter(a => a.type === 'first_order'));
+        const own = secs.filter(a => a.docId === q.docId);
+        if (own.length) linkQuote(p, q.id, pick(own).id);
+      } else if (step === 'relate') {
+        const d = pick(p.docs), own = secs.filter(a => a.docId === d.id);
+        if (own.length > 1) { const a = pick(own); relate(p, d.id, a.id, pick(own.filter(x => x !== a)).id); }
+      } else if (step === 'markEmpty' && p.clusters.length) {
+        markEmpty(p, pick(p.clusters).id, pick(p.docs).id);
+      } else if (['deleteRow', 'unplace', 'deleteConstruct', 'addConstruct'].includes(step)) {
         const before = meaning(p);
         let ch = null;
         if (step === 'deleteRow' && p.clusters.length) ch = deleteRow(p, pick(p.clusters).id);
         if (step === 'unplace' && placed.length) { const s = pick(placed); ch = unplace(p, s.id, pick(s.clusterIds)); }
         if (step === 'deleteConstruct' && secs.length > 2) ch = deleteConstruct(p, pick(secs).id);
+        if (step === 'addConstruct') ch = addConstruct(p, pick(p.docs).id, `s_add_${seed}_${n++}`);
         if (!ch) continue;
         assertConsistent(p, label);
         if (r() < 0.5) { // undone at once: exactly as before

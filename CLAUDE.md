@@ -150,17 +150,26 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 - Undo: an undoable operation names the records it will touch with `beginChange(label, keys, { undoLogs })` BEFORE changing
   them, and calls `finishChange(change, created)` once written (undo-audit.js). Ctrl+Z (`revertChange()` + `tidyRefsOps()`, logic.js)
   puts back what the operation changed that is still as it left it (objects key by key, lists of ids / records with an id as sets),
-  keeps and names later work, and brings nothing back pointing at what was deleted since. No per-operation undo code: a new field
+  keeps and names later work, and brings nothing back pointing at what was deleted since. When the undo deletes a record (one
+  the operation made), `tidyRefsOps()` checks every record of the project, so nothing linked to it since is left pointing at it. No per-operation undo code: a new field
   is covered. Only study deletion (PDF bytes, study order, #1) and row merge / split (renumbering, carrying later work between
   rows) keep their own undo. `undoLogs` are the audit entries Ctrl+Z writes (scanned by the smoke test like recordAuditLog calls).
 - A deletion (and Undo) first awaits `flushAllPendingSaves()`: a debounced save still waiting would otherwise write the deleted
-  record back after it (take Undo snapshots after it). `commitOps()` also does this for any ops with a `del`, as a safety net.
+  record back after it (take Undo snapshots after it). It also waits for saves and commits already running (`trackSave`): a
+  draft save whose pause is over, a commit begun on leaving the box. `commitOps()` flushes too for any ops with a `del`, as a
+  safety net, with `{ running: false }` (it may run inside a commit, which must not wait for itself). A commit whose save is
+  refused stays pending and is tried again (`bindPendingCommit`); `bindTextField` counts a text as committed only once saved.
 - Operations that change several records at once (merge / split / delete a row, delete a study, the order of studies or rows)
   write them with `commitOps(ops)` (core.js), never `dbBatch()` directly (unit test; only demo.js seeding may): one transaction,
   then the same ops applied to `state` (docs / annotations / clusters / logs / `loa_main`), then `getMatrixIndex()` dropped. So a
   refused write removes or adds nothing in memory alone. A record already in `state` keeps its object (its content is replaced);
   a new one is appended (move it afterwards if it needs a place, e.g. a restored study). Build deletions as `del` ops instead of
-  filtering `state` before the write.
+  filtering `state` before the write, and changed records as copies (`{ ...rec, field }`, `putIntoRow()` on a copy,
+  `placementOpsFor()` for the rows a placement changes) instead of changing the records in memory first. An undo entry is pushed
+  only after the write succeeded.
+- After a change that can touch any part of the project (Undo, closing Compare), call `refreshOpenViews({ loa })` (app.js): it
+  draws every open view again (all four tabs, the drawer's chips and map, the study list), instead of each handler listing
+  the views it thinks it changed.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
 - A text field of a record uses `bindTextField(el, { get, set, save, commit })` (core.js): the one save path. While typing, the

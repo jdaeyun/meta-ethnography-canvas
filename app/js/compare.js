@@ -17,11 +17,8 @@ document.getElementById('compareJsonModalBtn').addEventListener('click', () => {
 document.getElementById('closeCompareModalBtn').addEventListener('click', () => {
   compareModal.classList.add('hidden');
   compareModal.classList.remove('flex');
-  // What was imported shows in the view underneath at once (the matrix, the study list, the sidebar)
-  renderStudyList();
-  updateSidebar();
-  renderHighlights();
-  if (!divMatrix.classList.contains('hidden')) renderMatrixView();
+  // What was imported (constructs, rows, models, map relations, trail entries) shows at once in whatever view is open
+  refreshOpenViews({ loa: true });
 });
 
 document.getElementById('loadPeerJsonBtn').addEventListener('click', () => document.getElementById('peerJsonFileInput').click());
@@ -767,14 +764,16 @@ async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
     // With the peer's judgement, note and mark there; what the construct already has in that row here is kept
     const peerFields = {};
     ANNOTATION_ROW_FIELDS.forEach(k => { if (k in w) peerFields[k] = w[k]; });
-    putIntoRow(a, localRowId, { ...peerFields, ...rowFieldsOf(a, localRowId) });
-    delete a._peerRows[peerRowId];
-    if (!Object.keys(a._peerRows).length) delete a._peerRows;
-    ops.push({ store: 'annotations', put: a });
-    placed.push(a);
+    // (a copy: the construct in memory changes once it is stored)
+    const c = { ...a, clusterIds: [...(a.clusterIds || [])], _peerRows: { ...a._peerRows } };
+    putIntoRow(c, localRowId, { ...peerFields, ...rowFieldsOf(a, localRowId) });
+    delete c._peerRows[peerRowId];
+    if (!Object.keys(c._peerRows).length) delete c._peerRows;
+    ops.push({ store: 'annotations', put: c });
+    placed.push(c);
   }
-  // As a placement made here: the row's base if not set yet, and no empty-cell note for this study (rowsTouchedByPlacement)
-  ops.push(...placementRowOps(placed));
+  // As a placement made here: the row's base if not set yet, and no empty-cell note for this study (placementOpsFor)
+  ops.push(...placementOpsFor(state, placed));
   await commitOps(ops); // the constructs and what they change in the rows, together
   return ops.filter(o => o.store === 'annotations').length;
 }
@@ -911,16 +910,19 @@ async function importPeerConstructNow(item, status, redraw) {
   });
   cmp.peerToLocalAnnoId[peerId] = imported.id;
   (cmp.importedPeerIds = cmp.importedPeerIds || {})[peerId] = imported.id; // kept when the pairs are worked out again
-  // If this is a 2nd Order construct, re-attach any previously imported peer quotes that were waiting for it
+  // If this is a 2nd Order construct, the peer's quotes of the same study imported earlier and waiting for it are linked to it
+  // (copies, written in the same transaction as the construct)
+  /** @type {DbOp[]} */
+  const waitingQuoteOps = [];
   if (imported.type === 'second_order') {
     for (const a of state.annotations) {
       const waiting = a._peerParentIds || [];
-      if (a.type === 'first_order' && waiting.includes(peerId)) {
-        linkQuote(a, imported.id);
-        a._peerParentIds = waiting.filter(x => x !== peerId);
-        if (!a._peerParentIds.length) delete a._peerParentIds;
-        await dbPut('annotations', a);
-      }
+      if (a.type !== 'first_order' || a.docId !== targetDocId || !waiting.includes(peerId)) continue;
+      const q = { ...a, parentIds: [...quoteParentIds(a)] };
+      linkQuote(q, imported.id);
+      q._peerParentIds = waiting.filter(x => x !== peerId);
+      if (!q._peerParentIds.length) delete q._peerParentIds;
+      waitingQuoteOps.push({ store: 'annotations', put: q });
     }
   }
 
@@ -928,7 +930,7 @@ async function importPeerConstructNow(item, status, redraw) {
   // A within-study relationship of the peer's that was waiting for this construct (and its other end) joins the study
   const targetDoc = state.docs.find(d => d.id === targetDocId);
   const withLinks = imported.type === 'second_order' && targetDoc ? attachWaitingConceptLinks(targetDoc, peerId, imported.id) : null;
-  await commitOps([{ store: 'annotations', put: imported }, ...placementRowOps([imported]), ...(withLinks ? [{ store: 'docs', put: withLinks }] : [])]); // (adds it to state.annotations)
+  await commitOps([{ store: 'annotations', put: imported }, ...placementRowOps([imported]), ...waitingQuoteOps, ...(withLinks ? [{ store: 'docs', put: withLinks }] : [])]); // (adds it to state.annotations)
 
   const doc = state.docs.find(d => d.id === targetDocId);
   await recordAuditLog({

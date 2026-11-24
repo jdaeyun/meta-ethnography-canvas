@@ -66,15 +66,6 @@ function describeKept(kept) {
   const what = { annotations: 'a construct / quote', clusters: 'a 3rd Order row', docs: 'a study', meta: 'the overall model', logs: 'a trail entry' };
   return [...new Set(kept.map(k => `${what[k.store] || k.store}${k.path ? ` (${k.path.split('.')[0]})` : ' (changed or deleted since)'}`))].join('; ');
 }
-function refreshAfterUndo() {
-  renderHighlights();
-  updateSidebar();
-  renderLoaClusterChips();
-  renderLoaMap();
-  updateAuditBadge();
-  if (!divMatrix.classList.contains('hidden')) renderMatrixView();
-  if (!divAudit.classList.contains('hidden')) renderAuditTimeline();
-}
 
 // One undo at a time: a fast second Ctrl+Z waits for nothing and is ignored while the first is still writing
 let undoBusy = false;
@@ -101,7 +92,7 @@ async function performUndoStep() {
       await recordAuditLog({ ...l, clusterIds: ids.length ? ids : null, detail: [l.detail, keptText, droppedText].filter(Boolean).join('\n') });
     }
     if (kept.length || dropped.length) showSnackbar(`Undone: ${last.label}` + (droppedText ? `\n${droppedText}` : '') + (keptText ? `\n${keptText}` : ''));
-    refreshAfterUndo();
+    refreshOpenViews({ loa: last.records.some(r => r.store === 'meta') });
   } else if (last.type === 'delete_study') {
     const d = last.doc;
     // The study, its PDF and its constructs come back in one transaction (as they went); a construct's placement in a row

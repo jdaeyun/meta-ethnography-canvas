@@ -403,6 +403,23 @@ function setActiveTab(tab) {
   if (tab === 'pub') renderPublicationView();
 }
 
+// After a change that can touch any part of the project (Undo, a Compare import, a restore of parts of it): every view that
+// is open is drawn again from the project, so none of them shows the data as it was. One place, instead of each handler
+// listing the views it thinks it changed. loa: the drawer's fields are filled in again too (a model or relations taken over).
+function refreshOpenViews({ loa = false } = {}) {
+  if (loa) populateLoaInputs();
+  updateHeaderProjectUI();
+  renderStudyList();
+  updateSidebar();
+  renderHighlights();
+  renderLoaClusterChips();
+  renderLoaMap();
+  updateAuditBadge();
+  if (!divMatrix.classList.contains('hidden')) renderMatrixView();
+  if (!divAudit.classList.contains('hidden')) renderAuditView();
+  if (!divPub.classList.contains('hidden')) renderPublicationView();
+}
+
 vExtract.addEventListener('click', () => setActiveTab('extract'));
 vMatrix.addEventListener('click', () => setActiveTab('matrix'));
 vAudit.addEventListener('click', () => setActiveTab('audit'));

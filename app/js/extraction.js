@@ -390,7 +390,9 @@ function buildStudyConceptLinksBox(doc, seconds) {
     const from = box.querySelector('.cl-from').value, to = box.querySelector('.cl-to').value, type = box.querySelector('.cl-type').value;
     const note = box.querySelector('.cl-note').value.trim();
     if (!from || !to || from === to) { showSnackbar('Choose two different concepts.'); return; }
-    if (studyConceptLinks(doc).some(l => l.from === from && l.to === to && l.type === type)) { showSnackbar('This relationship is already recorded.'); return; }
+    // (for a relation without direction, B–A is the same as A–B: relationKey, as in the backup merge)
+    const key = relationKey({ from, to, type });
+    if (studyConceptLinks(doc).some(l => relationKey(l) === key)) { showSnackbar('This relationship is already recorded.'); return; }
     const link = { id: 'cl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, type, note };
     doc.conceptLinks.push(link);
     await dbPut('docs', doc);
@@ -434,9 +436,10 @@ async function deleteSecondOrder(sec) {
     [{ store: 'annotations', id: sec.id }, ...linked.map(f => ({ store: 'annotations', id: f.id })), ...(ownDoc ? [{ store: 'docs', id: ownDoc.id }] : [])],
     { undoLogs: [{ kind: 'construct_restore', category: 'reading_extraction', action: `Restored a deleted 2nd Order construct (Undo): ${docName}, p.${sec.page}`,
       detail: `${sec.note ? sec.note + ': ' : ''}"${String(sec.text || '').slice(0, 80)}..."`, clusterIds: [...(sec.clusterIds || [])] }] });
+  // (copies: the quotes and the study in memory change once all of it is stored)
   /** @type {DbOp[]} */
-  const ops = linked.map(f => { unlinkQuote(f, sec.id); return { store: 'annotations', put: f }; });
-  if (removedConceptLinks.length) { ownDoc.conceptLinks = ownDoc.conceptLinks.filter(l => !removedConceptLinks.includes(l)); ops.push({ store: 'docs', put: ownDoc }); }
+  const ops = linked.map(f => ({ store: 'annotations', put: { ...f, parentIds: quoteParentIds(f).filter(id => id !== sec.id) } }));
+  if (removedConceptLinks.length) ops.push({ store: 'docs', put: { ...ownDoc, conceptLinks: ownDoc.conceptLinks.filter(l => !removedConceptLinks.includes(l)) } });
   ops.push({ store: 'annotations', del: sec.id });
   await commitOps(ops); // the construct, its quotes' links and its within-study relationships in one transaction
   finishChange(change);
@@ -515,7 +518,9 @@ async function absorbAsPassage(source, target) {
   const sourceSnapshot = JSON.parse(JSON.stringify(source));
   const ownPassages = sourceSnapshot.passages || [];
   sourceSnapshot.passages = [];
-  target.passages.push({
+  // Built on copies: the constructs and quotes in memory change once all of it is stored
+  const tgt = { ...target, clusterIds: [...(target.clusterIds || [])], passages: [...(target.passages || [])] };
+  tgt.passages.push({
     id: newPassageId(),
     text: source.text, page: source.page,
     firstPage: source.firstPage || parseInt(source.page, 10) || null,
@@ -525,11 +530,11 @@ async function absorbAsPassage(source, target) {
     absorbed: { snapshot: sourceSnapshot, addedClusterIds, movedQuoteIds, ownPassageIds: ownPassages.map(x => x.id) }
   }, ...ownPassages);
 
-  addedClusterIds.forEach(cid => putIntoRow(target, cid, rowFieldsOf(source, cid))); // with the source's judgement, note and mark there
+  addedClusterIds.forEach(cid => putIntoRow(tgt, cid, rowFieldsOf(source, cid))); // with the source's judgement, note and mark there
   // (Its within-study relationships (Appendix C) stay on the study under its id: hidden while it is a passage, back when split off)
   /** @type {DbOp[]} */
-  const ops = children.map(f => { unlinkQuote(f, source.id); linkQuote(f, target.id); return { store: 'annotations', put: f }; });
-  ops.push({ store: 'annotations', put: target }, { store: 'annotations', del: source.id });
+  const ops = children.map(f => { const q = { ...f, parentIds: [...quoteParentIds(f)] }; unlinkQuote(q, source.id); linkQuote(q, target.id); return { store: 'annotations', put: q }; });
+  ops.push({ store: 'annotations', put: tgt }, { store: 'annotations', del: source.id });
   await commitOps(ops); // its quotes and both constructs in one transaction
   finishChange(change);
 
@@ -578,7 +583,8 @@ async function splitOffPassage(sec, pid) {
   }
   sec.passages = sec.passages.filter(x => x.id !== pid);
   // Both constructs and the quotes that go back with it in one transaction; Undo also removes the re-created construct
-  await commitOps([sec, restored, ...affectedQuotes].map(a => ({ store: 'annotations', put: a })));
+  // Back in its rows, it does there what placing does (an empty-cell record made for its study meanwhile goes: placementRowOps)
+  await commitOps([...[sec, restored, ...affectedQuotes].map(a => ({ store: 'annotations', put: a })), ...placementRowOps([restored])]);
   finishChange(change, [{ store: 'annotations', id: restored.id }]);
   await recordAuditLog({
     kind: 'passage_split',

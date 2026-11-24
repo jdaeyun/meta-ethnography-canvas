@@ -450,6 +450,24 @@ function applyPlacementToRow(row, docId) {
   return ch;
 }
 
+// What placing constructs does in their rows, as copies of the rows it changes ([{ store, put }], each row once): the
+// constructs given as they will be written. Nothing in the project is changed (core.js placementRowOps changes the rows in
+// memory instead, for the paths that write those rows again in the same batch).
+/** @param {any} project @param {any[]} annos */
+function placementOpsFor(project, annos) {
+  const rows = new Map();
+  annos.forEach(a => {
+    if (!a || a.type !== 'second_order') return;
+    (a.clusterIds || []).forEach(id => {
+      const row = rows.get(id) || (project.clusters || []).find(c => c.id === id);
+      if (!row) return;
+      const copy = rows.has(id) ? row : { ...row };
+      if (applyPlacementToRow(copy, a.docId) || rows.has(id)) rows.set(id, copy);
+    });
+  });
+  return [...rows.values()].map(r => ({ store: 'clusters', put: r }));
+}
+
 // ======================= Undo of a change: put back what it changed that is still as it left it =======================
 // Most undoable operations are recorded as a change: each record they touched, as it was before (null = it did not exist)
 // and as they left it (null = they deleted it). Undo works out the way back from those two against the project as it is
@@ -525,10 +543,13 @@ function revertChange(change, project) {
 
 // The ops, made consistent with the project they are written into (Undo, anything that brings records back): a construct
 // keeps only placements in rows that exist (and per-row fields only for those); a quote keeps links only to constructs of its
-// own study and has no place in rows; a study keeps "same primary study as" only for another study here, and within-study
-// relationships only between its own constructs; the model's map relations only between rows here; a row has no empty-cell
-// record for a study with a construct in it; and a construct placed in a row does there what placing does
-// (applyPlacementToRow). Returns { ops, dropped } (dropped: what was not brought back, in words).
+// own study and has no place in rows; a construct or quote of a study that is not here is not written; a study keeps "same
+// primary study as" only for another study here, and within-study relationships only between its own constructs; the
+// model's map relations only between rows here; a row has no empty-cell record for a study with a construct in it; and a
+// construct placed in a row does there what placing does (applyPlacementToRow).
+// The records written are checked; when the ops also delete something, every record of the project is, so nothing is left
+// pointing at what they delete (a quote linked since to a construct the Undo takes away, a relationship drawn to it…).
+// Returns { ops, dropped } (dropped: what was not brought back or was let go, in words).
 /** @param {any} project @param {{ store: string, put?: any, del?: any }[]} ops */
 function tidyRefsOps(project, ops) {
   const maps = {};
@@ -540,29 +561,44 @@ function tidyRefsOps(project, ops) {
     if (!m) return;
     if ('del' in o) m.delete(o.del); else m.set(o.put.id, o.put);
   });
-  const out = ops.map(o => ({ ...o }));
+  let out = ops.map(o => ({ ...o }));
   const at = new Map();
-  out.forEach((o, i) => { if (!('del' in o)) at.set(o.store + '|' + o.put.id, i); });
+  out.forEach((o, i) => { if (!('del' in o)) at.set(o.store + '|' + (o.store === 'meta' ? 'loa_main' : o.put.id), i); });
+  const written = new Set(at.keys());
   const copied = new Set();
   // The record as it will be written, as a copy that may be changed (added to the ops if it was not in them)
   const edit = (store, id) => {
     const k = store + '|' + id;
-    if (!at.has(k)) { out.push({ store, put: maps[store].get(id) }); at.set(k, out.length - 1); }
+    if (!at.has(k)) { out.push({ store, put: store === 'meta' ? loa : maps[store].get(id) }); at.set(k, out.length - 1); }
     const i = at.get(k);
-    if (!copied.has(k)) { out[i] = { store, put: deepCopy(out[i].put) }; copied.add(k); maps[store].set(id, out[i].put); }
+    if (!copied.has(k)) {
+      out[i] = { store, put: deepCopy(out[i].put) }; copied.add(k);
+      if (store === 'meta') loa = out[i].put; else maps[store].set(id, out[i].put);
+    }
     return out[i].put;
   };
   const dropped = [];
+  // A record brought back loses what is gone since; one already here loses what these ops take away
+  const note = (store, id, back, away) => dropped.push(written.has(store + '|' + id) ? back : away);
+  const deletes = ops.some(o => 'del' in o);
+  const toCheck = store => deletes ? [...maps[store].values()] : out.filter(o => o.store === store && !('del' in o)).map(o => o.put);
   const rowIds = new Set(maps.clusters.keys());
-  const puts = store => out.filter(o => o.store === store && !('del' in o)).map(o => o.put);
+  // A construct or quote of a study that is not here is not written
+  out = out.filter(o => {
+    if (o.store !== 'annotations' || 'del' in o || maps.docs.has(o.put.docId)) return true;
+    dropped.push('an item of a study deleted since');
+    maps.annotations.delete(o.put.id); at.delete('annotations|' + o.put.id);
+    return false;
+  });
+  out.forEach((o, i) => { if (!('del' in o)) at.set(o.store + '|' + (o.store === 'meta' ? 'loa_main' : o.put.id), i); });
   // Constructs and quotes
-  puts('annotations').forEach(a0 => {
+  toCheck('annotations').forEach(a0 => {
     let a = a0;
     const fix = () => (a === a0 ? (a = edit('annotations', a0.id)) : a);
     if (a.type === 'second_order') {
       const ids = Array.isArray(a.clusterIds) ? a.clusterIds : [];
       const live = [...new Set(ids.filter(id => rowIds.has(id)))];
-      if (live.length !== ids.length) { if (ids.some(id => !rowIds.has(id))) dropped.push('a placement in a row deleted since'); fix().clusterIds = live; }
+      if (live.length !== ids.length) { if (ids.some(id => !rowIds.has(id))) note('annotations', a.id, 'a placement in a row deleted since', 'a placement in a row this undo removes'); fix().clusterIds = live; }
       ANNOTATION_ROW_FIELDS.forEach(k => {
         if (isPlainObject(a[k]) && Object.keys(a[k]).some(id => !live.includes(id))) fix()[k] = Object.fromEntries(Object.entries(a[k]).filter(([id]) => live.includes(id)));
       });
@@ -574,35 +610,34 @@ function tidyRefsOps(project, ops) {
       if (a.type === 'first_order') {
         const own = id => { const p = maps.annotations.get(id); return !!p && p.type === 'second_order' && p.docId === a.docId; };
         const ps = Array.isArray(a.parentIds) ? a.parentIds : [];
-        if (ps.some(id => !own(id))) { dropped.push('a link to a construct deleted since'); fix().parentIds = ps.filter(own); }
+        if (ps.some(id => !own(id))) { note('annotations', a.id, 'a link to a construct deleted since', "a quote's link to a construct this undo removes"); fix().parentIds = ps.filter(own); }
       }
     }
   });
-  // What placing a construct does in its rows
-  puts('annotations').filter(a => a.type === 'second_order').forEach(a => (a.clusterIds || []).forEach(rid => {
+  // What placing a construct does in its rows (only for constructs written: a placement already here did it when made)
+  out.filter(o => o.store === 'annotations' && !('del' in o) && o.put.type === 'second_order').map(o => o.put).forEach(a => (a.clusterIds || []).forEach(rid => {
     const row = maps.clusters.get(rid);
     if (row && (row.baseDocId === '' || (row.cellStatus && row.cellStatus[a.docId]))) applyPlacementToRow(edit('clusters', rid), a.docId);
   }));
   // Rows: no empty-cell record for a study with a construct in the row
   const secs = [...maps.annotations.values()].filter(a => a && a.type === 'second_order');
-  puts('clusters').forEach(c => {
+  toCheck('clusters').forEach(c => {
     const stale = Object.keys(c.cellStatus || {}).filter(d => secs.some(a => a.docId === d && (a.clusterIds || []).includes(c.id)));
     if (stale.length) { const e = edit('clusters', c.id); e.cellStatus = { ...e.cellStatus }; stale.forEach(d => delete e.cellStatus[d]); }
   });
   // Studies
-  puts('docs').forEach(d => {
+  toCheck('docs').forEach(d => {
     if (d.companionOf && (d.companionOf === d.id || !maps.docs.has(d.companionOf))) edit('docs', d.id).companionOf = '';
     const links = Array.isArray(d.conceptLinks) ? d.conceptLinks : [];
     if (!links.length) return;
     const own = new Set(secs.filter(a => a.docId === d.id).flatMap(a => [a.id, ...(a.passages || []).map(p => p.absorbed && p.absorbed.snapshot && p.absorbed.snapshot.id).filter(Boolean)]));
     const keep = links.filter(l => own.has(l.from) && own.has(l.to));
-    if (keep.length !== links.length) { dropped.push('a within-study relationship to a construct deleted since'); edit('docs', d.id).conceptLinks = keep; }
+    if (keep.length !== links.length) { note('docs', d.id, 'a within-study relationship to a construct deleted since', 'a within-study relationship to a construct this undo removes'); edit('docs', d.id).conceptLinks = keep; }
   });
   // The model's map relations
-  const loaOp = out.findIndex(o => o.store === 'meta' && o.put && o.put.id === 'loa_main');
-  if (loaOp >= 0 && Array.isArray(out[loaOp].put.links)) {
-    const keep = liveRowLinks(out[loaOp].put.links, rowIds);
-    if (keep.length !== out[loaOp].put.links.length) { dropped.push('a map relation to a row deleted since'); out[loaOp] = { store: 'meta', put: { ...out[loaOp].put, links: keep } }; }
+  if ((deletes || written.has('meta|loa_main')) && Array.isArray(loa.links)) {
+    const keep = liveRowLinks(loa.links, rowIds);
+    if (keep.length !== loa.links.length) { note('meta', 'loa_main', 'a map relation to a row deleted since', 'a map relation to a row this undo removes'); edit('meta', 'loa_main').links = keep; }
   }
   return { ops: out, dropped: [...new Set(dropped)] };
 }
@@ -694,7 +729,13 @@ function planMergeRows(project, srcId, tgtId, helpers) {
   Object.entries(src.cellStatus || {}).forEach(([docId, v]) => { if (!docsInTgt.has(docId) && !tgt.cellStatus[docId]) tgt.cellStatus[docId] = v; });
   Object.keys(tgt.cellStatus).forEach(docId => { if (docsInTgt.has(docId)) delete tgt.cellStatus[docId]; });
   if (!tgtNoBase && !rowBaseIn(project, tgt) && rowBaseIn(project, src)) tgt.baseDocId = src.baseDocId;
-  if (src.baselineChange && !tgt.baselineChange) tgt.baselineChange = src.baselineChange; // still to be re-read after study #1 changed
+  // A target whose base was not set yet ('') takes the source row's choice also when it is "No single base" (null): with cards in
+  // it and still '', the next study placed there would establish the merged row
+  if (tgt.baseDocId === '' && src.baseDocId === null) tgt.baseDocId = null;
+  if (tgt.baseDocId === '' && docsInTgt.size) tgt.baseDocId = (secs.find(s => s.clusterIds.includes(tgt.id)) || rowSecsIn(project, tgt.id)[0] || {}).docId || '';
+  // Still to be re-read after study #1 changed: only if the merged row is established by the study that note is about
+  const bc = src.baselineChange;
+  if (bc && !tgt.baselineChange && (tgt.baseDocId === src.baseDocId || tgt.baseDocId === bc.fromDocId)) tgt.baselineChange = bc;
   tgt.historyFrom = [...new Set([...tgt.historyFrom, src.id, ...(src.historyFrom || [])])];
   ops.push({ store: 'clusters', put: tgt });
   const links = Array.isArray(loa.links) ? moveRowLinks(loa.links, src.id, tgt.id) : null;
@@ -963,6 +1004,8 @@ function extractSurnameFromAuthorString(rawAuthor) {
   const cleaned = String(rawAuthor)
     .replace(/[\d*†‡§¶✉]/g, '')
     .replace(/\b(MD|PhD|RN|PharmD|MSc|MPH|BSc|Prof|Dr)\b\.?/gi, '')
+    // a title removed leaves an empty piece between commas ("Smith, John, PhD" -> "Smith, John,"): it is not another author
+    .replace(/,(\s*,)+/g, ',').replace(/^[\s,]+|[\s,]+$/g, '')
     .trim();
   // Chinese / Japanese names put the family name first ("山田 太郎"), and authors are separated by 、 ， or ・: take the first
   // token of the first author; a name written without a space is kept whole (family and given name cannot be told apart)
