@@ -110,8 +110,12 @@ async function openDemo(url = BASE + '?demo') {
   // Choices (#choiceModal, e.g. clean restore / merge) likewise: page.choiceAnswer is the value to pick (default the first option).
   // A notice (the choice dialog with only OK) is acknowledged and its text kept in page.notices.
   page.autoReason = true; page.reasonAnswer = ''; page.choiceAnswer = null; page.notices = [];
+  // One pass at a time: a pass still waiting to click (up to 1 s) must not overlap the next, or its click can land on the
+  // NEXT dialog shown in the same place (e.g. "merge" picked for a later clean restore)
+  let answering = false;
   const reasonLoop = setInterval(async () => {
-    if (!page.autoReason || page.isClosed()) return;
+    if (!page.autoReason || page.isClosed() || answering) return;
+    answering = true;
     try {
       if (await page.isVisible('#reasonModal')) {
         await page.fill('#reasonModalInput', page.reasonAnswer);
@@ -126,7 +130,7 @@ async function openDemo(url = BASE + '?demo') {
           await page.click(want && (await page.locator(want).count()) ? want : '#choiceModalOptions .choice-option', { timeout: 1000 });
         }
       }
-    } catch (e) { /* page busy or closing */ }
+    } catch (e) { /* page busy or closing */ } finally { answering = false; }
   }, 120);
   page.on('close', () => clearInterval(reasonLoop));
   await page.goto(url);
@@ -1047,9 +1051,10 @@ await group('Rows can be merged and split: judgements, texts, map relations and 
     await splitRow(src, [sec.id], 'A split-off reading', 'Reads as a separate idea');
     const nw = state.clusters[1];
     return { n2: state.clusters.length === n + 1, placed: nw.thirdOrderTitle === 'A split-off reading', moved: sec.clusterIds.includes(nw.id) && !sec.clusterIds.includes(src.id),
-      rel: (sec.clusterRelations || {})[nw.id] === rel || rel === null, hist: nw.historyFrom.includes(src.id), logged: state.logs[0].action.startsWith('Split 1 construct') && state.logs[0].rationale === 'Reads as a separate idea' };
+      // The lone moved card's study now establishes the new row: it is its base (◆), not judged; an earlier judgement is in its note
+      rel: secRelation(sec, nw.id) === 'baseline' && !((sec.clusterRelations || {})[nw.id]) && (rel === null || /establishes the new row/.test((sec.clusterComments || {})[nw.id] || '')), hist: nw.historyFrom.includes(src.id), logged: state.logs[0].action.startsWith('Split 1 construct') && state.logs[0].rationale === 'Reads as a separate idea' };
   });
-  check('splitting moves the ticked cards into a new row right below, with their judgements', sp.n2 && sp.placed && sp.moved && sp.rel);
+  check('splitting moves the ticked cards into a new row right below; the card that now establishes it is its base, its earlier judgement noted', sp.n2 && sp.placed && sp.moved && sp.rel);
   check('the new row\'s history starts from the row it was split from; the split is logged with its reason', sp.hist && sp.logged);
   await p.evaluate(() => performUndo()); await settle(p);
   check('Ctrl+Z undoes the split', await p.evaluate(n => state.clusters.length === n, JSON.parse(before).c.length));
@@ -2211,6 +2216,115 @@ await group('Review fixes 8: switch and undo tidy per-row marks and relationship
   await p.keyboard.press('Escape'); await settle(p);
   check('Escape does not close the first-start project setup', await p.evaluate(() => !document.getElementById('reviewerLoginModal').classList.contains('hidden')));
   await p.evaluate(() => document.getElementById('reviewerLoginModal').classList.add('hidden'));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Review fixes 9: flow sketch buttons save, row bases on merge / split, restore tidies links, undo order and parents, Appendix A series, search reset, focus', async () => {
+  const p = await openDemo();
+  // Text put into the flow sketch by a chip or an arrow button is saved like typed text
+  await tab(p, 'matrix'); await settle(p);
+  await p.click('#toggleLoaDrawerBtn'); await settle(p);
+  const fl = await p.evaluate(() => { loaDrawerDirty = false; insertTextIntoLoaFlow(' ➔ '); return loaDrawerDirty; });
+  check('a chip / arrow inserted into the flow sketch marks the drawer to be saved', fl);
+  await p.click('#toggleLoaDrawerBtn'); await settle(p);
+  // Merge: the source row's base card carries no old judgement into a row established by another study
+  const mg = await p.evaluate(async () => {
+    const src = state.clusters.find(c => rowBaseDocId(c) && rowSecs(c).some(s => s.docId === rowBaseDocId(c)));
+    const baseCard = src && rowSecs(src).find(s => s.docId === rowBaseDocId(src));
+    const tgt = baseCard && state.clusters.find(c => c !== src && !baseCard.clusterIds.includes(c.id));
+    const other = tgt && state.docs.find(d => d.id !== rowBaseDocId(src));
+    if (!other) return { skip: true };
+    const tgtBase = tgt.baseDocId; tgt.baseDocId = other.id; await dbPut('clusters', tgt); // the target row is established by another study
+    const card = rowSecs(src).find(s => s.docId === rowBaseDocId(src) && !s.clusterIds.includes(tgt.id));
+    card.clusterRelations = { ...(card.clusterRelations || {}), [src.id]: 'refutational' }; // left from before it became the base
+    await mergeRows(src, tgt, '');
+    const r = { unjudged: secRelation(card, tgt.id) === 'unjudged', noted: /established that row/.test((card.clusterComments || {})[tgt.id] || '') };
+    await performUndo();
+    tgt.baseDocId = tgtBase; await dbPut('clusters', tgt);
+    return r;
+  });
+  if (!mg.skip) check('merging into a row with another base: the source row\'s base card starts unjudged (no old judgement carried)', mg.unjudged && mg.noted, JSON.stringify(mg));
+  else check('merge across bases: demo rows suitable', false, 'none');
+  await settle(p);
+  // Split of a "No single base" row stays without a single base; Ctrl+Z after a merge numbers the rows again
+  const sp = await p.evaluate(async () => {
+    const src = state.clusters.find(c => rowSecs(c).length >= 2);
+    const prevBase = src.baseDocId; src.baseDocId = null; await dbPut('clusters', src);
+    await splitRow(src, [rowSecs(src)[0].id], 'No-base split', '');
+    const nw = state.clusters.find(c => c.thirdOrderTitle === 'No-base split');
+    const kept = nw.baseDocId === null;
+    await performUndo();
+    src.baseDocId = prevBase; await dbPut('clusters', src);
+    // Merge, move another row, undo the merge: every row has its own place, stored
+    const [a, b] = [state.clusters[0], state.clusters[1]];
+    await mergeRows(a, b, '');
+    await moveClusterOrder(state.clusters[state.clusters.length - 1].id, -1);
+    await performUndo();
+    const stored = await dbGetAll('clusters');
+    const orders = stored.map(c => c.order);
+    return { kept, distinct: new Set(orders).size === orders.length, matches: state.clusters.every((c, i) => stored.find(x => x.id === c.id).order === i) };
+  });
+  check('splitting a row with no single base keeps the new row without one', sp.kept, JSON.stringify(sp));
+  check('undoing a merge numbers every row again (no shared places)', sp.distinct && sp.matches, JSON.stringify(sp));
+  await settle(p);
+  // 1st -> 2nd switch, then delete the construct the quote belonged to, then undo the switch: no link to the deleted construct
+  const tg = await p.evaluate(async () => {
+    const q = state.annotations.find(a => a.type === 'first_order' && quoteParentIds(a).length);
+    const parentId = q.parentIds[0];
+    await toggleAnnotationOrderType(q.id);
+    const parent = state.annotations.find(a => a.id === parentId);
+    await dbDelete('annotations', parentId); state.annotations = state.annotations.filter(a => a.id !== parentId);
+    await performUndo();
+    const back = await dbGet('annotations', q.id);
+    // put the construct back for the later checks
+    await dbPut('annotations', parent); state.annotations.push(parent);
+    return { type: back.type, noGone: !(back.parentIds || []).includes(parentId) };
+  });
+  check('undoing a 1st -> 2nd switch drops a link to a construct deleted since', tg.type === 'first_order' && tg.noGone, JSON.stringify(tg));
+  await settle(p);
+  // Appendix A: a project-wide text revised after other decisions gets its own line, in its place
+  const ap = await p.evaluate(() => {
+    const keep = state.logs; const t0 = Date.now();
+    state.logs = [
+      { id: 'x3', timestamp: t0 + 3, action: 'Updated Phase 1 Research Aim', category: 'phase1', toVal: 'v2' },
+      { id: 'x2', timestamp: t0 + 2, action: 'Created a 3rd Order row', category: 'third_order', clusterIds: [state.clusters[0].id] },
+      { id: 'x1', timestamp: t0 + 1, action: 'Updated Phase 1 Research Aim', category: 'phase1', toVal: 'v1' }
+    ];
+    const rows = getAppendixASpec('key').rows.map(r => r.action);
+    state.logs = keep;
+    return rows;
+  });
+  check('Appendix A does not fold a later revision of the aim back over other decisions', ap.length === 3 && /Aim/.test(ap[0]) && /row/.test(ap[1]) && /Aim/.test(ap[2]), JSON.stringify(ap));
+  // A clean restore drops links to rows and constructs the file does not hold, and map relations between rows it does not hold
+  const json = await p.evaluate(() => {
+    const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode, formatVersion: PROJECT_FORMAT }));
+    const sec = d.annotations.find(a => a.type === 'second_order'); sec.clusterIds.push('row_gone'); sec.clusterRelations = { ...(sec.clusterRelations || {}), row_gone: 'reciprocal' };
+    const q = d.annotations.find(a => a.type === 'first_order'); q.parentIds = [...(q.parentIds || []), 'sec_gone'];
+    d.loa.links = [...(d.loa.links || []), { id: 'lk_gone', from: d.clusters[0].id, to: 'row_gone', type: 'leads' }];
+    return JSON.stringify(d);
+  });
+  p.choiceAnswer = 'clean';
+  await p.setInputFiles('#jsonFileInput', { name: 'dangling.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await settle(p, { quiet: 300 });
+  p.choiceAnswer = null;
+  const cr = await p.evaluate(async () => {
+    const all = await dbGetAll('annotations'), meta = (await dbGetAll('meta')).find(m => m.id === 'loa_main');
+    return { rows: !all.some(a => (a.clusterIds || []).includes('row_gone') || 'row_gone' in (a.clusterRelations || {})),
+      parents: !all.some(a => (a.parentIds || []).includes('sec_gone')), links: !(meta.links || []).some(l => l.id === 'lk_gone'),
+      logged: /links were dropped/.test(state.logs.find(l => /clean restore/.test(l.action)).detail) };
+  });
+  check('a clean restore drops links to rows / constructs / map rows the file does not hold, and says so', cr.rows && cr.parents && cr.links && cr.logged, JSON.stringify(cr));
+  // PDF search: opening another study clears the hits shown for the previous one
+  await tab(p, 'extract'); await settle(p);
+  await p.fill('#pdfSearchInput', 'the'); await p.press('#pdfSearchInput', 'Enter'); await settle(p);
+  const shown = await p.isVisible('#pdfSearchStatus');
+  await p.evaluate(() => switchStudy(state.docs[1].id)); await settle(p);
+  check('opening another study clears the search hits of the previous one', shown && !(await p.isVisible('#pdfSearchStatus')) && (await p.evaluate(() => pdfSearchState.matches.length === 0)));
+  // The project setup opened to edit starts in the first box to fill, not on its close button
+  await p.evaluate(() => openProjectSetupModal({ isInitialOrReset: false })); await settle(p);
+  const foc = await p.evaluate(() => document.activeElement && document.activeElement.id);
+  check('the project setup dialog starts in a text box, not on ×', /^initial/.test(foc || ''), String(foc));
+  await p.keyboard.press('Escape'); await settle(p);
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });

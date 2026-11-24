@@ -79,13 +79,10 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
   const initQInput = document.getElementById('initialReviewQuestionInput');
   if (initQInput) initQInput.value = (state.loa && state.loa.reviewQuestion) || '';
 
+  // The first box still to fill gets the focus when the dialog opens (modalAccessibility reads data-focus-id), in one step
+  modal.dataset.focusId = (!initRevInput.value ? initRevInput : !initProjInput.value ? initProjInput : initAimInput).id;
   modal.classList.remove('hidden');
   modal.classList.add('flex');
-  setTimeout(() => {
-    if (!initRevInput.value) initRevInput.focus();
-    else if (!initProjInput.value) initProjInput.focus();
-    else initAimInput.focus();
-  }, 50);
 
   closeBtn.onclick = () => {
     modal.classList.add('hidden');
@@ -316,7 +313,7 @@ function renderWelcomeGuideIfNeeded() {
             <i class="ph ph-highlighter-circle text-lg text-emerald-600"></i>
           </div>
           <div class="text-xs font-bold text-slate-800">Extract 1st & 2nd Order</div>
-          <p class="text-[13px] text-slate-600 leading-relaxed">Select text in the PDF and press <kbd class="px-1 py-0.2 bg-white border rounded text-xs font-mono">1</kbd> for Participant Quotes (🟦) or <kbd class="px-1 py-0.2 bg-white border rounded text-xs font-mono">2</kbd> for Author Interpretations (🟩).</p>
+          <p class="text-[13px] text-slate-600 leading-relaxed">Select text in the PDF and press <kbd class="px-1 py-px bg-white border rounded text-xs font-mono">1</kbd> for Participant Quotes (🟦) or <kbd class="px-1 py-px bg-white border rounded text-xs font-mono">2</kbd> for Author Interpretations (🟩).</p>
         </div>
 
         <div class="p-3.5 rounded-xl bg-purple-50/60 border border-purple-100 space-y-1.5">
@@ -491,7 +488,9 @@ window.ondrop = async e => {
       const open = !m.classList.contains('hidden');
       if (open && !wasOpen) {
         returnTo[id] = document.activeElement;
-        const first = Array.from(m.querySelectorAll(FOCUSABLE)).find(el => el.offsetParent !== null);
+        // A dialog can name the element to start on (data-focus-id); otherwise its first visible control
+        const named = m.dataset.focusId && document.getElementById(m.dataset.focusId);
+        const first = named && m.contains(named) ? named : Array.from(m.querySelectorAll(FOCUSABLE)).find(el => el.offsetParent !== null);
         if (first) setTimeout(() => first.focus(), 0);
       } else if (!open && wasOpen && returnTo[id] && document.contains(returnTo[id])) {
         try { returnTo[id].focus(); } catch (err) { /* element gone */ }
@@ -585,5 +584,5 @@ const SKIP_OBSERVED = new Set(['SPAN', 'BR', 'CANVAS', 'I', 'B', 'svg', 'path'])
   initIn(document.body);
   new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(initIn))).observe(document.body, { childList: true, subtree: true });
   // Called by the matrix right after it builds rows, so row heights are final before the scroll position is fixed
-  window.growTextareasNow = root => growMany(Array.from(root.querySelectorAll('textarea')));
+  window.growTextareasNow = root => growMany(Array.from(root.querySelectorAll('textarea:not(.lazy-grow)')));
 })();

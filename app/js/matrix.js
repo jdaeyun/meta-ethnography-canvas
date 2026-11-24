@@ -225,7 +225,10 @@ function computeClusterEvidenceStats(clusterId) {
 }
 
 function renderMatrixView() {
-  flushAllPendingSaves();
+  // A text being typed is committed first; its audit entry is written a moment later, so the rows are drawn once more when it
+  // is (else a row's 🕘 History count would miss that entry until the next render)
+  const flushed = flushAllPendingSaves();
+  if (flushed) flushed.then(() => { if (!divMatrix.classList.contains('hidden')) renderMatrixTable(); });
   syncSeedToggle();
   renderStudyVisibilityBar();
   renderSecondOrderPool();
@@ -539,8 +542,8 @@ function renderSecondOrderPool() {
       <div class="flex items-center justify-between text-xs font-bold text-indigo-700 mb-1">
         <span class="truncate">${escapeHtml(docName)}</span>
         <div class="flex items-center space-x-1 shrink-0">
-          <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
-          <span class="text-[11px] px-1 py-0.2 rounded border ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
+          <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-px rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
+          <span class="text-[11px] px-1 py-px rounded border ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
           <button type="button" class="jump-pdf-btn text-xs bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-700 px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition transform hover:-translate-y-0.5" title="Open study & jump to PDF page ${escapeHtml(sec.page)}"><i class="ph ph-file-pdf"></i><span>PDF p.${escapeHtml(sec.page)}</span><i class="ph ph-arrow-square-out"></i></button>
         </div>
       </div>
@@ -561,7 +564,7 @@ function renderSecondOrderPool() {
       <div class="mt-1.5 flex items-center justify-between text-xs text-slate-400">
         <span>🟦 ${linkedQuotes.length} quote(s)</span>
         ${count > 0
-          ? `<span class="text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded font-semibold">✓ Placed in ${count} row${count > 1 ? 's' : ''}</span>`
+          ? `<span class="text-emerald-700 bg-emerald-100 px-1.5 py-px rounded font-semibold">✓ Placed in ${count} row${count > 1 ? 's' : ''}</span>`
           : '<span class="text-indigo-600 font-medium">Drag to Matrix ➔</span>'}
       </div>
       ${(() => {
@@ -673,7 +676,7 @@ function renderSecondOrderPool() {
       fCard.innerHTML = `
         <div class="flex items-center justify-between text-xs font-bold text-blue-800">
           <button type="button" class="jump-pdf-btn truncate bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-md font-bold shadow-sm cursor-pointer flex items-center space-x-1 transition" title="Jump to PDF page ${escapeHtml(f.page)}"><i class="ph ph-file-pdf"></i><span class="truncate">${escapeHtml(docName)} (p.${escapeHtml(f.page)})</span><i class="ph ph-arrow-square-out"></i></button>
-          <button type="button" class="wrap-btn px-1.5 py-0.2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold cursor-pointer" title="Wrap into a 2nd Order Construct">+ Convert to 2nd Order</button>
+          <button type="button" class="wrap-btn px-1.5 py-px bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold cursor-pointer" title="Wrap into a 2nd Order Construct">+ Convert to 2nd Order</button>
         </div>
         ${f.note ? `<div class="text-xs font-semibold text-slate-700">${escapeHtml(f.note)}</div>` : ''}
         <div class="text-xs italic text-slate-600 bg-white p-1.5 rounded border border-blue-100 line-clamp-3">"${escapeHtml(f.text)}"</div>
@@ -826,8 +829,8 @@ function renderMatrixTable() {
           ${isIndex ? `<span class="text-[11px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">★ ${escapeHtml(firstStudyMeta().long)}</span>` : `<span class="text-xs text-slate-400 font-semibold">Study #${idx + 1}</span>`}
         </div>
         <div class="flex items-center space-x-1">
-          <button class="move-left px-1 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${prevVisibleIdx(idx) < 0 ? 'disabled' : ''} title="Move column left (past hidden papers)">◀</button>
-          <button class="move-right px-1 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${nextVisibleIdx(idx) < 0 ? 'disabled' : ''} title="Move column right (past hidden papers)">▶</button>
+          <button class="move-left px-1 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${prevVisibleIdx(idx) < 0 ? 'disabled' : ''} title="Move column left (past hidden papers)">◀</button>
+          <button class="move-right px-1 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${nextVisibleIdx(idx) < 0 ? 'disabled' : ''} title="Move column right (past hidden papers)">▶</button>
         </div>
       </div>
       <div class="font-bold text-slate-800 text-xs truncate" title="${escapeHtml(getDisplayName(d))}">${escapeHtml(getDisplayName(d))}</div>
@@ -970,27 +973,27 @@ function renderMatrixTable() {
         <input type="text" class="cluster-title w-full text-xs font-bold border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-indigo-600" placeholder="3rd Order Construct / Theme Name..." value="${escapeHtml(cluster.thirdOrderTitle)}">
         <div class="flex items-center justify-between gap-1">
           <div class="flex items-center flex-wrap gap-1 min-w-0">
-            <span class="cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
-            <span class="cl-cerqual-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
-            ${cluster.baseDocId === '' ? '' : (() => { const b = rowBaseDocId(cluster); const d = b && state.docs.find(x => x.id === b); return d ? `<span class="cl-base-pill text-[11px] px-1.5 py-0.2 rounded border border-slate-300 bg-white text-slate-700 truncate max-w-[10rem]" title="◆ Established by ${escapeHtml(getDisplayName(d))}: its cards in this row are what the other studies are translated into. Change it under ⋯.">◆ ${escapeHtml(getDisplayName(d))}</span>` : `<span class="cl-base-pill text-[11px] px-1.5 py-0.2 rounded border border-slate-300 bg-white text-slate-500" title="No single base: every study's cards are judged. Change it under ⋯.">◆ none</span>`; })()}
-            ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from study #1's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
+            <span class="cl-conc-pill text-[11px] px-1.5 py-px rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
+            <span class="cl-cerqual-pill text-[11px] px-1.5 py-px rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
+            ${cluster.baseDocId === '' ? '' : (() => { const b = rowBaseDocId(cluster); const d = b && state.docs.find(x => x.id === b); return d ? `<span class="cl-base-pill text-[11px] px-1.5 py-px rounded border border-slate-300 bg-white text-slate-700 truncate max-w-[10rem]" title="◆ Established by ${escapeHtml(getDisplayName(d))}: its cards in this row are what the other studies are translated into. Change it under ⋯.">◆ ${escapeHtml(getDisplayName(d))}</span>` : `<span class="cl-base-pill text-[11px] px-1.5 py-px rounded border border-slate-300 bg-white text-slate-500" title="No single base: every study's cards are judged. Change it under ⋯.">◆ none</span>`; })()}
+            ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-px rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from study #1's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
           </div>
           <div class="flex items-center gap-1 shrink-0">
-            <button type="button" class="move-cl-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === 0 ? 'disabled' : ''} title="Move row up">▲</button>
-            <button type="button" class="move-cl-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === visibleClusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
-            <button type="button" class="cl-tools-toggle px-1.5 py-0.2 rounded border ${state.rowToolsOpen.has(cluster.id) ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold" aria-expanded="${state.rowToolsOpen.has(cluster.id)}" title="Row tools: reviewer, history, the study that established the row (◆), merge / split, delete">⋯</button>
+            <button type="button" class="move-cl-up px-1.5 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === 0 ? 'disabled' : ''} title="Move row up">▲</button>
+            <button type="button" class="move-cl-down px-1.5 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === visibleClusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
+            <button type="button" class="cl-tools-toggle px-1.5 py-px rounded border ${state.rowToolsOpen.has(cluster.id) ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold" aria-expanded="${state.rowToolsOpen.has(cluster.id)}" title="Row tools: reviewer, history, the study that established the row (◆), merge / split, delete">⋯</button>
           </div>
         </div>
 
         <div class="cl-tools ${state.rowToolsOpen.has(cluster.id) ? '' : 'hidden'} space-y-1.5 rounded border border-slate-200 bg-slate-50 p-1.5">
           <div class="flex items-center justify-between gap-1">
             <div class="flex items-center flex-wrap gap-1">
-              <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
-              ${(() => { const n = rowHistoryCount(cluster); return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-0.2 rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 History (${n})</button>` : ''; })()}
+              <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-px rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
+              ${(() => { const n = rowHistoryCount(cluster); return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-px rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 History (${n})</button>` : ''; })()}
             </div>
             <div class="flex items-center gap-1">
-              <button type="button" class="cl-rowops text-[11px] px-1.5 py-0.2 rounded border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 cursor-pointer" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i> Merge / split</button>
-              <button class="del-cluster text-[11px] px-1.5 py-0.2 rounded border border-slate-200 bg-white text-slate-500 hover:text-rose-600 cursor-pointer" title="Delete Row"><i class="ph ph-trash"></i></button>
+              <button type="button" class="cl-rowops text-[11px] px-1.5 py-px rounded border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 cursor-pointer" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i> Merge / split</button>
+              <button class="del-cluster text-[11px] px-1.5 py-px rounded border border-slate-200 bg-white text-slate-500 hover:text-rose-600 cursor-pointer" title="Delete Row"><i class="ph ph-trash"></i></button>
             </div>
           </div>
         ${(() => {
@@ -1282,7 +1285,7 @@ function renderMatrixTable() {
 
       const pill = tdMeta.querySelector('.cl-conc-pill');
       const meta = getConcordanceBadgeMeta(newStatus);
-      pill.className = `cl-conc-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${meta.cls}`;
+      pill.className = `cl-conc-pill text-[11px] px-1.5 py-px rounded border font-semibold ${meta.cls}`;
       pill.textContent = meta.label;
 
       await recordAuditLog({
@@ -1383,7 +1386,7 @@ function renderMatrixTable() {
 
       const cqPill = tdMeta.querySelector('.cl-cerqual-pill');
       const cqMeta = getCerqualBadgeMeta(cluster.cerqualConfidence);
-      cqPill.className = `cl-cerqual-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cqMeta.cls}`;
+      cqPill.className = `cl-cerqual-pill text-[11px] px-1.5 py-px rounded border font-semibold ${cqMeta.cls}`;
       cqPill.textContent = cqMeta.label;
 
       if (prevSig !== sigOf()) {
@@ -1417,7 +1420,7 @@ function renderMatrixTable() {
       tdMeta.querySelector('.cl-tools').classList.toggle('hidden', !open);
       const t = tdMeta.querySelector('.cl-tools-toggle');
       t.setAttribute('aria-expanded', String(open));
-      t.className = `cl-tools-toggle px-1.5 py-0.2 rounded border ${open ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold`;
+      t.className = `cl-tools-toggle px-1.5 py-px rounded border ${open ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold`;
     };
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
     tdMeta.querySelector('.del-cluster').onclick = async () => {
@@ -1431,7 +1434,7 @@ function renderMatrixTable() {
       pushUndoAction({
         type: 'delete_cluster',
         label: `3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`,
-        cluster: { ...cluster },
+        cluster: deepCopy(cluster), // nested fields (cellStatus, historyFrom…) as they were
         assignedSecIds: assigned.map(a => a.id),
         perRow, removedLinks
       });
@@ -1522,9 +1525,9 @@ function renderMatrixTable() {
                   ${CELL_RELATIONS.map(r => `<option value="${r}" ${r === cellRelation ? 'selected' : ''}>${escapeHtml(getCellRelationMeta(r).label)}</option>`).join('')}
                 </select>`}
                 <button type="button" class="jump-pdf-btn text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 px-2.5 py-0.5 rounded-md shadow-sm cursor-pointer transition flex items-center space-x-1 transform hover:-translate-y-0.5" title="Open PDF & jump to page ${escapeHtml(sec.page)} in ${escapeHtml(getDisplayName(doc))}"><i class="ph ph-file-pdf"></i><span>PDF p.${escapeHtml(sec.page)}</span><i class="ph ph-arrow-square-out"></i></button>
-                <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-0.2 rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
-                <span class="text-[11px] px-1 py-0.2 rounded border ${secBadge.cls} ${showConcUI ? '' : 'hidden'}">${secBadge.label}</span>
-                ${firsts.length > 0 ? `<span class="text-[11px] bg-blue-50 text-blue-700 border border-blue-200 px-1 py-0.2 rounded font-semibold" title="${firsts.length} linked 1st Order Quote(s)">🟦 ${firsts.length}</span>` : ''}
+                <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1 py-px rounded font-mono cursor-pointer" title="Click to change reviewer">@${escapeHtml(sec.by || 'Unknown')}</button>
+                <span class="text-[11px] px-1 py-px rounded border ${secBadge.cls} ${showConcUI ? '' : 'hidden'}">${secBadge.label}</span>
+                ${firsts.length > 0 ? `<span class="text-[11px] bg-blue-50 text-blue-700 border border-blue-200 px-1 py-px rounded font-semibold" title="${firsts.length} linked 1st Order Quote(s)">🟦 ${firsts.length}</span>` : ''}
                 ${otherClustersCount > 0 ? `<span class="text-[11px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-semibold" title="Also mapped to ${otherClustersCount} other row(s)">+${otherClustersCount} row</span>` : ''}
               </div>
               <div class="flex items-center space-x-1">
@@ -1693,6 +1696,9 @@ function renderMatrixTable() {
             debouncedSaveCellSec();
           });
           cmtInput.addEventListener('blur', async () => {
+            // The window losing focus (a look at the PDF elsewhere) is not leaving the note: it stays open and uncommitted, as with
+            // bindPendingCommit; a tab switch, re-render or page leave still commits it
+            if (!document.hasFocus()) return;
             cmtInput.classList.add('hidden');
             cmtView.classList.remove('hidden');
             refreshCmtView();
@@ -2023,7 +2029,13 @@ async function mergeRows(src, tgt, why) {
     if (!s.clusterIds.includes(tgt.id)) {
       s.clusterIds.push(tgt.id); moved++;
       const rs = secRelation(s, src.id);
-      if (baseDiffers && rs !== 'unjudged' && rs !== 'baseline') {
+      if (baseDiffers && rs === 'baseline') {
+        // The study that established the source row: in the merged row it is judged like any other study. A judgement it may
+        // still carry from before it became that row's base (kept by setRowBase) is not a reading against the new base.
+        const d = state.docs.find(x => x.id === s.docId);
+        rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
+        s.clusterComments[tgt.id] = carryText(s.clusterComments[src.id] || '', `established that row; to judge against ${baseName(tgtBase)}`, srcTitle);
+      } else if (baseDiffers && rs !== 'unjudged') {
         const d = state.docs.find(x => x.id === s.docId);
         rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
         s.clusterComments[tgt.id] = carryText(s.clusterComments[src.id] || '', `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(tgtBase)}`, srcTitle);
@@ -2098,7 +2110,15 @@ async function splitRow(src, secIds, title, why) {
   const ids = [src.id, nw.id];
   const beforeAnns = secs.map(a => annRowState(a, ids));
   const srcBase = rowBaseDocId(src);
-  nw.baseDocId = secs.some(s => s.docId === srcBase) ? srcBase : secs[0].docId;
+  // "No single base" stays so in the new row; otherwise the new row keeps the source row's base when that study's card moves
+  // with it, and is established by the first moved card's study when it does not
+  nw.baseDocId = src.baseDocId === null ? null : secs.some(s => s.docId === srcBase) ? srcBase : secs[0].docId;
+  const newBase = rowBaseDocId(nw);
+  // A judgement is a reading against the study that established the row: when the new row has another base, the moved cards
+  // start unjudged there and the earlier judgement is kept in the card's note, to be read again (as in mergeRows)
+  const baseChanges = src.baseDocId !== null && newBase !== srcBase;
+  const baseName = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'no single study'; };
+  const rejudge = [];
   // If every card of the study that established this row moves, the row keeps its base (an interpretive choice, not a sort
   // result) but the reviewer is told, so they can choose another study or "No single base" under ◆ Established by
   const baseGone = !!srcBase && !rowSecs(src).some(s => s.docId === srcBase && !secs.includes(s));
@@ -2108,9 +2128,23 @@ async function splitRow(src, secIds, title, why) {
   for (const s of secs) {
     normalizeAnnotation(s);
     s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
+    const rs = secRelation(s, src.id); // read before the card leaves the row
     s.clusterIds = s.clusterIds.filter(id => id !== src.id).concat(nw.id);
-    if (s.clusterRelations[src.id]) s.clusterRelations[nw.id] = s.clusterRelations[src.id];
-    if (s.clusterComments[src.id]) s.clusterComments[nw.id] = s.clusterComments[src.id];
+    if (baseChanges && rs !== 'unjudged' && s.docId !== newBase) {
+      const d = state.docs.find(x => x.id === s.docId);
+      rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
+      s.clusterComments[nw.id] = carryText(s.clusterComments[src.id] || '', rs === 'baseline' ? `established that row; to judge against ${baseName(newBase)}` : `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(newBase)}`, srcTitle);
+    } else if (baseChanges && s.docId === newBase) {
+      // The card of the study that now establishes the new row is not judged in it; a judgement it had is kept in its note
+      s.clusterComments[nw.id] = rs !== 'unjudged' && rs !== 'baseline'
+        ? carryText(s.clusterComments[src.id] || '', `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; establishes the new row`, srcTitle)
+        : (s.clusterComments[src.id] || '');
+      if (!s.clusterComments[nw.id]) delete s.clusterComments[nw.id];
+    } else {
+      // Same base: the judgement and note carry over
+      if (s.clusterRelations[src.id]) s.clusterRelations[nw.id] = s.clusterRelations[src.id];
+      if (s.clusterComments[src.id]) s.clusterComments[nw.id] = s.clusterComments[src.id];
+    }
     if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [nw.id]: true }; delete s.aspectUsedInLoa[src.id]; }
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
     ops.push({ store: 'annotations', put: s });
@@ -2127,10 +2161,11 @@ async function splitRow(src, secIds, title, why) {
   await recordAuditLog({
     clusterIds: [src.id, nw.id], category: 'third_order',
     action: `Split ${secs.length} construct(s) off "${srcTitle}" into a new row "${clusterLabel(nw)}"`,
-    detail: secs.map(s => { const d = state.docs.find(x => x.id === s.docId); return `${d ? getDisplayName(d) : 'Study'} (p.${s.page}): ${s.note || String(s.text || '').slice(0, 60)}`; }).join('\n'),
+    detail: secs.map(s => { const d = state.docs.find(x => x.id === s.docId); return `${d ? getDisplayName(d) : 'Study'} (p.${s.page}): ${s.note || String(s.text || '').slice(0, 60)}`; }).join('\n')
+      + (rejudge.length ? `\n"${srcTitle}" was established by ${baseName(srcBase)} and the new row by ${baseName(newBase)}, so ${rejudge.length} moved construct(s) start unjudged (their earlier judgement is noted on the card):\n${rejudge.join('\n')}` : ''),
     fromVal: srcTitle, toVal: `${srcTitle} | ${clusterLabel(nw)}`, rationale: why
   });
-  return { baseGone: baseDoc ? getDisplayName(baseDoc) : '' };
+  return { baseGone: baseDoc ? getDisplayName(baseDoc) : '', rejudge: rejudge.length, baseName: baseName(newBase) };
 }
 
 document.getElementById('rowOpsMergeBtn').onclick = async () => {
@@ -2153,5 +2188,6 @@ document.getElementById('rowOpsSplitBtn').onclick = async () => {
   const res = await splitRow(src, ids, title, why);
   renderLoaClusterChips(); renderMatrixView();
   showSnackbar(`Split ${ids.length} card(s) into a new row — Ctrl+Z to undo`
+    + (res && res.rejudge ? `\nThe new row is established by ${res.baseName}: ${res.rejudge} moved card(s) start unjudged against it (the earlier judgement is in the card's note).` : '')
     + (res && res.baseGone ? `\n"${clusterLabel(src)}" was established by ${res.baseGone}, which now has no construct in it: choose its base again under ◆ Established by (another study, or No single base).` : ''));
 };

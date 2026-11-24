@@ -26,6 +26,8 @@ function insertTextIntoLoaFlow(snippet) {
   el.focus();
   const nextPos = start + snippet.length;
   el.setSelectionRange(nextPos, nextPos);
+  // A value set from script fires no 'input': without this the drawer would not know it changed (and would not save it)
+  el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 // The map (state.loa.links) is the structured record; the text sketch can be written from it, then extended by hand

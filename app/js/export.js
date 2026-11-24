@@ -443,10 +443,12 @@ function getAppendixASpec(mode = getAppendixMode()) {
       rows.push(r); open.set(ser.key, r);
       continue;
     }
-    // Another key entry about the same row(s), or a project-wide one for project-wide texts, closes their open series
+    // Another key entry about the same row(s) closes that row's open series. A series of a project-wide text (aim, line of
+    // argument…) is closed by any other key entry: a later revision after other decisions then gets its own line, in its place
+    // in the story, instead of being folded back to the first edit
     for (const [k, g] of open) {
-      const sameRow = g.rowIds.length ? g.rowIds.some(id => rowIds.includes(id)) : (!rowIds.length && l.category === g.cat);
-      if (sameRow) open.delete(k);
+      const closes = g.rowIds.length ? g.rowIds.some(id => rowIds.includes(id)) : true;
+      if (closes) open.delete(k);
     }
     rows.push(rowOf(l));
   }
@@ -1023,7 +1025,8 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       const seenQ = new Set();
       mappedSecs.forEach(s => {
         const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
-        firsts.forEach(f => quotes.push(`"${f.text}"${f.note ? ' [' + f.note + ']' : ''} (p.${f.page})`));
+        // With the study's name, as in the HTML and Word tables
+        firsts.forEach(f => quotes.push(`"${f.text}"${f.note ? ' [' + f.note + ']' : ''} (${getDisplayName(state.docs.find(d => d.id === f.docId))}, p.${f.page})`));
       });
       md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}**${rowStatusNotes(c).length ? ' (' + cleanMd(rowStatusNotes(c).join('; ')) + ')' : ''} | ${cleanMd(clusterTranslationLabel(c))} | ${cleanMd(concordanceLabel(c.concordanceStatus))} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
     });
@@ -1123,7 +1126,9 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
 
   // Column widths: without them docx.js writes a 100-twip grid, which LibreOffice / Google Docs (and Word with
   // autofit off) show as hair-thin columns. Widths are percentages of the landscape A4 text width.
-  const TEXT_WIDTH_TWIPS = 16838 - 2 * 1440;
+  // The page is set to the same A4 size and margins below (docx.js's own defaults today, stated so the two cannot drift apart)
+  const A4_SHORT = 11906, A4_LONG = 16838, MARGIN_TWIPS = 1440;
+  const TEXT_WIDTH_TWIPS = A4_LONG - 2 * MARGIN_TWIPS;
   function widthTable(rows, pcts) {
     const total = pcts.reduce((a, b) => a + b, 0) || 1;
     const twips = pcts.map(p => Math.round(TEXT_WIDTH_TWIPS * p / total));
@@ -1360,7 +1365,10 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   const docObj = new Document({
     sections: [{
       properties: {
-        page: { size: { orientation: PageOrientation.LANDSCAPE } }
+        page: {
+          size: { width: A4_SHORT, height: A4_LONG, orientation: PageOrientation.LANDSCAPE }, // docx.js swaps them for landscape
+          margin: { top: MARGIN_TWIPS, right: MARGIN_TWIPS, bottom: MARGIN_TWIPS, left: MARGIN_TWIPS }
+        }
       },
       children: [
         ...projBannerParagraphs,

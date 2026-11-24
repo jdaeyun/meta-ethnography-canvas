@@ -119,12 +119,12 @@ function updateSidebar() {
         <span class="text-xs font-bold text-emerald-800 flex items-center flex-wrap gap-1">
           <span class="merge-drag-handle cursor-grab active:cursor-grabbing text-emerald-600 hover:text-violet-700" draggable="true" title="Drag onto another 2nd Order construct of this study if this is the SAME author interpretation stated elsewhere in the paper: it becomes an additional evidence passage of that construct (can be split off again)."><i class="ph ph-dots-six-vertical text-sm"></i></span>
           <span>🟩 2nd Order</span>
-          ${sec.passages.length ? `<span class="text-[10.5px] px-1.5 py-0.2 rounded border border-violet-300 bg-violet-50 text-violet-800 font-semibold" title="Stated in ${sec.passages.length + 1} places in the paper">📑 ${sec.passages.length + 1} passages</span>` : ''}
-          ${sec.origin === 'wrapped_first_order' ? `<span class="text-[10.5px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold" title="No author-stated interpretation was captured. The reviewer wrapped a 1st order quote (participant data) in a 2nd order construct and wrote the label themselves (@${escapeHtml(sec.by || '')}).">🏷 Reviewer-wrapped from 1st-order quote</span>` : ''}
-          <button type="button" class="jump-pdf-btn text-xs bg-emerald-200/80 hover:bg-emerald-300 text-emerald-950 px-1.5 py-0.2 rounded-full font-bold cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(sec.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(sec.page)}</span></button>
-          <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1.5 py-0.2 rounded font-mono cursor-pointer transition" title="Click to change reviewer for this construct">@${escapeHtml(sec.by || 'Unknown')}</button>
+          ${sec.passages.length ? `<span class="text-[10.5px] px-1.5 py-px rounded border border-violet-300 bg-violet-50 text-violet-800 font-semibold" title="Stated in ${sec.passages.length + 1} places in the paper">📑 ${sec.passages.length + 1} passages</span>` : ''}
+          ${sec.origin === 'wrapped_first_order' ? `<span class="text-[10.5px] px-1.5 py-px rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold" title="No author-stated interpretation was captured. The reviewer wrapped a 1st order quote (participant data) in a 2nd order construct and wrote the label themselves (@${escapeHtml(sec.by || '')}).">🏷 Reviewer-wrapped from 1st-order quote</span>` : ''}
+          <button type="button" class="jump-pdf-btn text-xs bg-emerald-200/80 hover:bg-emerald-300 text-emerald-950 px-1.5 py-px rounded-full font-bold cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(sec.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(sec.page)}</span></button>
+          <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1.5 py-px rounded font-mono cursor-pointer transition" title="Click to change reviewer for this construct">@${escapeHtml(sec.by || 'Unknown')}</button>
           <span class="text-xs bg-white border border-emerald-200 px-1.5 rounded-full">${linked.length} quotes</span>
-          <span class="concordance-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
+          <span class="concordance-pill text-[11px] px-1.5 py-px rounded border font-semibold ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
         </span>
         <div class="flex items-center space-x-1">
           <button type="button" class="toggle-order-btn text-[11px] text-blue-700 hover:bg-blue-100 border border-blue-200 bg-white px-1.5 py-0.5 rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Switch this construct to a 1st Order Participant Quote"><i class="ph ph-arrows-left-right"></i><span>To 1st</span></button>
@@ -282,7 +282,7 @@ function updateSidebar() {
 
       const pill = w.querySelector('.concordance-pill');
       const meta = getConcordanceBadgeMeta(newStatus);
-      pill.className = `concordance-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${meta.cls}`;
+      pill.className = `concordance-pill text-[11px] px-1.5 py-px rounded border font-semibold ${meta.cls}`;
       pill.textContent = meta.label;
 
       await recordAuditLog({
@@ -549,7 +549,7 @@ async function splitOffPassage(sec, pid) {
       sec.clusterIds = sec.clusterIds.filter(x => x !== cid);
       ANNOTATION_ROW_FIELDS.forEach(k => { if (sec[k] && cid in sec[k]) { sec[k] = { ...sec[k] }; delete sec[k][cid]; } });
     });
-    dropGoneRows(restored); // placements in rows deleted since it was absorbed do not come back
+    dropGoneLinks(restored); // placements in rows deleted since it was absorbed do not come back
     affectedQuotes.forEach(f => { unlinkQuote(f, sec.id); linkQuote(f, restored.id); });
   } else {
     restored = normalizeAnnotation({
@@ -660,15 +660,15 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
     <div class="flex justify-between items-center text-blue-800 font-bold text-[13px]">
       <span class="flex items-center space-x-1">
         <span>🟦 1st Order</span>
-        <button type="button" class="jump-pdf-btn font-bold text-xs bg-blue-100 hover:bg-blue-200 text-blue-900 px-1.5 py-0.2 rounded-full cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(f.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(f.page)}</span></button>
-        <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1 py-0.2 rounded font-mono cursor-pointer transition" title="Click to change reviewer">@${escapeHtml(f.by || 'Unknown')}</button>
+        <button type="button" class="jump-pdf-btn font-bold text-xs bg-blue-100 hover:bg-blue-200 text-blue-900 px-1.5 py-px rounded-full cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(f.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(f.page)}</span></button>
+        <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1 py-px rounded font-mono cursor-pointer transition" title="Click to change reviewer">@${escapeHtml(f.by || 'Unknown')}</button>
       </span>
       <div class="flex items-center space-x-1">
-        <button type="button" class="toggle-order-btn text-[11px] text-emerald-800 hover:bg-emerald-100 border border-emerald-300 bg-white px-1.5 py-0.2 rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Switch type directly to 2nd Order Construct"><i class="ph ph-arrows-left-right"></i><span>To 2nd</span></button>
-        <button type="button" class="edit-f-quote-btn text-[11px] text-blue-700 hover:bg-blue-100 px-1 py-0.2 rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Edit quote text (clean up 2-column PDF artifacts)"><i class="ph ph-pencil-simple"></i><span>Edit</span></button>
+        <button type="button" class="toggle-order-btn text-[11px] text-emerald-800 hover:bg-emerald-100 border border-emerald-300 bg-white px-1.5 py-px rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Switch type directly to 2nd Order Construct"><i class="ph ph-arrows-left-right"></i><span>To 2nd</span></button>
+        <button type="button" class="edit-f-quote-btn text-[11px] text-blue-700 hover:bg-blue-100 px-1 py-px rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Edit quote text (clean up 2-column PDF artifacts)"><i class="ph ph-pencil-simple"></i><span>Edit</span></button>
         ${isLinked
           ? `<button class="unl mr-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Unlink from this 2nd Order Construct (other links are kept)"><i class="ph ph-link-break"></i></button>`
-          : `<button class="promote-sec px-1.5 py-0.2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 rounded text-[11px] font-semibold cursor-pointer" title="Keep this 1st Order quote and wrap it in a new parent 2nd Order Concept">+ Wrap</button>`}
+          : `<button class="promote-sec px-1.5 py-px bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 rounded text-[11px] font-semibold cursor-pointer" title="Keep this 1st Order quote and wrap it in a new parent 2nd Order Concept">+ Wrap</button>`}
         <button class="del text-slate-400 hover:text-rose-500 cursor-pointer" title="Delete Quote"><i class="ph ph-trash"></i></button>
       </div>
     </div>
@@ -826,13 +826,13 @@ function openManualAddDrawer(type) {
     badge.textContent = '🟩 Add 2nd Order Construct';
     noteInput.placeholder = 'Short concept label for this author interpretation (optional)...';
     textInput.placeholder = 'Paste or type 2nd Order Construct (author interpretation / quote)...';
-    submitBtn.className = 'px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-xs cursor-pointer transition';
+    submitBtn.className = 'px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-sm cursor-pointer transition';
   } else {
     badge.className = 'text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300';
     badge.textContent = '🟦 Add 1st Order Quote';
     noteInput.placeholder = 'Participant attribution / context, e.g. Patient #4, Night-shift nurse (optional)...';
     textInput.placeholder = 'Paste or type 1st Order participant quote...';
-    submitBtn.className = 'px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs cursor-pointer transition';
+    submitBtn.className = 'px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-sm cursor-pointer transition';
   }
 
   drawer.classList.remove('hidden');
@@ -897,7 +897,7 @@ async function submitManualAddForm() {
   }
   state.annotations.push(a);
   updateSidebar();
-  showSnackbar(`Added manual ${activeManualAddType === 'second_order' ? '2nd Order Construct' : '1st Order Quote'} (p.${cleanPage})`);
+  showSnackbar(`Added manual ${a.type === 'second_order' ? '2nd Order Construct' : '1st Order Quote'} (p.${cleanPage})`);
 }
 
 document.getElementById('manualAddFirstBtn')?.addEventListener('click', () => openManualAddDrawer('first_order'));

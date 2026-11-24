@@ -402,7 +402,7 @@ function renderComparisonTabContent() {
             <span class="font-bold px-2 py-0.5 rounded ${isSec ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}">${isSec ? '🟩 2nd Order' : '🟦 1st Order Quote'}</span>
             <span class="font-bold text-slate-800">${escapeHtml(studyName)}</span>
             <span class="text-slate-400">p.${escapeHtml(p.page)}</span>
-            <span class="text-xs font-mono bg-teal-100 text-teal-800 px-1.5 py-0.2 rounded">@${escapeHtml(p.by || cmp.peerReviewer)}</span>
+            <span class="text-xs font-mono bg-teal-100 text-teal-800 px-1.5 py-px rounded">@${escapeHtml(p.by || cmp.peerReviewer)}</span>
           </div>
           ${p.note ? `<div class="text-xs font-bold text-slate-800">Summary Label: ${escapeHtml(p.note)}</div>` : ''}
           <div class="text-xs italic text-slate-600 bg-slate-50 p-2 rounded border border-slate-200">"${escapeHtml(p.text)}"</div>
@@ -864,7 +864,8 @@ async function importPeerConstruct(item, status) {
     docId: targetDocId,
     by: item.peerAnno.by || cmp.peerReviewer,
     concordanceStatus: status,
-    concordanceNote: `Imported from @${cmp.peerReviewer} via JSON Diff/Merge.`
+    // The peer's own team-discussion note comes along, after where it came from
+    concordanceNote: `Imported from @${cmp.peerReviewer} via JSON Diff/Merge.` + (String(item.peerAnno.concordanceNote || '').trim() ? `\n@${cmp.peerReviewer}'s note: ${String(item.peerAnno.concordanceNote).trim()}` : '')
   });
   cmp.peerToLocalAnnoId[peerId] = imported.id;
   // If this is a 2nd Order construct, re-attach any previously imported peer quotes that were waiting for it

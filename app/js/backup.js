@@ -137,20 +137,27 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
             addedBinKeys.push(d.id);
             d.hasBinary = true;
             d.fpDone = false; // another file under this id: fingerprint it again
+            d.sha256 = ''; d.doi = ''; // until then, no fingerprint of the backup's file stands for this one (Compare matches on it)
           }
         }
         await dbPut('docs', d);
         state.docs.push(d);
       }
-      for (const rawA of data.annotations) {
-        const a = normalizeAnnotation(rawA);
-        await dbPut('annotations', a);
-        state.annotations.push(a);
-      }
+      // Rows first, so constructs can be checked against them: a reference to a row or a 2nd Order construct the file does not
+      // hold (a hand-edited or damaged file) is dropped, as in a merge
       for (const rawC of (data.clusters || [])) {
         const c = normalizeCluster(rawC);
         await dbPut('clusters', c);
         state.clusters.push(c);
+      }
+      const fileSecIds = new Set(data.annotations.filter(a => a && a.type === 'second_order').map(a => a.id));
+      for (const rawA of data.annotations) {
+        const a = normalizeAnnotation(rawA);
+        const was = JSON.stringify([a.clusterIds, a.clusterRelations, a.clusterComments, a.aspectUsedInLoa, a.parentIds]);
+        dropGoneLinks(a, fileSecIds); // rows: those restored above; quotes' constructs: those in the file
+        if (JSON.stringify([a.clusterIds, a.clusterRelations, a.clusterComments, a.aspectUsedInLoa, a.parentIds]) !== was) mergeReport.tidied++;
+        await dbPut('annotations', a);
+        state.annotations.push(a);
       }
       for (const l of (data.logs || [])) {
         await dbPut('logs', l);
@@ -159,6 +166,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       // The research aim, model and the other project fields are part of what a failed restore rolls back
       if (data.loa) {
         state.loa = { projectCode: incomingProjCode || state.projectCode || '', aim: '', ...state.loa, ...data.loa, id: 'loa_main' };
+        dropGoneMapLinks();
         await dbPut('meta', state.loa);
       }
       } catch (restoreErr) {
@@ -288,7 +296,8 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       if (data.loa.baselineDocId) data.loa.baselineDocId = mergeDocIdMap[data.loa.baselineDocId] || data.loa.baselineDocId;
       const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt']);
       if (r.conflicts.length) mergeReport.conflicts.push(`Research Aim & Overall Model: ${r.conflicts.join(', ')}`);
-      if (r.filled.length) { state.loa.id = 'loa_main'; await dbPut('meta', state.loa); }
+      const droppedLinks = dropGoneMapLinks(); // concept-map relations taken from the backup between rows not in this project
+      if (r.filled.length || droppedLinks) { state.loa.id = 'loa_main'; await dbPut('meta', state.loa); }
     }
     populateLoaInputs();
     updateHeaderProjectUI();
@@ -313,7 +322,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     // The restore / merge itself belongs in the trail (after the restored logs, so a clean restore keeps it)
     const src = `${file.name}${data.exportedAt ? ' (exported ' + new Date(data.exportedAt).toLocaleString() + (data.reviewerId ? ' by @' + data.reviewerId : '') + ')' : ''}`;
     if (replaceCleanly) {
-      await recordAuditLog({ category: 'project_data', action: 'Restored the project from a JSON backup (clean restore)', detail: `Backup file: ${src}.${data._droppedRecords ? ` ${data._droppedRecords} malformed record(s) in the file were left out.` : ''} ${state.docs.length} studies, ${state.annotations.length} constructs/quotes, ${state.clusters.length} 3rd Order rows.` });
+      await recordAuditLog({ category: 'project_data', action: 'Restored the project from a JSON backup (clean restore)', detail: `Backup file: ${src}.${data._droppedRecords ? ` ${data._droppedRecords} malformed record(s) in the file were left out.` : ''} ${state.docs.length} studies, ${state.annotations.length} constructs/quotes, ${state.clusters.length} 3rd Order rows.${mergeReport.tidied ? ` ${mergeReport.tidied} item(s) pointed to rows or constructs not in the file; those links were dropped.` : ''}` });
     } else {
       await recordAuditLog({
         category: 'project_data',
@@ -335,6 +344,16 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
   }
   e.target.value = '';
 });
+
+// Concept-map relations whose rows are not in the project (restored or merged from a file) are dropped; returns how many
+function dropGoneMapLinks() {
+  if (!Array.isArray(state.loa.links)) return 0;
+  const rows = new Set(state.clusters.map(c => c.id));
+  const keep = state.loa.links.filter(l => l && rows.has(l.from) && rows.has(l.to));
+  const n = state.loa.links.length - keep.length;
+  if (n) state.loa = { ...state.loa, links: keep };
+  return n;
+}
 
 // The workspace is being replaced (reset, clean restore): let go of the open PDF and of what was cached for the old project
 // (PDF search index, matrix row heights), so nothing of it lingers when the new project has no study to open

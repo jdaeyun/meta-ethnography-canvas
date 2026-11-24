@@ -51,7 +51,8 @@ async function performUndoStep() {
     // The construct, its quotes' links and its within-study relationships come back in one transaction (as they went);
     // a placement in a row that was deleted in the meantime is not brought back
     const ops = [];
-    const back = last.annotations.map(raw => dropGoneRows(normalizeAnnotation(JSON.parse(JSON.stringify(raw)))));
+    const backSecIds = last.annotations.filter(a => a.type === 'second_order').map(a => a.id);
+    const back = last.annotations.map(raw => dropGoneLinks(normalizeAnnotation(JSON.parse(JSON.stringify(raw))), backSecIds));
     back.forEach(a => ops.push({ store: 'annotations', put: a }));
     if (last.unlinkedChildrenIds && last.parentId) {
       for (const cid of last.unlinkedChildrenIds) {
@@ -84,7 +85,9 @@ async function performUndoStep() {
   } else if (last.type === 'annotation_snapshots') {
     // Generic restore: put every snapshotted annotation back, delete the ones the operation created (one transaction);
     // never a placement in a row that was deleted in the meantime
-    const copies = last.snapshots.map(snap => dropGoneRows(normalizeAnnotation(JSON.parse(JSON.stringify(snap)))));
+    // (a quote's construct may be one of the snapshots: e.g. a construct absorbed as a passage comes back with its quotes)
+    const snapSecIds = last.snapshots.filter(a => a.type === 'second_order').map(a => a.id);
+    const copies = last.snapshots.map(snap => dropGoneLinks(normalizeAnnotation(JSON.parse(JSON.stringify(snap))), snapSecIds));
     const snapIds = new Set(last.snapshots.map(x => x.id));
     const gone = (last.createdIds || []).filter(id => !snapIds.has(id));
     await dbBatch([...copies.map(c => ({ store: 'annotations', put: c })), ...gone.map(id => ({ store: 'annotations', del: id }))]);
@@ -234,6 +237,8 @@ async function performUndoStep() {
       const rowsNow = new Set(state.clusters.map(c => c.id));
       state.loa = { ...state.loa, links: [...last.before.links.filter(l => !removedSince.has(l.id)), ...added].filter(l => rowsNow.has(l.from) && rowsNow.has(l.to)) };
       ops.push({ store: 'meta', put: state.loa });
+      // The restored row takes its old place; every row is numbered again, so rows moved since the merge never share a place
+      state.clusters.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
       await dbBatch(ops);
     } else {
       // Only the row the split created goes; every other row (including rows added since) stays in its place. What was put
@@ -314,7 +319,7 @@ async function performUndoStep() {
     // Back to its type with its links, row placements (only rows that still exist) and within-study relationships, in one transaction
     const ops = [];
     const idx = state.annotations.findIndex(a => a.id === last.snapshot.id);
-    const restored = idx >= 0 ? dropGoneRows(normalizeAnnotation(JSON.parse(JSON.stringify(last.snapshot)))) : null;
+    const restored = idx >= 0 ? dropGoneLinks(normalizeAnnotation(JSON.parse(JSON.stringify(last.snapshot)))) : null;
     if (restored) ops.push({ store: 'annotations', put: restored });
     if (Array.isArray(last.unlinkedChildrenIds) && last.unlinkedChildrenIds.length > 0) {
       for (const cid of last.unlinkedChildrenIds) {

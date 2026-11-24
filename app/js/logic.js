@@ -79,7 +79,8 @@ function sanitizeProjectData(data) {
   let dropped = 0;
   ['docs', 'annotations', 'clusters', 'logs'].forEach(k => {
     if (!Array.isArray(data[k])) return;
-    const ok = data[k].filter(r => r && typeof r === 'object' && !Array.isArray(r) && (typeof r.id === 'string' || typeof r.id === 'number'));
+    // A usable key: a non-empty string or a finite number ('' or NaN would be refused by the database part way through)
+    const ok = data[k].filter(r => r && typeof r === 'object' && !Array.isArray(r) && (typeof r.id === 'string' ? r.id.trim().length > 0 : Number.isFinite(r.id)));
     dropped += data[k].length - ok.length;
     data[k] = ok;
   });

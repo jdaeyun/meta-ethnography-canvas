@@ -57,6 +57,9 @@ test('project files are sanitised: prototype keys at every depth, records withou
   assert.ok(!Object.prototype.hasOwnProperty.call(out.docs[0].x, '__proto__'));
   assert.ok(!Object.prototype.hasOwnProperty.call(out.annotations[0], 'constructor'));
   assert.ok(!Object.prototype.hasOwnProperty.call(out.loa, 'prototype'));
+  const keys = L.sanitizeProjectData({ clusters: [{ id: '' }, { id: '  ' }, { id: NaN }, { id: Infinity }, { id: 0 }, { id: 'c1' }] });
+  assert.deepEqual(plain(keys.clusters.map(c => c.id)), [0, 'c1'], 'an empty, blank or non-finite id is not a usable key');
+  assert.equal(keys._droppedRecords, 4);
 });
 
 test('Appendix A: key decisions, routine bookkeeping, edit series', () => {

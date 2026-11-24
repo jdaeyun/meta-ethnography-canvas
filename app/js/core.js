@@ -496,10 +496,17 @@ function unlinkQuote(f, secId) {
 function clearQuoteLinks(f) { f.parentIds = []; }
 // A 2nd Order construct's per-row fields (keyed by 3rd Order row id), besides its clusterIds
 const ANNOTATION_ROW_FIELDS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
-// Drop the construct's placements in rows that no longer exist (e.g. a construct brought back by Undo after its row was
-// deleted): its clusterIds and every per-row field. Returns the construct.
-function dropGoneRows(a) {
-  if (!a || a.type !== 'second_order') return a;
+// Drop links to what no longer exists, for an annotation brought back (Undo, split off a passage, a restored file): a construct's
+// placements in deleted rows (its clusterIds and every per-row field), a quote's links to deleted 2nd Order constructs.
+// alsoSecIds: constructs being brought back together with it (not in state.annotations yet). Returns the annotation.
+function dropGoneLinks(a, alsoSecIds = []) {
+  if (!a) return a;
+  if (a.type === 'first_order') {
+    const secs = new Set([...alsoSecIds, ...state.annotations.filter(x => x.type === 'second_order').map(x => x.id)]);
+    a.parentIds = quoteParentIds(a).filter(id => secs.has(id));
+    return a;
+  }
+  if (a.type !== 'second_order') return a;
   const live = new Set(state.clusters.map(c => c.id));
   if (Array.isArray(a.clusterIds)) a.clusterIds = a.clusterIds.filter(id => live.has(id));
   ANNOTATION_ROW_FIELDS.forEach(k => {
