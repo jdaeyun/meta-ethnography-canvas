@@ -243,6 +243,26 @@ async function dbBatch(ops, { quiet = false } = {}) {
     tx.onabort = () => { flashSaveStatus('error'); reportStorageError(tx.error); reject(tx.error || new Error('IndexedDB transaction aborted')); };
   });
 }
+// ======================= commitOps: the one way a change of several records is stored and shown =======================
+// Every change written with dbBatch goes through here, in the same four steps:
+//  1. a deletion first lets every save still waiting finish (flushAllPendingSaves), so none of them writes a deleted record
+//     back after it;
+//  2. the records are written in one transaction (dbBatch): all of them, or none;
+//  3. only then are the same ops applied to `state` (docs / annotations / clusters / logs, and the model in 'meta'): a write
+//     the browser refused leaves the records in memory as they are in the database (nothing removed or added on screen alone);
+//  4. the lookups built from them (getMatrixIndex) are dropped, also if a render rebuilt them while the write was running.
+// A record written that is already in `state` under its id stays the same object (its content is replaced), so a view or a
+// handler holding it keeps the current record. A new record is added at the end of its list (a caller that needs another
+// place, e.g. a study's position, moves it after). Callers may also have changed records in memory before (in place, as
+// before): writing that same object again changes nothing in memory.
+/** @param {DbOp[]} ops @param {{ quiet?: boolean }} [opts] */
+async function commitOps(ops, { quiet = false } = {}) {
+  if (!ops.length) return;
+  if (ops.some(o => 'del' in o)) await flushAllPendingSaves();
+  await dbBatch(ops, { quiet });
+  applyOps(state, ops); // (logic.js)
+  invalidateMatrixIndex();
+}
 async function dbGet(store, key) {
   const db = await initDB();
   return new Promise((resolve, reject) => {
@@ -543,36 +563,8 @@ function clearQuoteLinks(f) { f.parentIds = []; }
 function fileNamePart(s) {
   return String(s || '').replace(/[\\/:*?"<>|\x00-\x1f\s]+/g, '_').replace(/^[._]+|[._]+$/g, '');
 }
-// (A 2nd Order construct's per-row fields: ANNOTATION_ROW_FIELDS, in logic.js)
-// ---- A construct and a row: the one place that changes a construct's membership of a row ----
-// A construct's place in a row is clusterIds plus one value per row in each of ANNOTATION_ROW_FIELDS (judgement, cell note,
-// line-of-argument mark). Every code path that puts a construct into a row, takes it out, or records / restores what it had
-// there goes through these three, so no field is forgotten (the source of many earlier bugs).
-// What the construct has in the row: { clusterRelations?, clusterComments?, aspectUsedInLoa? } (only the fields it has)
-function rowFieldsOf(a, rowId) {
-  const out = {};
-  ANNOTATION_ROW_FIELDS.forEach(k => { if (a[k] && typeof a[k] === 'object' && rowId in a[k]) out[k] = a[k][rowId]; });
-  return out;
-}
-// Out of the row, with everything it had there. Returns what it had (rowFieldsOf), e.g. for Undo.
-function takeOutOfRow(a, rowId) {
-  const had = rowFieldsOf(a, rowId);
-  if (Array.isArray(a.clusterIds)) a.clusterIds = a.clusterIds.filter(id => id !== rowId);
-  ANNOTATION_ROW_FIELDS.forEach(k => { if (a[k] && typeof a[k] === 'object' && rowId in a[k]) { a[k] = { ...a[k] }; delete a[k][rowId]; } });
-  return had;
-}
-// Into the row, with exactly the given fields: anything left there from an earlier placement does not come back (a new
-// placement starts unjudged). What it changes in the row itself (base, empty-cell note): placementRowOps.
-function putIntoRow(a, rowId, fields = {}) {
-  if (!Array.isArray(a.clusterIds)) a.clusterIds = [];
-  if (!a.clusterIds.includes(rowId)) a.clusterIds.push(rowId);
-  ANNOTATION_ROW_FIELDS.forEach(k => {
-    const has = a[k] && typeof a[k] === 'object' && rowId in a[k];
-    if (k in fields && fields[k] !== undefined) a[k] = { ...(a[k] || {}), [rowId]: fields[k] };
-    else if (has) { a[k] = { ...a[k] }; delete a[k][rowId]; }
-  });
-  return a;
-}
+// (A construct's place in a row — rowFieldsOf / takeOutOfRow / putIntoRow — and every other field that names a row or a
+// study: the reference graph in logic.js)
 
 // A construct is in a row (placed, imported, or brought back by Undo): what that changes in the row, in one place.
 // A row whose base is not set yet ('') takes this study's; an empty-cell record for this study ("— not addressed" /
@@ -583,10 +575,7 @@ function rowsTouchedByPlacement(a) {
   (a.clusterIds || []).forEach(id => {
     const row = state.clusters.find(c => c.id === id);
     if (!row) return;
-    let ch = false;
-    if (row.baseDocId === '') { row.baseDocId = a.docId; ch = true; }
-    if (row.cellStatus && row.cellStatus[a.docId]) { row.cellStatus = { ...row.cellStatus }; delete row.cellStatus[a.docId]; ch = true; }
-    if (ch) changed.push(row);
+    if (applyPlacementToRow(row, a.docId)) changed.push(row); // (the rule itself: logic.js)
   });
   return changed;
 }
@@ -637,10 +626,7 @@ function secEvidenceText(s) {
 function rowHistoryIds(c) { return new Set([c.id, ...((c && c.historyFrom) || [])]); }
 function logIsForRow(l, c) { const ids = rowHistoryIds(c); return (l.clusterIds || []).some(id => ids.has(id)); }
 function clusterById(cid) { return state.clusters.find(c => c && c.id === cid) || null; }
-function rowBaseDocId(c) {
-  const id = c && c.baseDocId;
-  return id && state.docs.some(d => d.id === id) ? id : null;
-}
+function rowBaseDocId(c) { return rowBaseIn(state, c); }
 function isRowBase(sec, cid) { const b = rowBaseDocId(clusterById(cid)); return !!b && sec.docId === b; }
 function isSecRefutational(sec, cid) {
   return !isRowBase(sec, cid) && !!(sec.clusterRelations && sec.clusterRelations[cid] === 'refutational');
@@ -649,12 +635,8 @@ function isSecRefutational(sec, cid) {
 // and refutational translation is the one most often overlooked (eMERGe criterion 13).
 // 'other_aspect': the construct belongs near the row but neither agrees nor contrasts with it: it speaks to another aspect
 // of the topic (Noblit & Hare's third relation, the material of a line of argument; eMERGe criterion 12).
-const CELL_RELATIONS = ['unjudged', 'reciprocal', 'refutational', 'other_aspect'];
-function secRelation(sec, cid) {
-  if (isRowBase(sec, cid)) return 'baseline';
-  const r = sec.clusterRelations && sec.clusterRelations[cid];
-  return CELL_RELATIONS.includes(r) ? r : 'unjudged';
-}
+// (CELL_RELATIONS: logic.js)
+function secRelation(sec, cid) { return relationIn(state, sec, cid); }
 // A row's reciprocal / refutational character is derived from its judged cells (each study's relation is set per cell),
 // not stored per row: 'reciprocal', 'refutational' (no judged study is reciprocal), 'mixed', 'aspects' (only different
 // aspects), 'unjudged' (nothing judged yet),

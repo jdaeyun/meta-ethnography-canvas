@@ -107,7 +107,7 @@ async function assignSecondOrderToCluster(sec, cluster) {
   // earlier "not addressed / different aspect" note for this study no longer applies (placementRowOps). Read first, for the log.
   const prevStatus = emptyCellInfo(cluster, sec.docId);
   // The placement and what it changes in the row in one transaction
-  await dbBatch([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]);
+  await commitOps([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]);
   if (prevStatus) {
     await recordAuditLog({
       clusterIds: [cluster.id], category: 'relating_studies',
@@ -128,18 +128,38 @@ async function assignSecondOrderToCluster(sec, cluster) {
   });
 }
 
+// Deleting a 3rd Order row: nothing of it is left behind (judgements, cell notes and line-of-argument marks in it, its
+// concept-map relations: purgeClusterRefs, logic.js); its constructs stay in the pool / other rows. Ctrl+Z puts all of it back.
+async function deleteClusterRow(cluster) {
+  await flushAllPendingSaves(); // a save of the row still waiting must not write it back after the deletion
+  const { ops } = purgeClusterRefs(state, cluster.id);
+  ops.push({ store: 'clusters', del: cluster.id });
+  const placed = ops.filter(o => o.store === 'annotations' && (rowSecs(cluster).some(a => a.id === o.put.id))).length;
+  const change = beginChange(`3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`, ops.map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id })),
+    { undoLogs: [{ clusterIds: [cluster.id], category: 'third_order', action: 'Restored 3rd Order Row (Undo)', toVal: cluster.thirdOrderTitle || '(Untitled Row)',
+      detail: `${placed} construct(s) placed in it again.` }] });
+  await commitOps(ops); // unplacing the cards and deleting the row in one transaction; the rows in memory change once it is stored
+  finishChange(change);
+  await recordAuditLog({
+    clusterIds: [cluster.id],
+    category: 'third_order',
+    action: 'Deleted 3rd Order Row',
+    fromVal: cluster.thirdOrderTitle || '(Untitled Row)'
+  });
+  renderLoaClusterChips(); // the drawer's chips and map (if open) lose the row
+  renderMatrixView();
+  showUndoSnackbar(`Removed the row "${cluster.thirdOrderTitle || 'Untitled'}" (its constructs stay in the pool / other rows)`);
+}
+
 async function removeSecondOrderFromCluster(sec, cluster) {
   normalizeAnnotation(sec);
-  pushUndoAction({
-    type: 'unassign_cluster',
-    label: `Unassign "${(sec.note || sec.text).slice(0, 28)}" from "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-    secId: sec.id,
-    clusterId: cluster.id,
-    // Taken out of the row: its judgement, note and line-of-argument mark there go too; Ctrl+Z puts all of them back
-    fields: rowFieldsOf(sec, cluster.id)
-  });
+  // Taken out of the row: its judgement, note and line-of-argument mark there go too; Ctrl+Z puts all of them back
+  const label = `Unassign "${(sec.note || sec.text).slice(0, 28)}" from "${cluster.thirdOrderTitle || 'Untitled Row'}"`;
+  const change = beginChange(label, [{ store: 'annotations', id: sec.id }], { undoLogs: [{ clusterIds: [cluster.id], category: 'matrix_mapping',
+    action: `Undid: ${label}`, detail: 'The construct is back in the row with its judgement, note and line-of-argument mark.', isMinorOp: true }] });
   takeOutOfRow(sec, cluster.id);
   await dbPut('annotations', sec);
+  finishChange(change);
 
   const doc = state.docs.find(d => d.id === sec.docId);
   await recordAuditLog({
@@ -268,8 +288,13 @@ async function seedIndexPaperRows() {
 
     // Study #1 has changed since rows were seeded (seeded rows come from another study): making rows from the new #1's
     // constructs is a new decision about method, so ask; "leave them" marks them, so the question is not asked again
-    const seededFromOther = state.clusters.some(c => c.autoSeeded && c.seededFromId &&
-      (state.annotations.find(a => a.id === c.seededFromId) || {}).docId !== indexDoc.id);
+    // (a row's seed construct may have been deleted since: the row's base then tells which study it was started from, so
+    // deleting one construct of study #1 does not make its rows look as if they came from an earlier study #1)
+    const seededFromOther = state.clusters.some(c => {
+      if (!c.autoSeeded || !c.seededFromId) return false;
+      const seed = state.annotations.find(a => a.id === c.seededFromId);
+      return (seed ? seed.docId : c.baseDocId) !== indexDoc.id;
+    });
     const unplaced = fresh.filter(sec => liveClusterIds(sec).length === 0);
     if (seededFromOther && unplaced.length) {
       const how = await askChoice({
@@ -1395,43 +1420,7 @@ function renderMatrixTable() {
       t.className = `cl-tools-toggle px-1.5 py-px rounded border ${open ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold`;
     };
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
-    tdMeta.querySelector('.del-cluster').onclick = async () => {
-      await flushAllPendingSaves(); // a save of the row still waiting must not write it back after the deletion
-      const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
-      // Nothing of the row is left behind (judgements, cell notes and line-of-argument marks in it, its concept-map relations);
-      // Ctrl+Z puts all of it back
-      const perRow = {};
-      assigned.forEach(a => { perRow[a.id] = rowFieldsOf(a, cluster.id); });
-      const removedLinks = (state.loa.links || []).filter(l => l.from === cluster.id || l.to === cluster.id);
-      pushUndoAction({
-        type: 'delete_cluster',
-        label: `3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`,
-        cluster: deepCopy(cluster), // nested fields (cellStatus, historyFrom…) as they were
-        assignedSecIds: assigned.map(a => a.id),
-        perRow, removedLinks
-      });
-      const ops = []; // unplacing the cards and deleting the row in one transaction (see dbBatch)
-      for (let a of assigned) {
-        takeOutOfRow(a, cluster.id);
-        ops.push({ store: 'annotations', put: a });
-      }
-      if (removedLinks.length) {
-        state.loa = { ...state.loa, links: state.loa.links.filter(l => !removedLinks.includes(l)) };
-        ops.push({ store: 'meta', put: state.loa });
-      }
-      ops.push({ store: 'clusters', del: cluster.id });
-      state.clusters = state.clusters.filter(c => c.id !== cluster.id);
-      await dbBatch(ops);
-      await recordAuditLog({
-        clusterIds: [cluster.id],
-        category: 'third_order',
-        action: 'Deleted 3rd Order Row',
-        fromVal: cluster.thirdOrderTitle || '(Untitled Row)'
-      });
-      renderLoaClusterChips(); // the drawer's chips and map (if open) lose the row
-      renderMatrixView();
-      showUndoSnackbar(`Removed the row "${cluster.thirdOrderTitle || 'Untitled'}" (its constructs stay in the pool / other rows)`);
-    };
+    tdMeta.querySelector('.del-cluster').onclick = () => deleteClusterRow(cluster);
 
     tr.appendChild(tdMeta);
 
@@ -1727,7 +1716,7 @@ function renderMatrixTable() {
 // --- C. 3rd Order Row Reordering (▲ / ▼) ---
 async function persistClusterOrder() {
   // The whole order in one transaction (see dbBatch)
-  await dbBatch(state.clusters.map((c, i) => { c.order = i; return { store: 'clusters', put: c }; }));
+  await commitOps(state.clusters.map((c, i) => { c.order = i; return { store: 'clusters', put: c }; }));
 }
 
 // Rows shown in the matrix (all, or only those with a ⚡ card while "Contradictions Only" is on)
@@ -1942,179 +1931,49 @@ function openRowOps(cluster) {
   document.getElementById('rowOpsWhy').value = '';
   rowOpsModal.classList.remove('hidden'); rowOpsModal.classList.add('flex');
 }
-const deepCopy = o => JSON.parse(JSON.stringify(o));
-// Text carried from another row is kept, marked with where it came from
-const carryText = (into, from, title) => from && from.trim() ? (into && into.trim() ? into.trim() + '\n\n' : '') + `[From row "${title}"] ` + from.trim() : (into || '');
-
-// Fields of a row that a merge changes; an undo puts back only those still as the merge left them
-const MERGE_ROW_FIELDS = ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation', 'cellStatus', 'baseDocId', 'historyFrom', 'baselineChange'];
-const pickFields = (c, fields) => { const o = {}; fields.forEach(f => { o[f] = c[f] === undefined ? undefined : deepCopy(c[f]); }); return o; };
-const annRowState = (a, ids) => ({ id: a.id, member: ids.map(id => (a.clusterIds || []).includes(id)), keys: ANNOTATION_ROW_FIELDS.map(k => ids.map(id => (a[k] || {})[id])) });
+// Names for the notes and log entries of a merge / split (planMergeRows / planSplitRow, logic.js)
+const ROW_PLAN_HELPERS = {
+  docName: id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : null; },
+  relLabel: r => getCellRelationMeta(r).label.replace(/^\S+\s/, ''),
+  rowTitle: c => clusterLabel(c)
+};
 
 async function mergeRows(src, tgt, why) {
-  const ops = []; // every write of the merge goes in one transaction (see dbBatch)
-  const srcTitle = clusterLabel(src), tgtTitle = clusterLabel(tgt);
-  const secs = rowSecs(src);
-  const ids = [src.id, tgt.id];
-  const before = { src: deepCopy(src), tgt: pickFields(tgt, MERGE_ROW_FIELDS), anns: secs.map(a => annRowState(a, ids)), links: deepCopy(state.loa.links || []) };
-  let moved = 0;
-  const differing = [], rejudge = [];
-  // A judgement is a reading against the study that established the row (◆). When the two rows were established by different
-  // studies, a card's judgement in the source row does not carry over: it starts unjudged in the merged row, and the earlier
-  // judgement is kept in its cell note, to be read again.
-  // A target row set to "No single base" (null) stays so; one whose base is not set yet ('') takes the source row's
-  const tgtNoBase = tgt.baseDocId === null;
-  const srcBase = rowBaseDocId(src), tgtBase = tgtNoBase ? null : (rowBaseDocId(tgt) || srcBase);
-  const baseDiffers = srcBase !== tgtBase;
-  const baseName = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'the row as a whole (no single base)'; };
-  for (const s of secs) {
-    normalizeAnnotation(s);
-    s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
-    if (!s.clusterIds.includes(tgt.id)) {
-      moved++;
-      // What the card takes into the merged row; nothing left there from an earlier placement comes back (putIntoRow)
-      const from = rowFieldsOf(s, src.id);
-      const rs = secRelation(s, src.id);
-      const judged = rs !== 'unjudged' && rs !== 'baseline';
-      const asNote = text => carryText(from.clusterComments || '', text, srcTitle);
-      let next;
-      if (baseDiffers && s.docId === tgtBase) {
-        // The study that established the target row: in the merged row this card is its base (◆), not judged; a judgement it
-        // had in the source row is kept in its note
-        next = { clusterComments: (judged ? asNote(`judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; establishes the merged row`) : from.clusterComments) || undefined };
-      } else if (baseDiffers && rs === 'baseline') {
-        // The study that established the source row: in the merged row it is judged like any other study. A judgement it may
-        // still carry from before it became that row's base (kept by setRowBase) is not a reading against the new base.
-        const d = state.docs.find(x => x.id === s.docId);
-        rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
-        next = { clusterComments: asNote(`established that row; to judge against ${baseName(tgtBase)}`) };
-      } else if (baseDiffers && rs !== 'unjudged') {
-        const d = state.docs.find(x => x.id === s.docId);
-        rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
-        next = { clusterComments: asNote(`judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(tgtBase)}`) };
-      } else {
-        // Same base: the judgement, note and line-of-argument mark carry over. (A card that starts unjudged above starts
-        // without its mark: the mark goes with a ◇ judgement.)
-        next = from;
-      }
-      putIntoRow(s, tgt.id, next);
-    } else {
-      // Already in both rows: the target row's judgement stays; a different reading in the source row is kept as a note
-      const rs = secRelation(s, src.id), rt = secRelation(s, tgt.id);
-      let carried = s.clusterComments[src.id] && s.clusterComments[src.id] !== s.clusterComments[tgt.id] ? s.clusterComments[src.id] : '';
-      if (rs !== rt && rs !== 'unjudged' && rs !== 'baseline') {
-        carried = `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} there` + (carried ? ` — ${carried}` : '');
-        const d = state.docs.find(x => x.id === s.docId);
-        differing.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page}): ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} in "${srcTitle}", ${getCellRelationMeta(rt).label.replace(/^\S+\s/, '')} in "${tgtTitle}"`);
-      }
-      if (carried) { const there = rowFieldsOf(s, tgt.id); putIntoRow(s, tgt.id, { ...there, clusterComments: carryText(there.clusterComments, carried, srcTitle) }); }
-    }
-    takeOutOfRow(s, src.id); // the source row goes
-    ops.push({ store: 'annotations', put: s });
-  }
-  normalizeCluster(tgt);
-  ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation'].forEach(k => { tgt[k] = carryText(tgt[k], src[k], srcTitle); });
-  // Empty-cell statuses: kept where the merged row still has nothing of that study
-  tgt.cellStatus = { ...(tgt.cellStatus || {}) };
-  Object.entries(src.cellStatus || {}).forEach(([docId, v]) => {
-    const hasCard = rowSecs(tgt).some(a => a.docId === docId);
-    if (!hasCard && !tgt.cellStatus[docId]) tgt.cellStatus[docId] = v;
-  });
-  Object.keys(tgt.cellStatus).forEach(docId => { if (rowSecs(tgt).some(a => a.docId === docId)) delete tgt.cellStatus[docId]; });
-  if (!tgtNoBase && !rowBaseDocId(tgt) && rowBaseDocId(src)) tgt.baseDocId = src.baseDocId;
-  // A row still waiting to be re-read after study #1 changed passes that on
-  if (src.baselineChange && !tgt.baselineChange) tgt.baselineChange = src.baselineChange;
-  tgt.historyFrom = [...new Set([...(tgt.historyFrom || []), src.id, ...(src.historyFrom || [])])];
-  ops.push({ store: 'clusters', put: tgt });
-  // Concept-map relations follow the row; a relation of the two rows to each other, or a duplicate, is dropped
-  // (for a symmetric relation, A–C and C–A are the same relation)
-  if (Array.isArray(state.loa.links)) {
-    const seen = new Set(); const out = [];
-    state.loa.links.forEach(l => {
-      const n = { ...l, from: l.from === src.id ? tgt.id : l.from, to: l.to === src.id ? tgt.id : l.to };
-      const pair = isDirectedLink(n.type) ? n.from + '|' + n.to : [n.from, n.to].sort().join('|');
-      const key = pair + '|' + n.type;
-      if (n.from !== n.to && !seen.has(key)) { seen.add(key); out.push(n); }
-    });
-    state.loa = { ...state.loa, links: out }; ops.push({ store: 'meta', put: state.loa });
-  }
-  ops.push({ store: 'clusters', del: src.id });
-  state.clusters = state.clusters.filter(c => c.id !== src.id);
-  await dbBatch(ops);
-  pushUndoAction({ type: 'row_merge', label: `Merge "${srcTitle.slice(0, 24)}" into "${tgtTitle.slice(0, 24)}"`, srcId: src.id, tgtId: tgt.id, before,
-    after: { tgt: pickFields(tgt, MERGE_ROW_FIELDS), anns: secs.map(a => annRowState(a, ids)), links: deepCopy(state.loa.links || []) } });
+  const plan = planMergeRows(state, src.id, tgt.id, ROW_PLAN_HELPERS);
+  if (!plan) return null;
+  const { srcTitle, tgtTitle, differing, rejudge } = plan;
+  await commitOps(plan.ops); // every write of the merge in one transaction; the source row leaves memory once it is stored
+  pushUndoAction({ type: 'row_merge', label: `Merge "${srcTitle.slice(0, 24)}" into "${tgtTitle.slice(0, 24)}"`, srcId: src.id, tgtId: tgt.id, before: plan.before, after: plan.after });
   await recordAuditLog({
     clusterIds: [tgt.id, src.id], category: 'third_order',
     action: `Merged row "${srcTitle}" into "${tgtTitle}"`,
-    detail: `${moved} construct(s) moved with their judgements and notes; ${secs.length - moved} were already in "${tgtTitle}".`
+    detail: `${plan.moved} construct(s) moved with their judgements and notes; ${plan.alreadyThere} were already in "${tgtTitle}".`
       + (differing.length ? ` Read differently in the two rows (the judgement in "${tgtTitle}" was kept; the other is noted on the card):\n${differing.join('\n')}\n` : ' ')
-      + (rejudge.length ? ` "${srcTitle}" was established by ${baseName(srcBase)} and "${tgtTitle}" by ${baseName(tgtBase)}, so ${rejudge.length} moved construct(s) start unjudged (their earlier judgement is noted on the card):\n${rejudge.join('\n')}\n` : '')
+      + (rejudge.length ? ` "${srcTitle}" was established by ${plan.srcBaseName} and "${tgtTitle}" by ${plan.tgtBaseName}, so ${rejudge.length} moved construct(s) start unjudged (their earlier judgement is noted on the card):\n${rejudge.join('\n')}\n` : '')
       + `Step A / Step B and other texts of "${srcTitle}" were added to "${tgtTitle}", marked with their origin. The CERQual ratings of "${tgtTitle}" were kept: re-read them for the merged finding.`,
     fromVal: `${srcTitle} + ${tgtTitle}`, toVal: tgtTitle, rationale: why
   });
-  return { rejudge: rejudge.length, baseName: baseName(tgtBase) };
+  return { rejudge: rejudge.length, baseName: plan.tgtBaseName };
 }
 
 async function splitRow(src, secIds, title, why) {
-  const srcTitle = clusterLabel(src);
-  const secs = rowSecs(src).filter(s => secIds.includes(s.id));
-  const nw = await createNewClusterRow(title, { silent: true, deferWrite: true });
-  const ids = [src.id, nw.id];
-  const beforeAnns = secs.map(a => annRowState(a, ids));
-  const srcBase = rowBaseDocId(src);
-  // "No single base" stays so in the new row; otherwise the new row keeps the source row's base when that study's card moves
-  // with it, and is established by the first moved card's study when it does not
-  nw.baseDocId = src.baseDocId === null ? null : secs.some(s => s.docId === srcBase) ? srcBase : secs[0].docId;
-  const newBase = rowBaseDocId(nw);
-  // A judgement is a reading against the study that established the row: when the new row has another base, the moved cards
-  // start unjudged there and the earlier judgement is kept in the card's note, to be read again (as in mergeRows)
-  const baseChanges = src.baseDocId !== null && newBase !== srcBase;
-  const baseName = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'the row as a whole (no single base)'; };
-  const rejudge = [];
-  // If every card of the study that established this row moves, the row keeps its base (an interpretive choice, not a sort
-  // result) but the reviewer is told, so they can choose another study or "No single base" under ◆ Established by
-  const baseGone = !!srcBase && !rowSecs(src).some(s => s.docId === srcBase && !secs.includes(s));
-  const baseDoc = baseGone ? state.docs.find(d => d.id === srcBase) : null;
-  nw.historyFrom = [src.id, ...(src.historyFrom || [])];
-  const ops = []; // the moves and the new row's record in one transaction (see dbBatch)
-  for (const s of secs) {
-    normalizeAnnotation(s);
-    s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
-    const rs = secRelation(s, src.id); // read before the card leaves the row
-    const from = takeOutOfRow(s, src.id); // what it had in the source row
-    const judged = rs !== 'unjudged' && rs !== 'baseline';
-    const asNote = text => carryText(from.clusterComments || '', text, srcTitle);
-    let next;
-    if (baseChanges && rs !== 'unjudged' && s.docId !== newBase) {
-      const d = state.docs.find(x => x.id === s.docId);
-      rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
-      next = { clusterComments: asNote(rs === 'baseline' ? `established that row; to judge against ${baseName(newBase)}` : `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(newBase)}`) };
-    } else if (baseChanges && s.docId === newBase) {
-      // The card of the study that now establishes the new row is not judged in it; a judgement it had is kept in its note
-      next = { clusterComments: (judged ? asNote(`judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; establishes the new row`) : from.clusterComments) || undefined };
-    } else {
-      next = from; // same base: the judgement, note and (with a ◇ judgement) line-of-argument mark carry over
-    }
-    putIntoRow(s, nw.id, next);
-    ops.push({ store: 'annotations', put: s });
-  }
-  // The new row sits right below the one it was split from; the new row, the moved cards and the order of every row are
-  // one transaction, and the rows in memory change only once it is stored
-  const order = state.clusters.filter(c => c.id !== nw.id);
-  order.splice(order.findIndex(c => c.id === src.id) + 1, 0, nw);
-  order.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
-  await dbBatch(ops);
-  state.clusters = order;
-  pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${srcTitle.slice(0, 24)}"`, srcId: src.id, newId: nw.id,
-    before: { anns: beforeAnns }, after: { anns: secs.map(a => annRowState(a, ids)) } });
+  const plan = planSplitRow(state, src.id, secIds, await createNewClusterRow(title, { silent: true, deferWrite: true }), ROW_PLAN_HELPERS);
+  if (!plan) return null;
+  const nw = plan.newRow;
+  // The new row, the moved cards and the order of every row in one transaction; the rows in memory change once it is stored
+  await commitOps(plan.ops);
+  state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0)); // the new row right below its source
+  const secs = plan.after.anns.map(x => state.annotations.find(a => a.id === x.id)).filter(Boolean); // the cards moved
+  pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${plan.srcTitle.slice(0, 24)}"`, srcId: src.id, newId: nw.id,
+    before: plan.before, after: plan.after });
   await recordAuditLog({
     clusterIds: [src.id, nw.id], category: 'third_order',
-    action: `Split ${secs.length} construct(s) off "${srcTitle}" into a new row "${clusterLabel(nw)}"`,
+    action: `Split ${secs.length} construct(s) off "${plan.srcTitle}" into a new row "${clusterLabel(nw)}"`,
     detail: secs.map(s => { const d = state.docs.find(x => x.id === s.docId); return `${d ? getDisplayName(d) : 'Study'} (p.${s.page}): ${s.note || String(s.text || '').slice(0, 60)}`; }).join('\n')
-      + (rejudge.length ? `\n"${srcTitle}" was established by ${baseName(srcBase)} and the new row by ${baseName(newBase)}, so ${rejudge.length} moved construct(s) start unjudged (their earlier judgement is noted on the card):\n${rejudge.join('\n')}` : ''),
-    fromVal: srcTitle, toVal: `${srcTitle} | ${clusterLabel(nw)}`, rationale: why
+      + (plan.rejudge.length ? `\n"${plan.srcTitle}" was established by ${plan.srcBaseName} and the new row by ${plan.newBaseName}, so ${plan.rejudge.length} moved construct(s) start unjudged (their earlier judgement is noted on the card):\n${plan.rejudge.join('\n')}` : ''),
+    fromVal: plan.srcTitle, toVal: `${plan.srcTitle} | ${clusterLabel(nw)}`, rationale: why
   });
-  return { baseGone: baseDoc ? getDisplayName(baseDoc) : '', rejudge: rejudge.length, baseName: baseName(newBase) };
+  return { baseGone: plan.baseGone, rejudge: plan.rejudge.length, baseName: plan.newBaseName };
 }
 
 document.getElementById('rowOpsMergeBtn').onclick = async () => {

@@ -238,7 +238,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         state.clusters.forEach(c => { if (c.by === oldRev) { c.by = nextRev; ops.push({ store: 'clusters', put: c }); } });
         let nLogs = 0;
         state.logs.forEach(l => { if (l.reviewer === oldRev) { l.reviewer = nextRev; nLogs++; ops.push({ store: 'logs', put: l }); } });
-        await dbBatch(ops);
+        await commitOps(ops);
         await recordAuditLog({ category: 'audit_edit', action: `Attributed all items of @${oldRev} to @${nextRev}`, detail: `${existingCount} construct(s) / row(s) and ${nLogs} audit trail entries.`, fromVal: '@' + oldRev, toVal: '@' + nextRev });
         updateSidebar();
         if (!divMatrix.classList.contains('hidden')) renderMatrixView();

@@ -210,17 +210,17 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         state.docs.find(x => x.name && d.name && x.name.toLowerCase() === d.name.toLowerCase()) ||
         (d.sha256 ? state.docs.find(x => x.sha256 && x.sha256 === d.sha256) : null) ||
         (d.doi ? state.docs.find(x => x.doi && normalizeDoi(x.doi) === normalizeDoi(d.doi)) : null);
-      // First the whole map (a study may refer to one listed after it), then every study id in the backup goes through it:
-      // annotations, the companion study, each row's base study and empty-cell records, and study #1.
+      // First the whole map (a study may refer to one listed after it), then every study id in the backup goes through it
+      // (remapDocIds, logic.js: every field that names a study — annotations, the companion study, each row's base study,
+      // empty-cell records and re-reading note, and study #1). The studies' own ids stay: the map is looked up by them.
       for (const rawD of data.docs) {
         if (!rawD || !rawD.id) continue;
         const existing = findLocalDoc(rawD);
         mergeDocIdMap[rawD.id] = existing ? existing.id : rawD.id;
       }
-      const toLocalDoc = id => (id && mergeDocIdMap[id]) || id;
+      Object.assign(data, remapDocIds({ docs: data.docs, annotations: data.annotations, clusters: data.clusters || [], loa: data.loa }, id => mergeDocIdMap[id]));
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);
-        if (d.companionOf) d.companionOf = toLocalDoc(d.companionOf);
         // The study the map points to (not a new search: a second study of the same name in the backup would otherwise be
         // matched with the first one just added, while its constructs still point to its own id)
         const existing = state.docs.find(x => x.id === mergeDocIdMap[rawD.id]);
@@ -237,7 +237,6 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         }
       }
       for (const rawA of data.annotations) {
-        if (rawA && mergeDocIdMap[rawA.docId]) rawA.docId = mergeDocIdMap[rawA.docId];
         const a = normalizeAnnotation(rawA);
         const local = state.annotations.find(x => x.id === a.id);
         if (local) {
@@ -254,7 +253,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       }
       for (const rawC of (data.clusters || [])) {
         if (!rawC) continue;
-        const c = normalizeCluster(remapRowDocIds(rawC, toLocalDoc)); // base, empty-cell records, re-reading note
+        const c = normalizeCluster(rawC);
         const local = state.clusters.find(x => x.id === c.id);
         if (local) {
           if (!sameRecord(local, c)) {
@@ -276,7 +275,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         if (JSON.stringify([a.clusterIds, a.parentIds, ...ANNOTATION_ROW_FIELDS.map(k => a[k])]) !== was) { mergeReport.tidied++; await dbPut('annotations', a); }
       }
       // An added construct in a row: the row's base if not set yet, no empty-cell record for its study there
-      await dbBatch(placementRowOps(added));
+      await commitOps(placementRowOps(added));
       for (const l of (data.logs || [])) {
         if (state.logs.find(x => x.id === l.id)) continue;
         await dbPut('logs', l);
@@ -291,7 +290,6 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     }
     if (data.loa && !replaceCleanly) {
       // MERGE: the aim, model and narrative are only filled where they are empty here
-      if (data.loa.baselineDocId) data.loa.baselineDocId = mergeDocIdMap[data.loa.baselineDocId] || data.loa.baselineDocId;
       // (where the map's boxes were dragged to is layout, not a reading: it is neither merged nor a conflict)
       const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt', 'mapPositions', 'mapLayout']);
       if (r.conflicts.length) mergeReport.conflicts.push(`Research Aim & Overall Model: ${r.conflicts.join(', ')}`);
@@ -347,8 +345,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
 // Concept-map relations whose rows are not in the project (restored or merged from a file) are dropped; returns how many
 function dropGoneMapLinks() {
   if (!Array.isArray(state.loa.links)) return 0;
-  const rows = new Set(state.clusters.map(c => c.id));
-  const keep = state.loa.links.filter(l => l && rows.has(l.from) && rows.has(l.to));
+  const keep = liveRowLinks(state.loa.links, new Set(state.clusters.map(c => c.id)));
   const n = state.loa.links.length - keep.length;
   if (n) state.loa = { ...state.loa, links: keep };
   return n;

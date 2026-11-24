@@ -53,7 +53,7 @@ async function seedDemoIfEmpty() {
     data.clusters.forEach(c => ops.push({ store: 'clusters', put: c }));
     data.logs.forEach(l => ops.push({ store: 'logs', put: l }));
     ops.push({ store: 'meta', put: { ...data.loa, id: 'loa_main' } });
-    await dbBatch(ops, { quiet: true });
+    await dbBatch(ops, { quiet: true }); // (not commitOps: the project is read into memory from the database after this, at startup)
     lsRemove('unbackedSince'); updateBackupReminder(); // a fresh demo has nothing to back up
     lsSet('me_reviewer_id', data.reviewerId);
     lsSet('me_project_code', data.projectCode);

@@ -802,7 +802,7 @@ await group('Review fixes: peer rows by title, merge links, PDF search race, Wor
   await tab(p, 'extract'); await settle(p);
   await p.locator('#studyList .del').first().click(); await settle(p);
   const flaggedAfterDelete = await p.evaluate(() => state.clusters.filter(c => c.baselineChange).length);
-  const n = await p.evaluate(async () => { pushUndoAction({ type: 'delete_log', label: 'x', log: { id: 'log_dummy', action: 'x', timestamp: 1 } }); state.undoStack.reverse(); const a = performUndo(); const b = performUndo(); await Promise.all([a, b]); return state.undoStack.length; });
+  const n = await p.evaluate(async () => { pushUndoAction({ type: 'change', label: 'x', records: [] }); state.undoStack.reverse(); const a = performUndo(); const b = performUndo(); await Promise.all([a, b]); return state.undoStack.length; });
   check('a fast second undo is ignored while the first runs', n === 1);
   const flaggedAfterUndo = await p.evaluate(() => state.clusters.filter(c => c.baselineChange).length);
   check('undoing the deletion of #1 clears the re-reading flags it caused', flaggedAfterDelete > 0 && flaggedAfterUndo === 0, `${flaggedAfterDelete} -> ${flaggedAfterUndo}`);
@@ -1199,8 +1199,7 @@ await group('Review fixes 2: welcome buttons, awaited commits, peer rows importe
   // Undoing a row deletion is logged (the deletion was)
   const undo = await p.evaluate(async () => {
     const c = state.clusters[state.clusters.length - 1];
-    pushUndoAction({ type: 'delete_cluster', label: 'x', cluster: { ...c }, assignedSecIds: [] });
-    state.clusters = state.clusters.filter(x => x.id !== c.id); await dbDelete('clusters', c.id);
+    await deleteClusterRow(c);
     await performUndo();
     return { back: state.clusters.some(x => x.id === c.id), log: state.logs[0].action, ids: state.logs[0].clusterIds };
   });
@@ -2132,7 +2131,8 @@ await group('Audit entries carry their kind: Appendix A does not depend on the w
     kinds: Object.keys(LOG_KINDS)
   }));
   await p.context().close();
-  // Each recordAuditLog({ … }) call in the app (balanced braces), its action literals (${a ? 'P' : 'Q'} read both ways, other
+  // Each recordAuditLog({ … }) call in the app (balanced braces) and each entry an Undo will write (undoLogs: [{ … }] of
+  // beginChange), its action literals (${a ? 'P' : 'Q'} read both ways, other
   // ${…} as "1") and the kinds it names
   const expand = t => {
     const m = t.match(/\$\{[^{}]*?\?\s*'([^']*)'\s*:\s*'([^']*)'\s*\}/);
@@ -2142,8 +2142,9 @@ await group('Audit entries carry their kind: Appendix A does not depend on the w
   const calls = [];
   for (const f of fs.readdirSync(path.join(ROOT, 'app/js'))) {
     const src = fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8');
-    for (let i = src.indexOf('recordAuditLog({'); i >= 0; i = src.indexOf('recordAuditLog({', i + 1)) {
-      let depth = 0, j = i + 'recordAuditLog('.length;
+    const starts = [...src.matchAll(/recordAuditLog\(\{|undoLogs: \[\{/g)].map(m => m.index + m[0].length - 1); // at the '{'
+    for (const i of starts) {
+      let depth = 0, j = i;
       for (; j < src.length; j++) { if (src[j] === '{') depth++; else if (src[j] === '}' && --depth === 0) break; }
       const body = src.slice(i, j + 1);
       const act = body.slice(body.indexOf('action:'));
@@ -2233,12 +2234,9 @@ await group('Review fixes 8: switch and undo tidy per-row marks and relationship
     const rid = sec.clusterIds[0];
     sec.clusterRelations = { ...(sec.clusterRelations || {}), [rid]: 'reciprocal' }; sec.aspectUsedInLoa = { [rid]: true };
     await dbPut('annotations', sec);
-    pushUndoAction({ type: 'delete_annotation', label: 'test', annotations: [JSON.parse(JSON.stringify(sec))], unlinkedChildrenIds: [], parentId: sec.id });
-    await dbDelete('annotations', sec.id); state.annotations = state.annotations.filter(a => a.id !== sec.id);
-    // the row deleted as the app does it: its cards taken out of it, map relations to it removed
-    const ops = state.annotations.filter(a => (a.clusterIds || []).includes(rid)).map(a => { takeOutOfRow(a, rid); return { store: 'annotations', put: a }; });
-    state.loa.links = (state.loa.links || []).filter(l => l.from !== rid && l.to !== rid);
-    await dbBatch([...ops, { store: 'meta', put: state.loa }, { store: 'clusters', del: rid }]); state.clusters = state.clusters.filter(c => c.id !== rid);
+    await deleteSecondOrder(sec);
+    // the row deleted as the app does it (its cards taken out of it, map relations to it removed), without an undo step of its own
+    await commitOps([...purgeClusterRefs(state, rid).ops, { store: 'clusters', del: rid }]);
     await performUndo();
     const a = await dbGet('annotations', sec.id);
     return { back: !!a, noGoneRow: !!a && !a.clusterIds.includes(rid) && !(rid in (a.clusterRelations || {})) && !(rid in (a.aspectUsedInLoa || {})) };
@@ -2769,6 +2767,68 @@ await group('Shared global scope: no top-level name is declared twice across the
   const fixedWaits = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').filter(l => l.includes('.waitFor' + 'Timeout(')).length;
   check('no fixed waits in the smoke tests', fixedWaits === 0, `${fixedWaits} found`);
   check(`no top-level name declared twice (${seen.size} names)`, dups.length === 0, dups.join('; '));
+});
+
+await group('One write path: memory changes after the database, records keep their identity, references go with what they name', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await settle(p);
+  const r = await p.evaluate(async () => {
+    const out = {};
+    // A write the browser refuses: nothing is removed from memory alone (the row is still there, as in the database)
+    const row = state.clusters[state.clusters.length - 1];
+    const orig = window.dbBatch; window.dbBatch = async () => { throw new Error('simulated failure'); };
+    try { await commitOps([{ store: 'clusters', del: row.id }]); out.threw = false; } catch (e) { out.threw = true; } finally { window.dbBatch = orig; }
+    out.rowKept = state.clusters.includes(row) && !!(await dbGet('clusters', row.id));
+    // A new version of a record replaces the content of the one in memory: a view holding it sees the change
+    const a = state.annotations.find(x => x.type === 'second_order');
+    const before = a.nuanceNote;
+    await commitOps([{ store: 'annotations', put: { ...a, nuanceNote: 'written through commitOps' } }]);
+    out.sameObject = state.annotations.find(x => x.id === a.id) === a && a.nuanceNote === 'written through commitOps';
+    await commitOps([{ store: 'annotations', put: { ...a, nuanceNote: before } }]);
+    if (before === undefined) { delete a.nuanceNote; await dbPut('annotations', a); }
+    // The row-deletion path (purgeClusterRefs + commitOps) leaves nothing pointing at the row
+    const rid = state.clusters.find(c => state.annotations.some(x => (x.clusterIds || []).includes(c.id))).id;
+    const { ops } = purgeClusterRefs(state, rid);
+    await commitOps([...ops, { store: 'clusters', del: rid }]);
+    out.rowGone = !state.clusters.some(c => c.id === rid) && !state.annotations.some(x => (x.clusterIds || []).includes(rid) ||
+      ANNOTATION_ROW_FIELDS.some(k => x[k] && rid in x[k])) && !(state.loa.links || []).some(l => l.from === rid || l.to === rid);
+    out.invariants = checkInvariants(state).length === 0;
+    return out;
+  });
+  check('a refused write leaves the records in memory as they are in the database', r.threw && r.rowKept, JSON.stringify(r));
+  check('a record written again keeps its object in memory (views holding it see the change)', r.sameObject, JSON.stringify(r));
+  check('deleting a row leaves no placement, per-row field or map relation pointing at it', r.rowGone && r.invariants, JSON.stringify(r));
+  await settle(p);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Compare: a study added from the peer brings its within-study relationships once both constructs are imported', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await settle(p);
+  const r = await p.evaluate(async () => {
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: [], logs: [], loa: { id: 'loa_main' }, reviewerId: 'Peer' }));
+    // A study only the peer has, with two constructs and a relationship between them
+    const doc = { id: 'peer_only_doc', name: 'peer-only-study.pdf', title: 'A study only the peer read', order: 99,
+      conceptLinks: [{ id: 'peer_link', from: 'peer_c1', to: 'peer_c2', type: 'leads', note: 'one leads to the other' }] };
+    peer.docs.push(doc);
+    ['peer_c1', 'peer_c2'].forEach((id, i) => peer.annotations.push({ id, docId: doc.id, type: 'second_order', page: String(i + 1), text: `Only the peer extracted this (${i + 1})`, note: '', clusterIds: [] }));
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    const item = id => state.peerComparison.peerOnlyAnnos.find(x => x.peerAnno.id === id);
+    await importPeerConstruct(item('peer_c1'), 'discuss');
+    const stub = state.docs.find(d => d.name === doc.name);
+    const afterOne = { links: (stub.conceptLinks || []).length, waiting: (stub._peerConceptLinks || []).length, ok: checkInvariants(state).length === 0 };
+    await importPeerConstruct(item('peer_c2'), 'discuss');
+    const c1 = state.annotations.find(a => a.text === 'Only the peer extracted this (1)'), c2 = state.annotations.find(a => a.text === 'Only the peer extracted this (2)');
+    const l = (stub.conceptLinks || [])[0];
+    return { afterOne, joined: !!l && l.from === c1.id && l.to === c2.id && l.note === 'one leads to the other', waitingGone: !stub._peerConceptLinks,
+      stored: ((await dbGet('docs', stub.id)).conceptLinks || []).length === 1 };
+  });
+  check('with one construct imported, the relationship waits (nothing points at a construct not here)', r.afterOne.links === 0 && r.afterOne.waiting === 1 && r.afterOne.ok, JSON.stringify(r));
+  check('with both imported, it joins the study under the local ids and is stored', r.joined && r.waitingGone && r.stored, JSON.stringify(r));
+  await settle(p);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
 });
 
 await group('Content-Security-Policy: the app works under it, and no request can leave the site (http and file://)', async () => {

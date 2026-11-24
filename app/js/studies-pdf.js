@@ -21,7 +21,7 @@ async function attachPdfFileToDoc(doc, file, { buffer = null, sha = '' } = {}) {
   // Another file (or one not checked yet): its fingerprint is worked out again from the file itself, so an old one (e.g. from a
   // backup) never stands for it. The DOI stays: it describes the study (and may have been entered by hand), not the file.
   if (!sameFile) { doc.fpDone = false; doc.sha256 = ''; }
-  await dbBatch([{ store: 'pdf_binaries', put: { id: doc.id, data } }, { store: 'docs', put: doc }]); // the PDF and its study together
+  await commitOps([{ store: 'pdf_binaries', put: { id: doc.id, data } }, { store: 'docs', put: doc }]); // the PDF and its study together
   if (pdfSearchState.docId === doc.id) Object.assign(pdfSearchState, { docId: null, pageTexts: [] }); // its text index was the old file's
   ensureDocFingerprints(); // only studies not yet fingerprinted are read (e.g. one whose DOI was never looked for)
 }
@@ -141,8 +141,7 @@ async function handleFiles(files) {
       addedAt: new Date().toISOString()
     });
     // The PDF and its study in one transaction: a failure part way leaves no PDF without a study
-    await dbBatch([{ store: 'pdf_binaries', put: { id: docId, data: buffer } }, { store: 'docs', put: doc }]);
-    state.docs.push(doc);
+    await commitOps([{ store: 'pdf_binaries', put: { id: docId, data: buffer } }, { store: 'docs', put: doc }]); // (adds it to state.docs)
     lastAffectedId = doc.id;
   }
   if (!state.loa.baselineDocId) await checkBaselineChange(); // the first study added becomes #1
@@ -236,7 +235,7 @@ function getBadgesHtml(doc) {
 
 async function persistDocOrder() {
   // The whole order in one transaction: never half of the studies in the new order and half in the old
-  await dbBatch(state.docs.map((d, i) => { d.order = i; return { store: 'docs', put: d }; }));
+  await commitOps(state.docs.map((d, i) => { d.order = i; return { store: 'docs', put: d }; }));
   await checkBaselineChange();
 }
 
@@ -400,6 +399,10 @@ function renderStudyList() {
         const wasIndex = idx === 0;
         const binRec = await dbGet('pdf_binaries', doc.id);
         const toDel = state.annotations.filter(a => a.docId === doc.id);
+        // References to the study elsewhere are removed with it and put back by Ctrl+Z: empty-cell records in rows and
+        // "same primary study as" (purgeDocRefs, logic.js; a row's ◆ base is kept: it tells which rows study #1 established,
+        // see checkBaselineChange)
+        const refs = purgeDocRefs(state, doc.id);
         pushUndoAction({
           type: 'delete_study',
           label: `Study (${getDisplayName(doc)})`,
@@ -407,18 +410,11 @@ function renderStudyList() {
           binary: binRec && binRec.data ? binRec.data : null,
           annotations: toDel.map(a => JSON.parse(JSON.stringify(a))),
           position: idx,
-          // References to the study elsewhere are removed with it and put back by Ctrl+Z: empty-cell records in rows and
-          // "same primary study as". (A row's ◆ base is kept: it tells which rows study #1 established, see checkBaselineChange.)
-          cellStatus: state.clusters.filter(c => c.cellStatus && doc.id in c.cellStatus).map(c => ({ id: c.id, v: c.cellStatus[doc.id] })),
-          companions: state.docs.filter(d => d.companionOf === doc.id).map(d => d.id)
+          cellStatus: refs.cellStatus, companions: refs.companions
         });
-        const refOps = [];
-        state.clusters.forEach(c => { if (c.cellStatus && doc.id in c.cellStatus) { c.cellStatus = { ...c.cellStatus }; delete c.cellStatus[doc.id]; refOps.push({ store: 'clusters', put: c }); } });
-        state.docs.forEach(d => { if (d.companionOf === doc.id) { d.companionOf = ''; refOps.push({ store: 'docs', put: d }); } });
-        // The study, its PDF, its constructs and the references to it go in one transaction (see dbBatch)
-        await dbBatch([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refOps]);
-        state.docs = state.docs.filter(d => d.id !== doc.id);
-        state.annotations = state.annotations.filter(a => a.docId !== doc.id);
+        // The study, its PDF, its constructs and the references to it go in one transaction; the records in memory change once
+        // all of it is stored (commitOps)
+        await commitOps([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refs.ops]);
         await recordAuditLog({
           category: 'study_order',
           rationale: why,

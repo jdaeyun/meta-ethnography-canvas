@@ -54,6 +54,10 @@ run one of them):
   inference is wrong (e.g. `/** @type {DbOp[]} */` for an ops list that mixes puts and deletes).
 - tools/test/unit.test.mjs (node:test, no browser) loads app/js/logic.js alone in a fresh context and tests its functions directly.
   Put a new piece of logic that needs no page there (taking what it needs as arguments), and test it there.
+- tools/test/scenario.test.mjs (node:test, no browser) chains the pure steps of logic.js on a small project as a reviewer would
+  (place, judge, merge / split rows via `planMergeRows()` / `planSplitRow()`, delete a row or construct, Undo of a change) and runs
+  `checkInvariants()` after every step: fixed scenarios for what each step means, and seeded random walks (seed in the test name).
+  A step that changes several records gets its pure part in logic.js and a step here; the browser code only names, writes, logs.
 - tools/test/smoke.mjs drives the ?demo project in Chromium (Playwright: audit logging, restore, lazy matrix rows, dialogs, file://);
   install the browser once with `npx playwright install chromium`. Run it after changing app behaviour and extend it with the change.
   No fixed waits (`waitForTimeout`; a smoke check fails on one): after an action, `await settle(p)` waits until the app has nothing
@@ -123,12 +127,16 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row. A placed card is judged 'reciprocal',
   'refutational' or 'other_aspect' (◇, Noblit & Hare's third relation; `aspectUsedInLoa[rowId]` marks those the line of
   argument draws on), or stays 'unjudged'.
-  A construct's place in a row is changed only through `putIntoRow()` / `takeOutOfRow()` / `rowFieldsOf()` (core.js): membership and
-  every per-row field (`ANNOTATION_ROW_FIELDS`) together, so a new per-row field needs no change at the call sites. Study ids in a row
-  record from another file (backup merge, Compare) are turned into local ones by `remapRowDocIds()` (logic.js).
+  A construct's place in a row is changed only through `putIntoRow()` / `takeOutOfRow()` / `rowFieldsOf()` (logic.js): membership and
+  every per-row field (`ANNOTATION_ROW_FIELDS`) together, so a new per-row field needs no change at the call sites.
+  Reference graph (logic.js, top of "The reference graph"): the comment there lists every field that names a study, a row or a
+  construct, and which ones are kept on purpose as history. Study ids from another file go through `remapDocIds()` (a whole
+  project: backup merge) / `remapRowDocIds()` / `remapDocRecord()` (one record: Compare); a removed study's references through
+  `purgeDocRefs()`, a removed row's through `purgeClusterRefs()` (both return the ops to write and what Undo needs); map relations of a
+  merged row through `moveRowLinks()`. A new reference field is added there (and to `checkInvariants()`), not at the call sites.
   A construct's per-row fields are `ANNOTATION_ROW_FIELDS` (logic.js); whatever brings a construct back (Undo, split off a passage)
   passes it through `dropGoneLinks()`, so it never points to a row (or, for a quote, a construct) deleted in the meantime.
-  Whatever puts a construct into a row (placing, Compare import, Undo) writes `placementRowOps()` with it: a row whose base is
+  Whatever puts a construct into a row (placing, Compare import) writes `placementRowOps()` with it (Undo: `tidyRefsOps()`; the rule itself is `applyPlacementToRow()`): a row whose base is
   not set yet ('') takes the study's, and the study's empty-cell record in that row is dropped (`rowsTouchedByPlacement()`).
   Items imported in Compare before what they belong to is here keep the peer's links in `_peerParentIds` (a quote waiting for its
   2nd order construct) / `_peerRows` (a construct waiting for its row: per peer row id, the judgement, cell note, line-of-argument
@@ -137,12 +145,22 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   file from that reviewer does not show them as new.
   `loa.mapPositions` (optional, same kind) holds the places the reviewer dragged the line-of-argument map's boxes to, per layout
   (`{ circle: { rowId: {x, y} }, flow: {...} }`, map units); a box without one keeps its computed place. Layout only: undoable, not logged.
-  Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
+  Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()` on `planMergeRows()` / `planSplitRow()` in logic.js, logged, undoable); a row lists the rows it absorbed or
   was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
+- Undo: an undoable operation names the records it will touch with `beginChange(label, keys, { undoLogs })` BEFORE changing
+  them, and calls `finishChange(change, created)` once written (undo-audit.js). Ctrl+Z (`revertChange()` + `tidyRefsOps()`, logic.js)
+  puts back what the operation changed that is still as it left it (objects key by key, lists of ids / records with an id as sets),
+  keeps and names later work, and brings nothing back pointing at what was deleted since. No per-operation undo code: a new field
+  is covered. Only study deletion (PDF bytes, study order, #1) and row merge / split (renumbering, carrying later work between
+  rows) keep their own undo. `undoLogs` are the audit entries Ctrl+Z writes (scanned by the smoke test like recordAuditLog calls).
 - A deletion (and Undo) first awaits `flushAllPendingSaves()`: a debounced save still waiting would otherwise write the deleted
-  record back after it.
+  record back after it (take Undo snapshots after it). `commitOps()` also does this for any ops with a `del`, as a safety net.
 - Operations that change several records at once (merge / split / delete a row, delete a study, the order of studies or rows)
-  write them in one transaction with `dbBatch(ops)` (core.js), so a failure part way leaves the project as it was.
+  write them with `commitOps(ops)` (core.js), never `dbBatch()` directly (unit test; only demo.js seeding may): one transaction,
+  then the same ops applied to `state` (docs / annotations / clusters / logs / `loa_main`), then `getMatrixIndex()` dropped. So a
+  refused write removes or adds nothing in memory alone. A record already in `state` keeps its object (its content is replaced);
+  a new one is appended (move it afterwards if it needs a place, e.g. a restored study). Build deletions as `del` ops instead of
+  filtering `state` before the write.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
 - A text field of a record uses `bindTextField(el, { get, set, save, commit })` (core.js): the one save path. While typing, the

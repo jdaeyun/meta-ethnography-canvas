@@ -14,7 +14,9 @@ const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'app/js/logic.js'), 'utf8'), ctx, { filename: 'app/js/logic.js' });
 const L = vm.runInContext(`({ LOG_KINDS, LOG_ACTION, appendixSeries, isMemoLog, isKeyDecisionLog, sanitizeProjectData, isEmptyValue, mergeFillEmpty,
   mergeFillTexts, MERGE_FILL_TEXT, stableJson, sameRecord, computeTextSimilarity, isDirectedLink, linkPairOffsets, flowColumnRanks,
-  joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds, checkInvariants })`, ctx);
+  joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds, checkInvariants,
+  remapDocIds, remapDocRecord, purgeDocRefs, dropGoneDocRefs, purgeClusterRefs, moveRowLinks, liveRowLinks, takeOutOfRow, putIntoRow, rowFieldsOf,
+  setAsideConceptLinks, attachWaitingConceptLinks })`, ctx);
 // Objects made inside the context have that context's prototypes: compare them as plain JSON
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -92,6 +94,117 @@ test('study ids from another file: every place a row names a study is turned int
   assert.equal(row.baseDocId, 'p1', 'the row given is not changed');
   assert.equal(L.remapRowDocIds({ baseDocId: null }, toLocal).baseDocId, null, '"No single base" stays');
   assert.equal(L.remapRowDocIds({ baseDocId: '' }, toLocal).baseDocId, '', 'a base not set yet stays');
+});
+
+test('reference graph: every study id of a project from another file becomes the local one', () => {
+  const toLocal = id => ({ p1: 'l1', p2: 'l2' })[id];
+  const project = {
+    docs: [{ id: 'p1' }, { id: 'p2', companionOf: 'p1' }],
+    annotations: [{ id: 'a', docId: 'p2' }, { id: 'b', docId: 'p9' }],
+    clusters: [{ id: 'r', baseDocId: 'p1', cellStatus: { p2: 'x' }, baselineChange: { fromDocId: 'p1', toDocId: 'p2' } }],
+    loa: { id: 'loa_main', baselineDocId: 'p1', aim: 'kept' }
+  };
+  const out = plain(L.remapDocIds(project, toLocal));
+  assert.deepEqual(out.docs.map(d => d.id), ['p1', 'p2'], "a study's own id is not changed (the map is looked up by it)");
+  assert.equal(out.docs[1].companionOf, 'l1');
+  assert.deepEqual(out.annotations.map(a => a.docId), ['l2', 'p9'], 'an id with no local counterpart stays');
+  assert.deepEqual([out.clusters[0].baseDocId, Object.keys(out.clusters[0].cellStatus)[0], out.clusters[0].baselineChange.toDocId], ['l1', 'l2', 'l2']);
+  assert.deepEqual([out.loa.baselineDocId, out.loa.aim], ['l1', 'kept']);
+  assert.equal(project.docs[1].companionOf, 'p1', 'the records given are not changed');
+  assert.ok(!('loa' in plain(L.remapDocIds({ docs: [] }, toLocal))), 'an absent part stays absent');
+  assert.equal(plain(L.remapDocRecord({ id: 'x', companionOf: '' }, toLocal)).companionOf, '');
+  assert.equal(plain(L.dropGoneDocRefs({ id: 'x', companionOf: 'nowhere' }, new Set(['x']))).companionOf, '', '"same primary study as" a study not here goes');
+  assert.equal(plain(L.dropGoneDocRefs({ id: 'x', companionOf: 'x' }, new Set(['x']))).companionOf, '', '…and as itself');
+  assert.equal(plain(L.dropGoneDocRefs({ id: 'x', companionOf: 'y' }, new Set(['x', 'y']))).companionOf, 'y');
+});
+
+test('a study added from another file: its within-study relationships wait until both constructs are here', () => {
+  const peerDoc = { id: 'd', conceptLinks: [{ id: 'k1', from: 'pA', to: 'pB', type: 'leads', note: 'n' }, { id: 'k2', from: 'pA', to: 'pC', type: 'tension' }] };
+  const stub = plain(L.setAsideConceptLinks(peerDoc));
+  assert.deepEqual(stub.conceptLinks, [], 'none points at a construct that is not here');
+  assert.equal(stub._peerConceptLinks.length, 2);
+  assert.equal(peerDoc.conceptLinks.length, 2, 'the record given is not changed');
+  assert.equal(L.attachWaitingConceptLinks(stub, 'pZ', 'z'), null, 'a construct no link waits for changes nothing');
+  const a = plain(L.attachWaitingConceptLinks(stub, 'pA', 'a1'));
+  assert.deepEqual(a.conceptLinks, [], 'one end here is not enough');
+  const b = plain(L.attachWaitingConceptLinks(a, 'pB', 'b1'));
+  assert.deepEqual(b.conceptLinks, [{ id: 'k1', from: 'a1', to: 'b1', type: 'leads', note: 'n' }], 'with both ends here it joins, under the local ids');
+  assert.deepEqual(b._peerConceptLinks.map(l => [l.id, l.fromLocal]), [['k2', 'a1']], 'the other one still waits, knowing one end');
+  const c = plain(L.attachWaitingConceptLinks(b, 'pC', 'c1'));
+  assert.equal(c.conceptLinks.length, 2);
+  assert.ok(!('_peerConceptLinks' in c), 'nothing left waiting: the working field goes');
+  assert.deepEqual(plain(L.checkInvariants({ docs: [c], annotations: ['a1', 'b1', 'c1'].map(id => ({ id, docId: 'd', type: 'second_order', clusterIds: [] })), clusters: [], loa: {} })), []);
+  // Drawn here already (same ends and kind): not added twice
+  const dup = plain(L.attachWaitingConceptLinks({ id: 'd', conceptLinks: [{ id: 'x', from: 'a1', to: 'b1', type: 'leads' }], _peerConceptLinks: [{ id: 'k1', from: 'pA', to: 'pB', type: 'leads', fromLocal: 'a1' }] }, 'pB', 'b1'));
+  assert.equal(dup.conceptLinks.length, 1);
+});
+
+test('reference graph: removing a study or a row leaves nothing pointing at it, and returns what Undo needs', () => {
+  const docs = [{ id: 'd1' }, { id: 'd2', companionOf: 'd1' }, { id: 'd3' }];
+  const clusters = [{ id: 'r1', baseDocId: 'd1', cellStatus: { d1: { status: 'absent' }, d3: { status: 'absent' } } }, { id: 'r2', baseDocId: 'd2' }];
+  const annotations = [
+    { id: 's1', docId: 'd2', type: 'second_order', clusterIds: ['r1', 'r2'], clusterRelations: { r1: 'reciprocal', r2: 'refutational' }, clusterComments: { r1: 'note' }, aspectUsedInLoa: {} },
+    { id: 's2', docId: 'd3', type: 'second_order', clusterIds: ['r2'] },
+    { id: 'q1', docId: 'd2', type: 'first_order', parentIds: ['s1'] }
+  ];
+  const loa = { id: 'loa_main', links: [{ id: 'l1', from: 'r1', to: 'r2', type: 'supports' }] };
+  // A study
+  const d = L.purgeDocRefs({ docs, clusters }, 'd1');
+  assert.deepEqual(plain(d.cellStatus), [{ id: 'r1', v: { status: 'absent' } }]);
+  assert.deepEqual(plain(d.companions), ['d2']);
+  assert.deepEqual(plain(d.ops).map(o => [o.store, o.put.id]), [['clusters', 'r1'], ['docs', 'd2']]);
+  assert.deepEqual(Object.keys(plain(d.ops[0].put.cellStatus)), ['d3'], "another study's empty-cell record stays");
+  assert.equal(d.ops[0].put.baseDocId, 'd1', "a row's base is kept (history of study #1)");
+  assert.ok('d1' in clusters[0].cellStatus && docs[1].companionOf === 'd1', 'the records given are not changed');
+  // A row
+  const r = L.purgeClusterRefs({ annotations, loa }, 'r1');
+  assert.deepEqual(plain(r.assignedSecIds), ['s1']);
+  assert.deepEqual(plain(r.perRow), { s1: { clusterRelations: 'reciprocal', clusterComments: 'note' } });
+  assert.deepEqual(plain(r.removedLinks).map(l => l.id), ['l1']);
+  const s1 = r.ops.find(o => o.store === 'annotations').put;
+  assert.deepEqual(plain(s1.clusterIds), ['r2']);
+  assert.deepEqual(plain(s1.clusterRelations), { r2: 'refutational' }, 'its place in another row is untouched');
+  assert.deepEqual(plain(r.loa.links), []);
+  assert.deepEqual(plain(annotations[0].clusterIds), ['r1', 'r2'], 'the records given are not changed');
+  assert.equal(annotations[0].clusterComments.r1, 'note');
+  // What is left after applying the ops passes the consistency rules
+  const after = annotations.map(a => (r.ops.find(o => o.put && o.put.id === a.id) || { put: a }).put);
+  assert.deepEqual(plain(L.checkInvariants({ docs, annotations: after, clusters: clusters.filter(c => c.id !== 'r1'), loa: r.loa })), []);
+  // A stale per-row field (no membership) is cleaned as well
+  const stale = L.purgeClusterRefs({ annotations: [{ id: 's9', docId: 'd1', type: 'second_order', clusterIds: [], clusterComments: { r1: 'left over' } }] }, 'r1');
+  assert.deepEqual(plain(stale.assignedSecIds), []);
+  assert.deepEqual(plain(stale.ops[0].put.clusterComments), {});
+});
+
+test('reference graph: map relations follow a merged row; duplicates and self-relations go', () => {
+  const links = [
+    { id: 'a', from: 'src', to: 'c', type: 'reciprocal' },
+    { id: 'b', from: 'c', to: 'tgt', type: 'reciprocal' }, // without direction: the same relation as a once moved
+    { id: 'x', from: 'src', to: 'tgt', type: 'supports' }, // the two rows to each other
+    { id: 'd', from: 'src', to: 'c', type: 'supports' }
+  ];
+  const out = plain(L.moveRowLinks(links, 'src', 'tgt'));
+  assert.deepEqual(out.map(l => [l.id, l.from, l.to]), [['a', 'tgt', 'c'], ['d', 'tgt', 'c']]);
+  assert.equal(links[0].from, 'src', 'the relations given are not changed');
+  assert.deepEqual(plain(L.liveRowLinks(links, new Set(['src', 'c']))).map(l => l.id), ['a', 'd']);
+});
+
+test('a construct and a row: taking out returns what it had there; putting in brings nothing old back', () => {
+  const a = { id: 's', clusterIds: ['r1'], clusterRelations: { r1: 'other_aspect' }, aspectUsedInLoa: { r1: true } };
+  const had = plain(L.takeOutOfRow(a, 'r1'));
+  assert.deepEqual(had, { clusterRelations: 'other_aspect', aspectUsedInLoa: true });
+  assert.deepEqual(plain(a), { id: 's', clusterIds: [], clusterRelations: {}, aspectUsedInLoa: {} });
+  L.putIntoRow(a, 'r1', { clusterComments: 'n' });
+  assert.deepEqual(plain(L.rowFieldsOf(a, 'r1')), { clusterComments: 'n' });
+});
+
+test('every write of several records goes through commitOps (state and database together)', () => {
+  // dbBatch writes only the database: called anywhere else, the records in memory would be changed separately (before or
+  // after, by hand). The demo seeds the database before the project is read into memory, so it may call it.
+  const dir = path.join(ROOT, 'app/js');
+  const offenders = fs.readdirSync(dir).filter(f => f.endsWith('.js') && !['core.js', 'demo.js'].includes(f))
+    .filter(f => /\bdbBatch\s*\(/.test(fs.readFileSync(path.join(dir, f), 'utf8')));
+  assert.deepEqual(offenders, [], 'call commitOps(ops) instead of dbBatch(ops)');
 });
 
 test('consistency rules: a consistent project passes, each kind of stale link is named', () => {

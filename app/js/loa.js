@@ -400,13 +400,20 @@ function setMapPos(layout, id, x, y) {
   state.loa.mapPositions = { ...(state.loa.mapPositions || {}) };
   state.loa.mapPositions[layout] = { ...(state.loa.mapPositions[layout] || {}), [id]: { x: Math.round(x), y: Math.round(y) } };
 }
+// Undoable (layout only: no audit entry). The places were already changed in memory while dragging, so the model as it was
+// is given to the change: the same, with this layout's earlier places.
+function pushMapLayoutUndo(layout, before, label) {
+  const was = { ...state.loa, mapPositions: { ...(state.loa.mapPositions || {}) } };
+  if (before) was.mapPositions[layout] = before; else delete was.mapPositions[layout];
+  finishChange(beginChange(label, [{ store: 'meta', id: 'loa_main' }], { before: { 'meta|loa_main': was } }));
+}
 async function saveMapPositions(layout, before, label) {
   // Only boxes still in the map keep a place
   const inMap = new Set(getLoaLinks().flatMap(l => [l.from, l.to]));
   const m = state.loa.mapPositions && state.loa.mapPositions[layout];
   if (m) Object.keys(m).forEach(id => { if (!inMap.has(id)) delete m[id]; });
   await dbPut('meta', state.loa);
-  pushUndoAction({ type: 'map_layout', layout, before, label });
+  pushMapLayoutUndo(layout, before, label);
   const resetBtn = document.getElementById('loaMapResetBtn');
   if (resetBtn) resetBtn.disabled = !hasSavedMapPositions();
 }
@@ -483,7 +490,7 @@ async function resetLoaMapLayout() {
   state.loa.mapPositions = { ...(state.loa.mapPositions || {}) };
   delete state.loa.mapPositions[layout];
   await dbPut('meta', state.loa);
-  pushUndoAction({ type: 'map_layout', layout, before, label: 'Reset the map layout' });
+  pushMapLayoutUndo(layout, before, 'Reset the map layout');
   drawLoaMapBox();
   showUndoSnackbar('The boxes are back in their computed places');
 }
