@@ -201,6 +201,7 @@ function checkInvariants({ docs = [], annotations = [], clusters = [], loa = {} 
 //                      row.baselineChange.fromDocId / toDocId; loa.baselineDocId
 //   names a row:       a construct's clusterIds and the keys of each of its ANNOTATION_ROW_FIELDS; loa.links from / to
 //   names a construct: a quote's parentIds (dropGoneLinks, core.js); doc.conceptLinks from / to; row.seededFromId
+//   (working fields of Compare that name the OTHER reviewer's ids: _peerParentIds, _peerRows, doc._peerConceptLinks)
 // Kept on purpose when what they name is removed (history, or what Undo brings back): a row's baseDocId and baselineChange
 // (which rows a removed study #1 established), row.historyFrom, row.seededFromId, a log entry's clusterIds, and
 // loa.mapPositions (a deleted row's box goes back to where it was dragged when Undo brings the row back).
@@ -269,6 +270,44 @@ function purgeDocRefs({ docs = [], clusters = [] }, docId) {
 function dropGoneDocRefs(doc, docIds) {
   const out = { ...doc };
   if (out.companionOf && (out.companionOf === out.id || !docIds.has(out.companionOf))) out.companionOf = '';
+  return out;
+}
+
+// ---- Within-study relationships of a study added from another reviewer's file (compare.js) ----
+// A study added in Compare (a stub: none of its constructs are here yet) would bring the other reviewer's within-study
+// relationships pointing at constructs that are not here. They wait aside (_peerConceptLinks: an optional working field, ignored
+// where absent, like _peerParentIds / _peerRows) and each one joins the study's relationships once both its constructs have
+// been imported. A waiting link keeps the peer's ids in from / to and, once known, the local ones in fromLocal / toLocal.
+/** @param {any} doc */
+function setAsideConceptLinks(doc) {
+  const out = { ...doc };
+  const links = (Array.isArray(doc.conceptLinks) ? doc.conceptLinks : []).filter(l => l && l.from && l.to);
+  out.conceptLinks = [];
+  if (links.length) out._peerConceptLinks = links.map(l => ({ ...l })); else delete out._peerConceptLinks;
+  return out;
+}
+// The peer's construct peerId is now here as localId: its waiting links learn the local id; a link whose two constructs are both
+// here joins the study's relationships. Returns a new record, or null when nothing changed.
+/** @param {any} doc @param {string} peerId @param {string} localId */
+function attachWaitingConceptLinks(doc, peerId, localId) {
+  const waiting = Array.isArray(doc._peerConceptLinks) ? doc._peerConceptLinks : [];
+  if (!waiting.some(l => l.from === peerId || l.to === peerId)) return null;
+  const out = { ...doc, conceptLinks: [...(Array.isArray(doc.conceptLinks) ? doc.conceptLinks : [])] };
+  const ids = new Set(out.conceptLinks.map(l => l.id));
+  const still = [];
+  waiting.forEach(w0 => {
+    const w = { ...w0 };
+    if (w.from === peerId) w.fromLocal = localId;
+    if (w.to === peerId) w.toLocal = localId;
+    if (!w.fromLocal || !w.toLocal) { still.push(w); return; }
+    const { fromLocal, toLocal, ...link } = w;
+    link.from = fromLocal; link.to = toLocal;
+    if (!link.id || ids.has(link.id)) link.id = 'cl_' + fromLocal + '_' + toLocal + '_' + (link.type || 'link');
+    if (out.conceptLinks.some(l => l.from === link.from && l.to === link.to && l.type === link.type)) return; // drawn here already
+    ids.add(link.id);
+    out.conceptLinks.push(link);
+  });
+  if (still.length) out._peerConceptLinks = still; else delete out._peerConceptLinks;
   return out;
 }
 

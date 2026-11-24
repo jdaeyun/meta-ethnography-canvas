@@ -15,7 +15,8 @@ vm.runInContext(fs.readFileSync(path.join(ROOT, 'app/js/logic.js'), 'utf8'), ctx
 const L = vm.runInContext(`({ LOG_KINDS, LOG_ACTION, appendixSeries, isMemoLog, isKeyDecisionLog, sanitizeProjectData, isEmptyValue, mergeFillEmpty,
   mergeFillTexts, MERGE_FILL_TEXT, stableJson, sameRecord, computeTextSimilarity, isDirectedLink, linkPairOffsets, flowColumnRanks,
   joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds, checkInvariants,
-  remapDocIds, remapDocRecord, purgeDocRefs, dropGoneDocRefs, purgeClusterRefs, moveRowLinks, liveRowLinks, takeOutOfRow, putIntoRow, rowFieldsOf })`, ctx);
+  remapDocIds, remapDocRecord, purgeDocRefs, dropGoneDocRefs, purgeClusterRefs, moveRowLinks, liveRowLinks, takeOutOfRow, putIntoRow, rowFieldsOf,
+  setAsideConceptLinks, attachWaitingConceptLinks })`, ctx);
 // Objects made inside the context have that context's prototypes: compare them as plain JSON
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -115,6 +116,27 @@ test('reference graph: every study id of a project from another file becomes the
   assert.equal(plain(L.dropGoneDocRefs({ id: 'x', companionOf: 'nowhere' }, new Set(['x']))).companionOf, '', '"same primary study as" a study not here goes');
   assert.equal(plain(L.dropGoneDocRefs({ id: 'x', companionOf: 'x' }, new Set(['x']))).companionOf, '', '…and as itself');
   assert.equal(plain(L.dropGoneDocRefs({ id: 'x', companionOf: 'y' }, new Set(['x', 'y']))).companionOf, 'y');
+});
+
+test('a study added from another file: its within-study relationships wait until both constructs are here', () => {
+  const peerDoc = { id: 'd', conceptLinks: [{ id: 'k1', from: 'pA', to: 'pB', type: 'leads', note: 'n' }, { id: 'k2', from: 'pA', to: 'pC', type: 'tension' }] };
+  const stub = plain(L.setAsideConceptLinks(peerDoc));
+  assert.deepEqual(stub.conceptLinks, [], 'none points at a construct that is not here');
+  assert.equal(stub._peerConceptLinks.length, 2);
+  assert.equal(peerDoc.conceptLinks.length, 2, 'the record given is not changed');
+  assert.equal(L.attachWaitingConceptLinks(stub, 'pZ', 'z'), null, 'a construct no link waits for changes nothing');
+  const a = plain(L.attachWaitingConceptLinks(stub, 'pA', 'a1'));
+  assert.deepEqual(a.conceptLinks, [], 'one end here is not enough');
+  const b = plain(L.attachWaitingConceptLinks(a, 'pB', 'b1'));
+  assert.deepEqual(b.conceptLinks, [{ id: 'k1', from: 'a1', to: 'b1', type: 'leads', note: 'n' }], 'with both ends here it joins, under the local ids');
+  assert.deepEqual(b._peerConceptLinks.map(l => [l.id, l.fromLocal]), [['k2', 'a1']], 'the other one still waits, knowing one end');
+  const c = plain(L.attachWaitingConceptLinks(b, 'pC', 'c1'));
+  assert.equal(c.conceptLinks.length, 2);
+  assert.ok(!('_peerConceptLinks' in c), 'nothing left waiting: the working field goes');
+  assert.deepEqual(plain(L.checkInvariants({ docs: [c], annotations: ['a1', 'b1', 'c1'].map(id => ({ id, docId: 'd', type: 'second_order', clusterIds: [] })), clusters: [], loa: {} })), []);
+  // Drawn here already (same ends and kind): not added twice
+  const dup = plain(L.attachWaitingConceptLinks({ id: 'd', conceptLinks: [{ id: 'x', from: 'a1', to: 'b1', type: 'leads' }], _peerConceptLinks: [{ id: 'k1', from: 'pA', to: 'pB', type: 'leads', fromLocal: 'a1' }] }, 'pB', 'b1'));
+  assert.equal(dup.conceptLinks.length, 1);
 });
 
 test('reference graph: removing a study or a row leaves nothing pointing at it, and returns what Undo needs', () => {

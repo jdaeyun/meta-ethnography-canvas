@@ -846,7 +846,8 @@ async function importPeerConstructNow(item, status, redraw) {
   if (!targetDocId && item.peerDoc) {
     // The study ids it names become the local ones; "same primary study as" a study not here is dropped (reference graph, logic.js)
     const named = remapDocRecord({ ...item.peerDoc, hasBinary: false, fpDone: !!item.peerDoc.sha256, order: state.docs.length }, id => cmp.docMapPeerToLocal[id]);
-    const stub = normalizeDoc(dropGoneDocRefs(named, new Set(state.docs.map(d => d.id))));
+    // Its within-study relationships wait until both their constructs are imported (setAsideConceptLinks, logic.js)
+    const stub = normalizeDoc(setAsideConceptLinks(dropGoneDocRefs(named, new Set(state.docs.map(d => d.id)))));
     await commitOps([{ store: 'docs', put: stub }]); // (adds it to state.docs)
     targetDocId = stub.id;
     cmp.docMapPeerToLocal[item.peerDoc.id] = stub.id;
@@ -924,7 +925,10 @@ async function importPeerConstructNow(item, status, redraw) {
   }
 
   // The construct and what its placements change in those rows (base not set yet, an empty-cell note), together
-  await commitOps([{ store: 'annotations', put: imported }, ...placementRowOps([imported])]); // (adds it to state.annotations)
+  // A within-study relationship of the peer's that was waiting for this construct (and its other end) joins the study
+  const targetDoc = state.docs.find(d => d.id === targetDocId);
+  const withLinks = imported.type === 'second_order' && targetDoc ? attachWaitingConceptLinks(targetDoc, peerId, imported.id) : null;
+  await commitOps([{ store: 'annotations', put: imported }, ...placementRowOps([imported]), ...(withLinks ? [{ store: 'docs', put: withLinks }] : [])]); // (adds it to state.annotations)
 
   const doc = state.docs.find(d => d.id === targetDocId);
   await recordAuditLog({

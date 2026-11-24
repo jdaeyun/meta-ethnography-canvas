@@ -2803,6 +2803,34 @@ await group('One write path: memory changes after the database, records keep the
   await p.context().close();
 });
 
+await group('Compare: a study added from the peer brings its within-study relationships once both constructs are imported', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await settle(p);
+  const r = await p.evaluate(async () => {
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: [], logs: [], loa: { id: 'loa_main' }, reviewerId: 'Peer' }));
+    // A study only the peer has, with two constructs and a relationship between them
+    const doc = { id: 'peer_only_doc', name: 'peer-only-study.pdf', title: 'A study only the peer read', order: 99,
+      conceptLinks: [{ id: 'peer_link', from: 'peer_c1', to: 'peer_c2', type: 'leads', note: 'one leads to the other' }] };
+    peer.docs.push(doc);
+    ['peer_c1', 'peer_c2'].forEach((id, i) => peer.annotations.push({ id, docId: doc.id, type: 'second_order', page: String(i + 1), text: `Only the peer extracted this (${i + 1})`, note: '', clusterIds: [] }));
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    const item = id => state.peerComparison.peerOnlyAnnos.find(x => x.peerAnno.id === id);
+    await importPeerConstruct(item('peer_c1'), 'discuss');
+    const stub = state.docs.find(d => d.name === doc.name);
+    const afterOne = { links: (stub.conceptLinks || []).length, waiting: (stub._peerConceptLinks || []).length, ok: checkInvariants(state).length === 0 };
+    await importPeerConstruct(item('peer_c2'), 'discuss');
+    const c1 = state.annotations.find(a => a.text === 'Only the peer extracted this (1)'), c2 = state.annotations.find(a => a.text === 'Only the peer extracted this (2)');
+    const l = (stub.conceptLinks || [])[0];
+    return { afterOne, joined: !!l && l.from === c1.id && l.to === c2.id && l.note === 'one leads to the other', waitingGone: !stub._peerConceptLinks,
+      stored: ((await dbGet('docs', stub.id)).conceptLinks || []).length === 1 };
+  });
+  check('with one construct imported, the relationship waits (nothing points at a construct not here)', r.afterOne.links === 0 && r.afterOne.waiting === 1 && r.afterOne.ok, JSON.stringify(r));
+  check('with both imported, it joins the study under the local ids and is stored', r.joined && r.waitingGone && r.stored, JSON.stringify(r));
+  await settle(p);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Content-Security-Policy: the app works under it, and no request can leave the site (http and file://)', async () => {
   for (const url of [BASE + '?demo', 'file://' + path.join(ROOT, 'me_canvas.html') + '?demo']) {
     const where = url.startsWith('file') ? 'file://' : 'http';
