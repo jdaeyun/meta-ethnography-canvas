@@ -907,7 +907,7 @@ document.getElementById('fullTrailCsvBtn').addEventListener('click', async () =>
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `audit_trail_full_${state.projectCode ? state.projectCode.replace(/[^\w-]+/g, '_') + '_' : ''}${backupTimestamp()}.csv`;
+  a.download = `audit_trail_full_${fileNamePart(state.projectCode) ? fileNamePart(state.projectCode) + '_' : ''}${backupTimestamp()}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   showSnackbar(`Full audit trail saved (${logs.length} entries).`);
@@ -950,6 +950,22 @@ function renderPublicationView() {
   else if (state.activePubTable === 'table2_grid') container.innerHTML = buildTable2GridHtml();
   else if (state.activePubTable === 'table3') container.innerHTML = buildTable3SoQFHtml();
   else container.innerHTML = buildAppendixHtml();
+}
+
+// Plain text to the clipboard: the Clipboard API, or (where the browser refuses it, e.g. some file:// pages) a hidden text box
+// copied the older way. Returns whether it worked.
+async function copyPlainText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall back below */ }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.className = 'fixed -left-[9999px] top-0 opacity-0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  ta.remove();
+  return ok;
 }
 
 document.getElementById('copyRichTableBtn').addEventListener('click', async () => {
@@ -1103,8 +1119,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
     }
   }
 
-  await navigator.clipboard.writeText(md);
-  showSnackbar('Markdown copied to the clipboard.');
+  showSnackbar(await copyPlainText(md) ? 'Markdown copied to the clipboard.' : 'The browser did not allow copying. Use Download instead, or allow clipboard access for this page.');
 });
 
 document.getElementById('downloadWordDocBtn').addEventListener('click', async () => {
@@ -1534,7 +1549,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const projTag = state.projectCode ? `${state.projectCode}_` : '';
+  const projTag = fileNamePart(state.projectCode) ? `${fileNamePart(state.projectCode)}_` : '';
   a.download = `meta_ethnography_tables_${projTag}${new Date().toISOString().slice(0, 10)}.docx`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -1596,7 +1611,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', async () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const projTag = state.projectCode ? `${state.projectCode}_` : '';
+  const projTag = fileNamePart(state.projectCode) ? `${fileNamePart(state.projectCode)}_` : '';
   a.download = `meta_ethnography_synthesis_${projTag}${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);

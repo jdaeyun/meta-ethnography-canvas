@@ -224,11 +224,14 @@ function computeClusterEvidenceStats(clusterId) {
   };
 }
 
-function renderMatrixView() {
-  // A text being typed is committed first; its audit entry is written a moment later, so the rows are drawn once more when it
-  // is (else a row's 🕘 History count would miss that entry until the next render)
+// A text being typed in the matrix is committed before its box is rebuilt. Its audit entry is written a moment later, so the
+// rows are drawn once more when it is (else a row's 🕘 History count would miss that entry until the next render)
+function flushBeforeMatrixRebuild() {
   const flushed = flushAllPendingSaves();
   if (flushed) flushed.then(() => { if (!divMatrix.classList.contains('hidden')) renderMatrixTable(); });
+}
+function renderMatrixView() {
+  flushBeforeMatrixRebuild();
   syncSeedToggle();
   renderStudyVisibilityBar();
   renderSecondOrderPool();
@@ -777,6 +780,8 @@ function buildEmptyCell(cluster, doc) {
 }
 
 function renderMatrixTable() {
+  // Every rebuild (toggles, visibility, row order…) commits what is being typed first: the boxes are about to be replaced
+  flushBeforeMatrixRebuild();
   if (matrixRowObserver) { matrixRowObserver.disconnect(); matrixRowObserver = null; }
   invalidateMatrixIndex(); // state may have changed in memory since the last write
   const t = document.getElementById('matrixTable');
@@ -2020,9 +2025,11 @@ async function mergeRows(src, tgt, why) {
   // A judgement is a reading against the study that established the row (◆). When the two rows were established by different
   // studies, a card's judgement in the source row does not carry over: it starts unjudged in the merged row, and the earlier
   // judgement is kept in its cell note, to be read again.
-  const srcBase = rowBaseDocId(src), tgtBase = rowBaseDocId(tgt) || srcBase;
+  // A target row set to "No single base" (null) stays so; one whose base is not set yet ('') takes the source row's
+  const tgtNoBase = tgt.baseDocId === null;
+  const srcBase = rowBaseDocId(src), tgtBase = tgtNoBase ? null : (rowBaseDocId(tgt) || srcBase);
   const baseDiffers = srcBase !== tgtBase;
-  const baseName = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'no single study'; };
+  const baseName = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'the row as a whole (no single base)'; };
   for (const s of secs) {
     normalizeAnnotation(s);
     s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
@@ -2069,7 +2076,7 @@ async function mergeRows(src, tgt, why) {
     if (!hasCard && !tgt.cellStatus[docId]) tgt.cellStatus[docId] = v;
   });
   Object.keys(tgt.cellStatus).forEach(docId => { if (rowSecs(tgt).some(a => a.docId === docId)) delete tgt.cellStatus[docId]; });
-  if (!rowBaseDocId(tgt) && rowBaseDocId(src)) tgt.baseDocId = src.baseDocId;
+  if (!tgtNoBase && !rowBaseDocId(tgt) && rowBaseDocId(src)) tgt.baseDocId = src.baseDocId;
   // A row still waiting to be re-read after study #1 changed passes that on
   if (src.baselineChange && !tgt.baselineChange) tgt.baselineChange = src.baselineChange;
   tgt.historyFrom = [...new Set([...(tgt.historyFrom || []), src.id, ...(src.historyFrom || [])])];
@@ -2117,7 +2124,7 @@ async function splitRow(src, secIds, title, why) {
   // A judgement is a reading against the study that established the row: when the new row has another base, the moved cards
   // start unjudged there and the earlier judgement is kept in the card's note, to be read again (as in mergeRows)
   const baseChanges = src.baseDocId !== null && newBase !== srcBase;
-  const baseName = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'no single study'; };
+  const baseName = id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'the row as a whole (no single base)'; };
   const rejudge = [];
   // If every card of the study that established this row moves, the row keeps its base (an interpretive choice, not a sort
   // result) but the reviewer is told, so they can choose another study or "No single base" under ◆ Established by

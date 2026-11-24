@@ -494,6 +494,11 @@ function unlinkQuote(f, secId) {
   f.parentIds = quoteParentIds(f).filter(id => id !== secId);
 }
 function clearQuoteLinks(f) { f.parentIds = []; }
+// A project code or reviewer ID as part of a download's file name: characters that file systems refuse (/ \ : * ? " < > |,
+// control characters) and spaces become _, so any code still gives a valid name; letters of any script are kept
+function fileNamePart(s) {
+  return String(s || '').replace(/[\\/:*?"<>|\x00-\x1f\s]+/g, '_').replace(/^[._]+|[._]+$/g, '');
+}
 // A 2nd Order construct's per-row fields (keyed by 3rd Order row id), besides its clusterIds
 const ANNOTATION_ROW_FIELDS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
 // Drop links to what no longer exists, for an annotation brought back (Undo, split off a passage, a restored file): a construct's

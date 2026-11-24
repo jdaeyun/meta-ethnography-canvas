@@ -163,8 +163,11 @@ function ensureInitialReviewerLogin() {
     state.projectCode = savedProj;
   }
   updateHeaderProjectUI();
-
-  if (!savedRev || !savedProj) {
+}
+// Opened only after the project in the browser's database has been read: a project code (and aim) stored there fills the
+// setup, and nothing read later overwrites what is entered in it
+function openSetupIfIncomplete() {
+  if (!state.reviewerId || !state.projectCode) {
     openProjectSetupModal({
       isInitialOrReset: true,
       titleText: 'Welcome! Project Setup & Phase 1 (Getting Started)'
@@ -261,6 +264,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
   populateLoaInputs();
   updateHeaderProjectUI();
+  openSetupIfIncomplete();
   if (state.docs.length && !state.loa.baselineDocId) await checkBaselineChange(); // remember study #1 (projects made before it was stored)
   setTimeout(() => ensureDocFingerprints(), 4000); // projects made before fingerprints were stored: one PDF at a time, after start-up
 

@@ -17,6 +17,11 @@ document.getElementById('compareJsonModalBtn').addEventListener('click', () => {
 document.getElementById('closeCompareModalBtn').addEventListener('click', () => {
   compareModal.classList.add('hidden');
   compareModal.classList.remove('flex');
+  // What was imported shows in the view underneath at once (the matrix, the study list, the sidebar)
+  renderStudyList();
+  updateSidebar();
+  renderHighlights();
+  if (!divMatrix.classList.contains('hidden')) renderMatrixView();
 });
 
 document.getElementById('loadPeerJsonBtn').addEventListener('click', () => document.getElementById('peerJsonFileInput').click());
@@ -680,10 +685,13 @@ function renderComparisonTabContent() {
           // Empty-cell records (absent / different aspect) are keyed by the peer's study ids: key them by the local ones
           const cellStatus = {};
           Object.keys(pc.cellStatus || {}).forEach(id => { cellStatus[toLocalDoc(id)] = pc.cellStatus[id]; });
-          const newCl = normalizeCluster({ ...JSON.parse(JSON.stringify(pc)), cellStatus, by: cmp.peerReviewer, baseDocId: pBase ? toLocalDoc(pBase) : pBase });
+          // Its own id where that is safe and free (a foreign file may carry any characters); it goes below the rows here
+          const safeId = pc.id && /^[\w.-]+$/.test(String(pc.id)) && !state.clusters.some(c => c.id === pc.id);
+          const newCl = normalizeCluster({ ...JSON.parse(JSON.stringify(pc)), id: safeId ? pc.id : 'cl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+            cellStatus, by: cmp.peerReviewer, baseDocId: pBase ? toLocalDoc(pBase) : pBase, order: state.clusters.length });
           await dbPut('clusters', newCl);
           state.clusters.push(newCl);
-          const placed = await reattachPeerRowPlacements(newCl.id);
+          const placed = await reattachPeerRowPlacements(pc.id, newCl.id);
           await recordAuditLog({
             clusterIds: [newCl.id],
             category: 'concordance',

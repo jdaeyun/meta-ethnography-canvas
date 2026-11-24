@@ -47,6 +47,12 @@ test('merge: emptiness at every depth, union of records, nested answers, conflic
   const t = { note: '', concordanceNote: 'kept' };
   assert.deepEqual(plain(L.mergeFillTexts(t, { note: 'filled', concordanceNote: 'other' }, L.MERGE_FILL_TEXT.annotations)), ['note']);
   assert.ok(L.sameRecord({ a: [1, { b: 2, c: 3 }] }, { a: [1, { c: 3, b: 2 }] }));
+  assert.ok(L.sameRecord({ a: 1, gone: undefined }, { a: 1 }), 'a key whose value is undefined is not written to a file, so it is no difference');
+  const lu = { links: [{ id: 'l1', from: 'a', to: 'b', type: 'leads', note: 'here' }] };
+  const ru = L.mergeFillEmpty(lu, { links: [{ id: 'l1', from: 'a', to: 'b', type: 'leads', note: 'elsewhere' }, { id: 'l2', from: 'b', to: 'c', type: 'leads' }] });
+  assert.deepEqual(plain(ru.conflicts), ['links'], 'the same relation with another note is a conflict');
+  assert.equal(lu.links.length, 2);
+  assert.equal(lu.links[0].note, 'here', 'the local relation stays');
 });
 
 test('project files are sanitised: prototype keys at every depth, records without an id', () => {
@@ -60,6 +66,12 @@ test('project files are sanitised: prototype keys at every depth, records withou
   const keys = L.sanitizeProjectData({ clusters: [{ id: '' }, { id: '  ' }, { id: NaN }, { id: Infinity }, { id: 0 }, { id: 'c1' }] });
   assert.deepEqual(plain(keys.clusters.map(c => c.id)), [0, 'c1'], 'an empty, blank or non-finite id is not a usable key');
   assert.equal(keys._droppedRecords, 4);
+});
+
+test('flow columns: a chain of ⇄ / ⚡ relations takes the column of the construct it hangs from', () => {
+  const links = [{ id: '1', from: 'A', to: 'B', type: 'leads' }, { id: '2', from: 'B', to: 'C', type: 'mutual' }, { id: '3', from: 'C', to: 'D', type: 'contradicts' }];
+  const { rank } = L.flowColumnRanks(['A', 'B', 'C', 'D'], links);
+  assert.deepEqual(plain(rank), { A: 0, B: 1, C: 1, D: 1 });
 });
 
 test('Appendix A: key decisions, routine bookkeeping, edit series', () => {

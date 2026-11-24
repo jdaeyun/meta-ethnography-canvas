@@ -2329,6 +2329,113 @@ await group('Review fixes 9: flow sketch buttons save, row bases on merge / spli
   await p.context().close();
 });
 
+await group('Review fixes 10: setup after the project is read, no double entries, rebuilds commit typing, row bases, split undo, duplicate PDFs, passages, file names', async () => {
+  const p = await openDemo();
+  // 1 / 2 pressed twice: one annotation
+  const dbl = await p.evaluate(async () => {
+    const n = state.annotations.length;
+    state.pendingSelection = { txt: 'A passage selected once', page: '1', firstPage: 1, rectsMap: {} };
+    await Promise.all([addAnno('first_order'), addAnno('first_order')]);
+    return state.annotations.length - n;
+  });
+  check('pressing 1 twice on one selection adds one quote', dbl === 1, String(dbl));
+  await settle(p);
+  // A memo button clicked twice: one memo
+  await tab(p, 'audit'); await settle(p);
+  await p.fill('#memoContentInput', 'One memo, clicked twice');
+  await p.evaluate(() => { const b = document.getElementById('addMemoBtn'); b.click(); b.click(); });
+  await settle(p);
+  check('clicking Add memo twice adds it once', await p.evaluate(() => state.logs.filter(l => l.detail === 'One memo, clicked twice').length === 1));
+  // A matrix rebuild (a toggle, not renderMatrixView) commits the text being typed, with its audit entry
+  await tab(p, 'matrix'); await settle(p);
+  const typed = await p.evaluate(async () => {
+    const box = document.querySelector('#matrixTable .cl-conc-note, #matrixTable .cq-exp, #matrixTable textarea');
+    if (!box) return { skip: true };
+    box.value = (box.value || '') + ' typed before a rebuild';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    renderMatrixTable();
+    return { cls: box.className.split(' ')[0] };
+  });
+  await settle(p);
+  if (!typed.skip) check('a matrix rebuild commits the text being typed (saved and logged)', await p.evaluate(() => state.logs.some(l => /typed before a rebuild/.test((l.toVal || '') + (l.detail || '')))), JSON.stringify(typed));
+  // Merging into a row set to "No single base" keeps it so
+  const nb = await p.evaluate(async () => {
+    const [src, tgt] = [state.clusters[0], state.clusters[1]];
+    const was = tgt.baseDocId; tgt.baseDocId = null; await dbPut('clusters', tgt);
+    await mergeRows(src, tgt, '');
+    const kept = tgt.baseDocId === null;
+    await performUndo();
+    tgt.baseDocId = was; await dbPut('clusters', tgt);
+    return kept;
+  });
+  check('merging into a row with no single base keeps it without one', nb);
+  await settle(p);
+  // Split, judge the moved card again in the new row, undo the split: the newer judgement is in the original row
+  const su = await p.evaluate(async () => {
+    const src = state.clusters.find(c => rowBaseDocId(c) && rowSecs(c).filter(s => s.docId === rowBaseDocId(c)).length && rowSecs(c).some(s => s.docId !== rowBaseDocId(c)));
+    if (!src) return { skip: true };
+    const baseCard = rowSecs(src).find(s => s.docId === rowBaseDocId(src)), other = rowSecs(src).find(s => s.docId !== rowBaseDocId(src));
+    await splitRow(src, [baseCard.id, other.id], 'Split for undo', '');
+    const nw = state.clusters.find(c => c.thirdOrderTitle === 'Split for undo');
+    const next = secRelation(other, nw.id) === 'refutational' ? 'reciprocal' : 'refutational';
+    other.clusterRelations = { ...other.clusterRelations, [nw.id]: next }; other.clusterComments = { ...other.clusterComments, [nw.id]: 'Read again after the split' };
+    await dbPut('annotations', other);
+    await performUndo();
+    const a = await dbGet('annotations', other.id);
+    return { back: a.clusterIds.includes(src.id), rel: (a.clusterRelations || {})[src.id] === next, note: (a.clusterComments || {})[src.id] === 'Read again after the split',
+      noGarbage: !Object.keys(a.clusterRelations || {}).concat(Object.keys(a.clusterComments || {})).includes(nw.id), log: /now in the original row/.test(state.logs[0].detail) };
+  });
+  if (!su.skip) check('undoing a split keeps a judgement / note changed in the new row, in the original row', su.back && su.rel && su.note && su.noGarbage && su.log, JSON.stringify(su));
+  await settle(p);
+  // A construct with its own further passages, absorbed and split off again, takes them back
+  const pa = await p.evaluate(async () => {
+    const secs = state.annotations.filter(a => a.type === 'second_order' && !(a.passages || []).length);
+    const src = secs.find(a => secs.some(b => b.id !== a.id && b.docId === a.docId));
+    const tgt = secs.find(b => b.id !== src.id && b.docId === src.docId);
+    src.passages = [{ id: 'p_own', text: 'Its own further passage', page: '2', firstPage: 2, rectsMap: null, by: 'R', addedAt: '' }];
+    await dbPut('annotations', src);
+    await absorbAsPassage(src, tgt);
+    const live = state.annotations.find(a => a.id === tgt.id);
+    await splitOffPassage(live, live.passages.find(x => x.absorbed).id);
+    const back = state.annotations.find(a => a.id === src.id), t = state.annotations.find(a => a.id === tgt.id);
+    return { back: (back.passages || []).some(x => x.id === 'p_own'), gone: !(t.passages || []).some(x => x.id === 'p_own') };
+  });
+  check('a construct split off again takes its own further passages back', pa.back && pa.gone, JSON.stringify(pa));
+  await settle(p);
+  // File names: characters that file systems refuse are replaced, letters of any script kept
+  check('download names replace characters that file systems refuse', await p.evaluate(() => fileNamePart('A/B:C*D? 日本') === 'A_B_C_D_日本'));
+  // The same PDF dropped again: asked first, and "Skip" adds nothing
+  await tab(p, 'extract'); await settle(p);
+  const name = await p.evaluate(() => state.docs[0].name);
+  const nDocs = await p.evaluate(() => state.docs.length);
+  p.autoReason = false;
+  await p.setInputFiles('#pdfFileInput', path.join(ROOT, 'app', 'demo', name));
+  await p.waitForFunction(() => !document.getElementById('choiceModal').classList.contains('hidden'));
+  const asked = /already in the project/.test(await p.innerText('#choiceModal'));
+  await p.click('#choiceModalCancelBtn');
+  p.autoReason = true;
+  await settle(p);
+  check('dropping a PDF that is already in the project asks first; Skip adds nothing', asked && (await p.evaluate(n => state.docs.length === n, nDocs)));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Start-up: with the project code only in the database, the setup opens after it is read and shows it', async () => {
+  const p = await openDemo();
+  const code = await p.evaluate(async () => {
+    state.loa = { ...state.loa, projectCode: state.projectCode }; await dbPut('meta', state.loa);
+    lsRemove('me_project_code');
+    return state.projectCode;
+  });
+  await p.reload();
+  await p.waitForFunction(() => typeof state !== 'undefined' && state.docs && state.docs.length > 0);
+  await settle(p);
+  const r = await p.evaluate(() => ({ code: state.projectCode, modalOpen: !document.getElementById('reviewerLoginModal').classList.contains('hidden') }));
+  check('a project code stored in the project is read before the setup is considered (no setup asked for it)', r.code === code && !r.modalOpen, JSON.stringify(r));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('No browser dialogs: alert(), confirm() and prompt() are not used', async () => {
   // A browser may suppress its own dialogs ("Don't allow this page to show more dialogs"): confirm() then returns false and
   // prompt() null without asking. The app asks in its own dialogs (askChoice, askReason, showNotice) and the snackbar.

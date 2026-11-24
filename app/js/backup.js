@@ -31,8 +31,8 @@ document.getElementById('backupJsonBtn').addEventListener('click', async () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const projSlug = state.projectCode ? `${state.projectCode}_` : '';
-  a.download = `meta_ethnography_${projSlug}${state.reviewerId || 'Reviewer'}_${backupTimestamp()}.json`;
+  const projSlug = fileNamePart(state.projectCode) ? `${fileNamePart(state.projectCode)}_` : '';
+  a.download = `meta_ethnography_${projSlug}${fileNamePart(state.reviewerId) || 'Reviewer'}_${backupTimestamp()}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   markBackupDone();
@@ -93,6 +93,9 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         (data.loa && typeof data.loa !== 'object')) {
       throw new Error('Backup file structure is invalid (docs / annotations / clusters / logs must be arrays). Nothing was changed.');
     }
+    // A save still waiting (text typed a moment ago) is written now, into the project it belongs to: never later, into the
+    // project that replaces it
+    await flushAllPendingSaves();
     if (replaceCleanly) {
       // Snapshot the project data (NOT the PDFs) so a failed restore can be rolled back.
       // PDFs stay untouched in IndexedDB during the restore and are matched by id / file name below,
@@ -202,8 +205,11 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       // with different content, the LOCAL version is kept and the item is listed (and logged) as a conflict.
       // Map backup doc IDs -> local doc IDs (a filename match keeps the LOCAL id, so PDF binaries and local constructs stay attached)
       const addedAnnoIds = new Set();
+      // By id, file name, then (a PDF renamed on the other computer) the identical file or the same DOI, as Compare does
       const findLocalDoc = d => state.docs.find(x => x.id === d.id) ||
-        state.docs.find(x => x.name && d.name && x.name.toLowerCase() === d.name.toLowerCase());
+        state.docs.find(x => x.name && d.name && x.name.toLowerCase() === d.name.toLowerCase()) ||
+        (d.sha256 ? state.docs.find(x => x.sha256 && x.sha256 === d.sha256) : null) ||
+        (d.doi ? state.docs.find(x => x.doi && normalizeDoi(x.doi) === normalizeDoi(d.doi)) : null);
       // First the whole map (a study may refer to one listed after it), then every study id in the backup goes through it:
       // annotations, the companion study, each row's base study and empty-cell records, and study #1.
       for (const rawD of data.docs) {
@@ -378,6 +384,7 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
   });
   if (!ok) return;
 
+  await flushAllPendingSaves(); // a save still waiting must not land in the blank project afterwards
   await releaseWorkspaceView();
 
   await Promise.all([
@@ -476,6 +483,7 @@ function showMissingPdfModal() {
   refreshMissingPdfModal();
 }
 function closeMissingPdfModal() {
+  unmatchedPdfFiles = []; // the files offered in it are let go (they can be chosen again next time)
   const modal = document.getElementById('missingPdfModal');
   modal.classList.add('hidden');
   modal.classList.remove('flex');

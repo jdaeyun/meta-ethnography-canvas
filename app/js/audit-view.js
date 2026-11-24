@@ -36,14 +36,21 @@ document.getElementById('addMemoBtn').addEventListener('click', async () => {
               subType === 'Line of Argument' ? 'line_of_argument' : 'reflexive_memo';
 
   const refOpt = document.getElementById('memoTargetRef').selectedOptions[0];
-  await recordAuditLog({
-    category: cat,
-    action: `[${subType}] ${targetRef ? '— ' + targetRef : ''}`,
-    detail: content,
-    clusterIds: refOpt && refOpt.dataset.clusterId ? [refOpt.dataset.clusterId] : null
-  });
-  document.getElementById('memoContentInput').value = '';
-  renderAuditTimeline();
+  // The box is emptied at once, so a second click finds nothing to add; it gets the text back if the memo could not be saved
+  const box = document.getElementById('memoContentInput');
+  box.value = '';
+  try {
+    await recordAuditLog({
+      category: cat,
+      action: `[${subType}] ${targetRef ? '— ' + targetRef : ''}`,
+      detail: content,
+      clusterIds: refOpt && refOpt.dataset.clusterId ? [refOpt.dataset.clusterId] : null
+    });
+  } catch (err) {
+    if (!box.value) box.value = content;
+    throw err;
+  }
+  // (recordAuditLog has drawn the trail again)
 });
 
 function renderAuditView() {
@@ -212,7 +219,7 @@ function renderAuditTimeline() {
       pushUndoAction({
         type: 'delete_log',
         label: `Audit Log (${log.action.slice(0, 30)})`,
-        log: { ...log }
+        log: JSON.parse(JSON.stringify(log)) // with its lists (row ids, earlier reasons) as they were
       });
       await dbDelete('logs', log.id);
       state.logs = state.logs.filter(x => x.id !== log.id);

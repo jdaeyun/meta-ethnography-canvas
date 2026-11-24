@@ -99,6 +99,22 @@ async function handleFiles(files) {
       lastAffectedId = existingStub.id;
       continue;
     }
+    // The same PDF dropped again (same file name, or the identical file under another name): ask before adding a second study
+    let dup = state.docs.find(d => d.hasBinary && d.name && d.name.toLowerCase() === file.name.toLowerCase());
+    if (!dup && state.docs.some(d => d.hasBinary && d.sha256)) {
+      if (!buffer) buffer = await file.arrayBuffer();
+      if (!sha) sha = await sha256Hex(buffer);
+      if (sha) dup = state.docs.find(d => d.hasBinary && d.sha256 === sha);
+    }
+    if (dup) {
+      const add = await askChoice({
+        title: 'This PDF is already in the project',
+        body: `"${file.name}" ${dup.name && dup.name.toLowerCase() === file.name.toLowerCase() ? 'has the same file name as' : 'is the identical file of'} ${getDisplayName(dup)}.`,
+        choices: [{ value: 'add', tone: 'plain', label: 'Add it as another study anyway', hint: 'For example, a different paper that happens to have the same file name.' }],
+        cancelLabel: 'Skip this file'
+      });
+      if (!add) continue;
+    }
     if (!buffer) buffer = await file.arrayBuffer();
 
     const docId = 'doc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
@@ -1058,6 +1074,7 @@ async function renderPageContentNow(container, num) {
     await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
     if (stale()) { delete container.dataset.rendering; return; }
     const textContent = await page.getTextContent();
+    if (stale()) { delete container.dataset.rendering; return; } // another study opened while the text was read
     await pdfjsLib.renderTextLayer({
       textContentSource: textContent,
       container: txtLayer,
@@ -1107,6 +1124,7 @@ function selectionTextWithSpaces(range) {
 document.addEventListener('mouseup', (e) => {
   const tt = document.getElementById('selectionTooltip');
   if (tt.contains(e.target)) return;
+  if (divExtract.classList.contains('hidden')) return tt.classList.add('hidden'); // the PDF is only in Tab 1
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !state.activeDocId) return tt.classList.add('hidden');
 
@@ -1272,15 +1290,21 @@ document.addEventListener('keydown', (e) => {
 });
 
 async function addAnno(type) {
+  // Taken at once, before any wait: a second press of 1 / 2 (or a second click) finds nothing to add, so nothing is added twice
+  const sel = state.pendingSelection;
+  if (!sel || !sel.txt) return;
+  state.pendingSelection = null;
+  document.getElementById('selectionTooltip').classList.add('hidden');
+  window.getSelection().removeAllRanges();
   const a = normalizeAnnotation({
     id: 'a_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     docId: state.activeDocId,
     type,
     by: state.reviewerId || 'Reviewer',
-    text: stripOuterQuotes(state.pendingSelection.txt),
-    page: state.pendingSelection.page,
-    firstPage: state.pendingSelection.firstPage,
-    rectsMap: state.pendingSelection.rectsMap, // multi-page rects
+    text: stripOuterQuotes(sel.txt),
+    page: sel.page,
+    firstPage: sel.firstPage,
+    rectsMap: sel.rectsMap, // multi-page rects
     note: '',
     nuanceNote: '',
     concordanceStatus: 'pending',
@@ -1290,8 +1314,6 @@ async function addAnno(type) {
   });
   await dbPut('annotations', a);
   state.annotations.push(a);
-  document.getElementById('selectionTooltip').classList.add('hidden');
-  window.getSelection().removeAllRanges();
   renderHighlights();
   updateSidebar();
 }
@@ -1474,6 +1496,7 @@ async function runPdfSearch(query, direction = 1) {
   }
 }
 
+const searchHighlight = { timer: null, spans: [] }; // the spans lit by the last search, and the timer that clears them
 async function jumpToSearchedPage(matchIdx, queryStr) {
   const matches = pdfSearchState.matches;
   if (!matches.length) return;
@@ -1507,14 +1530,19 @@ async function jumpToSearchedPage(matchIdx, queryStr) {
     const end = at + needle.length;
     spans.forEach((sp, k) => { const a = starts[k], b = a + norm(sp.textContent).length; if (a < end && b > at) hits.add(sp); });
   }
+  // The previous search's highlight goes now, and its timer with it (else it would clear this one part way)
+  clearTimeout(searchHighlight.timer);
+  searchHighlight.spans.forEach(sp => { sp.style.backgroundColor = ''; });
+  searchHighlight.spans = [];
   if (hits.size) {
     const first = spans.find(sp => hits.has(sp));
     first.scrollIntoView({ behavior: 'smooth', block: 'center' });
     hits.forEach(sp => {
       sp.style.backgroundColor = 'rgba(250, 204, 21, 0.55)';
       sp.style.borderRadius = '2px';
-      setTimeout(() => { sp.style.backgroundColor = ''; }, 6000); // long enough to read the passage around it
     });
+    searchHighlight.spans = [...hits];
+    searchHighlight.timer = setTimeout(() => { searchHighlight.spans.forEach(sp => { sp.style.backgroundColor = ''; }); searchHighlight.spans = []; }, 6000); // long enough to read the passage around it
   } else {
     pageContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }

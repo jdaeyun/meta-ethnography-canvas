@@ -260,7 +260,7 @@ function downloadConceptMapSvg() {
   const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const projTag = state.projectCode ? state.projectCode.replace(/[^\w-]+/g, '_') + '_' : '';
+  const projTag = fileNamePart(state.projectCode) ? fileNamePart(state.projectCode) + '_' : '';
   a.href = url;
   a.download = `line_of_argument_map_${projTag}${getLoaMapLayout()}_${new Date().toISOString().slice(0, 10)}.svg`;
   document.body.appendChild(a); a.click(); a.remove();

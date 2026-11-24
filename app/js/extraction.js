@@ -9,37 +9,47 @@
 // The sidebar is rebuilt after most changes: what the reviewer had open (folded sections) and where the cursor was are put back,
 // so a link or a deletion elsewhere does not close what they were reading or move them out of a box.
 // An element is identified by the chain of cards it sits in (a quote can appear under several constructs) and its position.
-function sidebarKey(el, list) {
-  const chain = [];
-  for (let n = el.parentElement; n && n !== list; n = n.parentElement) if (n.dataset && n.dataset.sidebarAnno) chain.unshift(n.dataset.sidebarAnno);
-  let scope = el.parentElement;
-  while (scope && scope !== list && !(scope.dataset && scope.dataset.sidebarAnno)) scope = scope.parentElement;
-  const sel = el.tagName === 'DETAILS' ? 'details' : (el.tagName.toLowerCase() + (el.classList[0] ? '.' + CSS.escape(el.classList[0]) : ''));
-  const same = [...(scope || list).querySelectorAll(sel)].filter(x => {
+// A key for each box of the sidebar, stable across redraws (the cards it is nested in, its kind, its place among its kind in its
+// card). One keyer per snapshot / restore: the boxes of each kind in each card are listed once, not once per box.
+function sidebarKeyer(list) {
+  const lists = new Map(); // scope element -> Map(selector -> boxes of that kind directly in that card)
+  const scopeOf = el => { let s = el.parentElement; while (s && s !== list && !(s.dataset && s.dataset.sidebarAnno)) s = s.parentElement; return s || list; };
+  return el => {
+    const chain = [];
+    for (let n = el.parentElement; n && n !== list; n = n.parentElement) if (n.dataset && n.dataset.sidebarAnno) chain.unshift(n.dataset.sidebarAnno);
+    const scope = scopeOf(el);
+    const sel = el.tagName === 'DETAILS' ? 'details' : (el.tagName.toLowerCase() + (el.classList[0] ? '.' + CSS.escape(el.classList[0]) : ''));
+    if (!lists.has(scope)) lists.set(scope, new Map());
+    const bySel = lists.get(scope);
     // only those whose nearest card is the same scope (not those of a nested card)
-    let s2 = x.parentElement; while (s2 && s2 !== list && !(s2.dataset && s2.dataset.sidebarAnno)) s2 = s2.parentElement;
-    return (s2 || list) === (scope || list);
-  });
-  return `${chain.join('>') || 'root'}|${sel}|${same.indexOf(el)}`;
+    if (!bySel.has(sel)) bySel.set(sel, [...scope.querySelectorAll(sel)].filter(x => scopeOf(x) === scope));
+    return `${chain.join('>') || 'root'}|${sel}|${bySel.get(sel).indexOf(el)}`;
+  };
 }
 let sidebarStateDocId = null;
 function snapshotSidebarState(list) {
+  const key = sidebarKeyer(list);
   const open = new Set(), closed = new Set();
-  list.querySelectorAll('details').forEach(d => (d.open ? open : closed).add(sidebarKey(d, list)));
+  list.querySelectorAll('details').forEach(d => (d.open ? open : closed).add(key(d)));
   const a = document.activeElement;
-  const focus = a && list.contains(a) && a !== list ? { key: sidebarKey(a, list), start: a.selectionStart, end: a.selectionEnd, top: a.scrollTop } : null;
+  const focus = a && list.contains(a) && a !== list ? { key: key(a), start: a.selectionStart, end: a.selectionEnd, top: a.scrollTop } : null;
   return { docId: sidebarStateDocId, open, closed, focus };
 }
 function restoreSidebarState(list, snap) {
   if (!snap) return;
+  const key = sidebarKeyer(list);
   const sameDoc = snap.docId === state.activeDocId;
   list.querySelectorAll('details').forEach(d => {
-    const k = sidebarKey(d, list);
+    const k = key(d);
     if (!sameDoc && !k.startsWith('root|')) return; // another study: only the study-wide boxes keep their state
     if (snap.open.has(k)) d.open = true; else if (snap.closed.has(k)) d.open = false;
   });
   if (sameDoc && snap.focus) {
-    const el = [...list.querySelectorAll('input, textarea, select, button, summary, [tabindex]')].find(x => sidebarKey(x, list) === snap.focus.key);
+    // Only boxes of the focused one's kind are candidates
+    const kind = snap.focus.key.split('|')[1];
+    let cands = [];
+    try { cands = [...list.querySelectorAll(kind)]; } catch (e) { cands = []; }
+    const el = cands.find(x => key(x) === snap.focus.key);
     if (el && el.offsetParent !== null) {
       el.focus({ preventScroll: true });
       try { if (typeof snap.focus.start === 'number' && el.setSelectionRange) el.setSelectionRange(snap.focus.start, snap.focus.end); } catch (e) { /* not a text box */ }
@@ -505,7 +515,8 @@ async function absorbAsPassage(source, target) {
     firstPage: source.firstPage || parseInt(source.page, 10) || null,
     rectsMap: source.rectsMap || null,
     by: source.by, addedAt: new Date().toISOString(),
-    absorbed: { snapshot: sourceSnapshot, addedClusterIds, movedQuoteIds }
+    // ownPassageIds: its own further passages, listed after it in the target; "Split off" takes them back with it
+    absorbed: { snapshot: sourceSnapshot, addedClusterIds, movedQuoteIds, ownPassageIds: ownPassages.map(x => x.id) }
   }, ...ownPassages);
 
   addedClusterIds.forEach(cid => {
@@ -550,6 +561,10 @@ async function splitOffPassage(sec, pid) {
       ANNOTATION_ROW_FIELDS.forEach(k => { if (sec[k] && cid in sec[k]) { sec[k] = { ...sec[k] }; delete sec[k][cid]; } });
     });
     dropGoneLinks(restored); // placements in rows deleted since it was absorbed do not come back
+    // Its own further passages (absorbed with it) go back with it, if they are still there
+    const own = new Set(p.absorbed.ownPassageIds || []);
+    restored.passages = [...(restored.passages || []), ...sec.passages.filter(x => own.has(x.id))];
+    sec.passages = sec.passages.filter(x => !own.has(x.id));
     affectedQuotes.forEach(f => { unlinkQuote(f, sec.id); linkQuote(f, restored.id); });
   } else {
     restored = normalizeAnnotation({

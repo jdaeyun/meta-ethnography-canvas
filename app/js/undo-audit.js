@@ -106,7 +106,7 @@ async function performUndoStep() {
     // The row, its cards' placements and its concept-map relations come back in one transaction (as they went)
     const ops = [{ store: 'clusters', put: last.cluster }];
     for (const secId of (last.assignedSecIds || [])) {
-      const sec = state.annotations.find(a => a.id === secId);
+      const sec = state.annotations.find(a => a.id === secId && a.type === 'second_order'); // not one switched to a quote since
       if (sec) {
         normalizeAnnotation(sec);
         if (!sec.clusterIds.includes(last.cluster.id)) sec.clusterIds.push(last.cluster.id);
@@ -203,12 +203,19 @@ async function performUndoStep() {
         const nowIn = (a.clusterIds || []).includes(rid);
         if (nowIn === af.member[j] && nowIn !== b.member[j]) a.clusterIds = b.member[j] ? [...a.clusterIds, rid] : a.clusterIds.filter(x => x !== rid);
       });
+      const what = k => k === 'clusterRelations' ? 'a judgement' : k === 'clusterComments' ? 'a cell note' : 'a line-of-argument mark';
       PER_ROW.forEach((k, ki) => ids.forEach((rid, j) => {
         const cur = (a[k] || {})[rid];
         if (same(cur, af.keys[ki][j])) {
           if (b.keys[ki][j] === undefined) { if (a[k] && rid in a[k]) { a[k] = { ...a[k] }; delete a[k][rid]; } }
           else a[k] = { ...(a[k] || {}), [rid]: b.keys[ki][j] };
-        } else if (!same(cur, b.keys[ki][j])) kept.push(`${k === 'clusterRelations' ? 'a judgement' : k === 'clusterComments' ? 'a cell note' : 'a line-of-argument mark'} on p.${a.page}`);
+        } else if (last.type === 'row_split' && rid === last.newId) {
+          // Changed in the split-off row after the split: that row goes, so the newer reading moves to the original row
+          a[k] = { ...(a[k] || {}) };
+          if (cur === undefined) delete a[k][last.srcId]; else a[k][last.srcId] = cur;
+          delete a[k][rid];
+          kept.push(`${what(k)} on p.${a.page} made in the split-off row, now in the original row`);
+        } else if (!same(cur, b.keys[ki][j])) kept.push(`${what(k)} on p.${a.page}`);
       }));
       ops.push({ store: 'annotations', put: normalizeAnnotation(a) });
     }
@@ -285,7 +292,7 @@ async function performUndoStep() {
     renderLoaClusterChips();
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   } else if (last.type === 'unassign_cluster') {
-    const sec = state.annotations.find(a => a.id === last.secId);
+    const sec = state.annotations.find(a => a.id === last.secId && a.type === 'second_order'); // not one switched to a quote since
     // The row may have been deleted since (and that deletion not undone): never put a card back into a row that is gone
     if (sec && !state.clusters.some(c => c.id === last.clusterId)) {
       showSnackbar('That row no longer exists, so the card stays out of it.');

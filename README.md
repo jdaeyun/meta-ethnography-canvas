@@ -62,6 +62,13 @@ Meta-Ethnography Canvas is a **plain HTML and JavaScript** app with **no build s
 * **Word file:** `docx.js` (`v8.5.0`) builds the Word file on your computer. It holds the Methods Summary, the checklist and all tables.
 * **Copy to Word or Google Docs:** The copy button puts both a formatted table and plain text on the clipboard, so you can paste straight in.
 
+### 5. Testing and data safety
+* **Automated tests:** `npm test` runs two suites. Unit tests (Node, no browser) cover the app's pure logic: which audit entries Appendix A shows, how project files are checked, the rules for merging a backup, text similarity, the columns of the line-of-argument map, and author / year parsing. Smoke tests drive the demo project in a real browser (Chromium, through Playwright). They cover saving and the audit trail, Undo, backup / restore / merge, Compare, the exports, the Content-Security-Policy, the offline (`file://`) edition and layout at laptop widths (1024 px and up).
+* **Backward compatibility:** A fixture project saved in data format 1 (version 1.4.7) is restored on every test run. Its meaning (row bases, judgements, translation types, CERQual, team status) must stay the same.
+* **Safe writes:** A change to several records at once (merging, splitting or deleting rows, deleting a study, reordering) is written in one database transaction, so a failure part way leaves the project as it was. A failed restore rolls back to the workspace as it was. The app asks the browser to keep its storage (persistent storage) and reminds you when changes have not been backed up.
+* **Browsers:** Made for current desktop versions of Chrome, Edge, Firefox and Safari. The automated tests run in Chromium only, so please [report](https://github.com/jdaeyun/meta-ethnography-canvas/issues) anything that behaves differently in another browser.
+* **Scale:** Pages and matrix rows are built only near the screen, so a project with 30 or more papers stays responsive. How many PDFs can be stored depends on the browser's storage quota on your computer; keep regular JSON backups.
+
 ---
 
 ## 📦 Repository Structure
