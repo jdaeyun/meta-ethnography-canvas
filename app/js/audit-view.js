@@ -130,6 +130,9 @@ function renderAuditTimeline() {
     }
     return;
   }
+  // A reason box the reviewer has just moved into (nothing typed yet) keeps the focus and caret across the redraw
+  const keep = ae && ae.classList.contains('rationale-input') && container.contains(ae) && ae.dataset.logId
+    ? { id: ae.dataset.logId, start: ae.selectionStart, end: ae.selectionEnd } : null;
   container.innerHTML = '';
   const filter = document.getElementById('auditFilterCategory').value;
   const rowFilter = document.getElementById('auditFilterRow')?.value || 'all';
@@ -196,6 +199,7 @@ function renderAuditTimeline() {
     card.querySelector('.log-rev-btn').onclick = () => promptReassignItemReviewer(log, 'logs', renderAuditTimeline);
 
     const rationaleEl = card.querySelector('.rationale-input');
+    rationaleEl.dataset.logId = log.id;
     bindPendingCommit(rationaleEl, async () => {
       const next = rationaleEl.value.trim();
       const prev = (log.rationale || '').trim();
@@ -245,5 +249,9 @@ function renderAuditTimeline() {
     more.textContent = `Show ${Math.min(AUDIT_PAGE, total - auditShownCount)} more (${total - auditShownCount} not shown)`;
     more.onclick = () => { auditShownCount += AUDIT_PAGE; renderAuditTimeline(); };
     container.appendChild(more);
+  }
+  if (keep) {
+    const box = [...container.querySelectorAll('.rationale-input')].find(x => x.dataset.logId === keep.id);
+    if (box) { box.focus({ preventScroll: true }); try { box.setSelectionRange(keep.start, keep.end); } catch (e) { /* not a text box */ } }
   }
 }

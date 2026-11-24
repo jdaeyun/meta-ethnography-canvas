@@ -224,11 +224,25 @@ function computeClusterEvidenceStats(clusterId) {
   };
 }
 
-// A text being typed in the matrix is committed before its box is rebuilt. Its audit entry is written a moment later, so the
-// rows are drawn once more when it is (else a row's 🕘 History count would miss that entry until the next render)
+// A text being typed in the matrix is committed before its box is rebuilt (its audit entry arrives a moment later and updates
+// the row's 🕘 History count by itself: refreshRowHistoryButtons, called by recordAuditLog)
 function flushBeforeMatrixRebuild() {
-  const flushed = flushAllPendingSaves();
-  if (flushed) flushed.then(() => { if (!divMatrix.classList.contains('hidden')) renderMatrixTable(); });
+  flushAllPendingSaves();
+}
+function historyBtnTitle(n) { return `Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})`; }
+// The 🕘 History count of the rows an audit entry concerns (and of rows that absorbed them), in the rows already built: only the
+// button changes, so nothing being typed in the matrix is disturbed
+function refreshRowHistoryButtons(rowIds) {
+  if (!rowIds || !rowIds.length || divMatrix.classList.contains('hidden')) return;
+  const ids = new Set(rowIds);
+  state.clusters.filter(c => ids.has(c.id) || (c.historyFrom || []).some(id => ids.has(id))).forEach(c => {
+    const btn = document.querySelector(`#matrixTable tr[data-cluster-id="${CSS.escape(c.id)}"] .cl-history-btn`);
+    if (!btn) return; // a row not built yet counts when it is built
+    const n = rowHistoryCount(c);
+    btn.textContent = `🕘 History (${n})`;
+    btn.title = historyBtnTitle(n);
+    btn.classList.toggle('hidden', !n);
+  });
 }
 function renderMatrixView() {
   flushBeforeMatrixRebuild();
@@ -994,7 +1008,7 @@ function renderMatrixTable() {
           <div class="flex items-center justify-between gap-1">
             <div class="flex items-center flex-wrap gap-1">
               <button type="button" class="cl-rev-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 px-1.5 py-px rounded font-mono cursor-pointer" title="Click to change reviewer for this 3rd Order row">@${escapeHtml(cluster.by || 'Unknown')}</button>
-              ${(() => { const n = rowHistoryCount(cluster); return n ? `<button type="button" class="cl-history-btn text-[11px] px-1.5 py-px rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="Open this row's history in the Audit Trail (${n} entr${n === 1 ? 'y' : 'ies'})">🕘 History (${n})</button>` : ''; })()}
+              ${(() => { const n = rowHistoryCount(cluster); return `<button type="button" class="cl-history-btn ${n ? '' : 'hidden'} text-[11px] px-1.5 py-px rounded border border-purple-300 bg-purple-50 text-purple-800 font-semibold cursor-pointer hover:bg-purple-100" title="${historyBtnTitle(n)}">🕘 History (${n})</button>`; })()}
             </div>
             <div class="flex items-center gap-1">
               <button type="button" class="cl-rowops text-[11px] px-1.5 py-px rounded border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 cursor-pointer" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i> Merge / split</button>
@@ -1581,7 +1595,7 @@ function renderMatrixTable() {
           };
           card.querySelector('.cell-quote-cancel').onclick = () => toggleCellQuoteEdit(false);
           card.querySelector('.cell-quote-save').onclick = async () => {
-            const cleaned = stripOuterQuotes(cellQuoteTa.value);
+            const cleaned = cleanAnnotationText(sec, cellQuoteTa.value);
             if (cleaned && cleaned !== sec.text) {
               const oldText = sec.text;
               sec.text = cleaned;
@@ -2035,6 +2049,10 @@ async function mergeRows(src, tgt, why) {
     s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
     if (!s.clusterIds.includes(tgt.id)) {
       s.clusterIds.push(tgt.id); moved++;
+      // A judgement, note or mark for the target row left from an earlier placement (older versions kept them) does not come
+      // back: the card arrives with what it had in the source row only (as in assignSecondOrderToCluster)
+      delete s.clusterRelations[tgt.id]; delete s.clusterComments[tgt.id];
+      if (s.aspectUsedInLoa && s.aspectUsedInLoa[tgt.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[tgt.id]; }
       const rs = secRelation(s, src.id);
       if (baseDiffers && rs === 'baseline') {
         // The study that established the source row: in the merged row it is judged like any other study. A judgement it may

@@ -52,7 +52,7 @@ function isKeyDecisionLog(l) {
   // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
   if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
   if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
-  if (l.category === 'linking' || l.category === 'matrix_mapping' && !/^Auto-placed/.test(a)) return false;
+  if (l.category === 'linking' || (l.category === 'matrix_mapping' && !/^Auto-placed/.test(a))) return false;
   if (l.category === 'context_appraisal') return false; // reported per study in Table 1 / 1b
   // Empty-cell statuses are shown in Table 2b; a first judgement of a placement is shown in Tables 2 / 2b: only a CHANGED judgement is a decision here
   if (l.category === 'relating_studies' && !/^Updated Phase 4/.test(a)) return false;
@@ -100,9 +100,16 @@ function isEmptyValue(v) {
 const isPlainObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
 // Lists of separate records (relations, team models, within-study links, set-aside items) are merged as a union: what is only
 // in the backup is added, a record in both (same key) keeps the local version. Key per list field:
+function relationKey(x) {
+  if (!x.from || !x.to) return 'id:' + x.id; // not a complete relation: only its id can tell it apart
+  const pair = isDirectedLink(x.type) ? `${x.from}|${x.to}` : [x.from, x.to].sort().join('|');
+  return `${pair}|${x.type}`;
+}
 const MERGE_UNION_KEYS = {
-  links: x => x.id || [x.from, x.to, x.type].join('|'),
-  conceptLinks: x => x.id || [x.from, x.to, x.type].join('|'),
+  // A relation is the same relation when it joins the same two items in the same way, whatever id each side gave it
+  // (two reviewers drawing A ➔ B each make their own id); for one without direction, A–B and B–A are the same
+  links: x => relationKey(x),
+  conceptLinks: x => relationKey(x),
   teamModels: x => x.id || [x.reviewer, x.title, x.capturedAt].join('|'),
   peerSetAside: x => [x.peerId, x.reviewer, x.textKey].join('|')
 };
@@ -274,6 +281,8 @@ function joinTextItems(strs) {
   strs.forEach(t => { if (!t) return; out += (out ? joinSeparator(out, t) : '') + t; });
   return out;
 }
+// Lower-case particles that belong to a surname written after the given name (case-sensitive: "Van" at the start is a name)
+const SURNAME_PARTICLES = new Set(['de', 'del', 'della', 'der', 'den', 'des', 'di', 'da', 'das', 'do', 'dos', 'du', 'la', 'le', 'van', 'von', 'ten', 'ter', 'zu']);
 function extractSurnameFromAuthorString(rawAuthor) {
   if (!rawAuthor) return { surname: '', hasEtAl: true };
   const cleaned = String(rawAuthor)
@@ -295,10 +304,13 @@ function extractSurnameFromAuthorString(rawAuthor) {
     return { surname, hasEtAl: multiAuthors || cleaned.split(',').length > 2 };
   }
   const parts = firstChunk.split(/\s+/).filter(Boolean);
-  // Vancouver style ("Hamdan A"): trailing initials -> surname is the first token
+  // Vancouver style ("Hamdan A", "De la Cruz M"): trailing initials -> the surname is everything before them
   const initialsLast = parts.length > 1 && /^[A-Z]{1,3}\.?$/.test(parts[parts.length - 1]);
-  const surname = parts.length > 0 ? (initialsLast ? parts[0] : parts[parts.length - 1]) : '';
-  return { surname, hasEtAl: multiAuthors };
+  if (initialsLast) return { surname: parts.slice(0, -1).join(' '), hasEtAl: multiAuthors };
+  // "Given Surname": the last word, with the lower-case particles before it ("Juan de la Cruz" -> "de la Cruz")
+  let from = parts.length - 1;
+  while (from > 1 && SURNAME_PARTICLES.has(parts[from - 1])) from--;
+  return { surname: from >= 0 ? parts.slice(from).join(' ') : '', hasEtAl: multiAuthors };
 }
 
 // Publication years 1940–2039 (classic qualitative studies of the 1960s and 1970s included), one pattern for every stage

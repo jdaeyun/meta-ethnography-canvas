@@ -427,7 +427,7 @@ if(settingsBtn && settingsDropdown) {
 // ========================================================
 const ov = document.getElementById('dropOverlay');
 window.ondragenter = e => {
-  if (!compareModal.classList.contains('hidden')) return;
+  if (!document.getElementById('compareModal').classList.contains('hidden')) return; // (compare.js, loaded later, declares compareModal)
   if (e.dataTransfer.types.includes('Files')) {
     e.preventDefault();
     ov.classList.add('active');
@@ -443,7 +443,7 @@ window.ondragover = e => {
   if (e.dataTransfer.types.includes('Files')) e.preventDefault();
 };
 window.ondrop = async e => {
-  if (!compareModal.classList.contains('hidden')) return;
+  if (!document.getElementById('compareModal').classList.contains('hidden')) return;
   if (e.dataTransfer.types.includes('Files') && e.dataTransfer.files.length) {
     e.preventDefault();
     ov.classList.remove('active');

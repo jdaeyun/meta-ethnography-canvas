@@ -441,7 +441,13 @@ await group('Undo history belongs to one workspace (reset / clean restore)', asy
   await tab(p, 'extract'); await settle(p);
   await p.locator('#studyList .del').first().click(); await settle(p);
   check('deleting a study can be undone', await p.evaluate(() => state.undoStack.length) === 1);
-  await p.evaluate(() => document.getElementById('resetProjectBtn').click()); await settle(p, { quiet: 300 }); await p.keyboard.press('Escape');
+  // In the demo the button resets the demo (asked first); the project reset itself is resetProject()
+  p.autoReason = false;
+  await p.evaluate(() => document.getElementById('resetProjectBtn').click());
+  await p.waitForFunction(() => !document.getElementById('choiceModal').classList.contains('hidden'));
+  check('in the demo, New / Reset offers to reset the demo', /Reset the demo/.test(await p.innerText('#choiceModal')));
+  await p.click('#choiceModalCancelBtn'); p.autoReason = true; await settle(p);
+  await p.evaluate(() => resetProject()); await settle(p, { quiet: 300 }); await p.keyboard.press('Escape');
   check('reset empties the undo stack', await p.evaluate(() => state.undoStack.length === 0 && document.getElementById('undoDeleteBtn').disabled));
   await p.evaluate(() => performUndo()); await settle(p);
   check('Ctrl+Z after reset brings nothing back', await p.evaluate(() => state.docs.length === 0 && state.annotations.length === 0));
@@ -776,6 +782,8 @@ await group('Review fixes: peer rows by title, merge links, PDF search race, Wor
   const cols = [...xml.matchAll(/<w:gridCol w:w="(\d+)"/g)].map(m => +m[1]);
   check('Word tables have column widths (no 100-twip grid)', cols.length > 20 && cols.every(w => w > 300), `min=${Math.min(...cols)} n=${cols.length}`);
   check('Word tables use a fixed layout', (xml.match(/<w:tblLayout w:type="fixed"\/>/g) || []).length >= 6);
+  const cellW = (xml.match(/<w:tcW w:type="dxa" w:w="\d+"\/>|<w:tcW w:w="\d+" w:type="dxa"\/>/g) || []).length;
+  check('every Word table cell states its width too (LibreOffice / older Word ignore the grid alone)', cellW > 50 && cellW === (xml.match(/<w:tc>/g) || []).length, `tcW=${cellW} tc=${(xml.match(/<w:tc>/g) || []).length}`);
   // Older browsers: no regex lookbehind anywhere in the app scripts
   const lookbehind = fs.readdirSync(path.join(ROOT, 'app/js')).filter(f => /\(\?<[=!]/.test(fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')));
   check('no regex lookbehind (older Safari cannot parse it)', lookbehind.length === 0, lookbehind.join(', '));
@@ -2432,6 +2440,60 @@ await group('Start-up: with the project code only in the database, the setup ope
   await settle(p);
   const r = await p.evaluate(() => ({ code: state.projectCode, modalOpen: !document.getElementById('reviewerLoginModal').classList.contains('hidden') }));
   check('a project code stored in the project is read before the setup is considered (no setup asked for it)', r.code === code && !r.modalOpen, JSON.stringify(r));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Review fixes 11: history count without a second rebuild, peer rows, dialogs on top, wrapped text, map keys, author particles', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await settle(p);
+  // A note typed in a row, then a rebuild: the table is built once, and the row's History count follows the new entry
+  const hc0 = await p.evaluate(() => {
+    const tr = document.querySelector('#matrixTable tr[data-cluster-id]');
+    const id = tr.dataset.clusterId, c = state.clusters.find(x => x.id === id);
+    const box = tr.querySelector('.cl-conc-note');
+    if (!box) return { skip: true };
+    window.__hc = { id, before: rowHistoryCount(c), builds: 0, orig: window.renderMatrixTable };
+    box.value = (box.value || '') + ' discussed again';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    window.renderMatrixTable = function () { window.__hc.builds++; return window.__hc.orig.apply(this, arguments); };
+    renderMatrixView();
+    return {};
+  });
+  await settle(p);
+  const hc = hc0.skip ? hc0 : await p.evaluate(() => {
+    const h = window.__hc; window.renderMatrixTable = h.orig;
+    const c = state.clusters.find(x => x.id === h.id);
+    const btn = document.querySelector(`#matrixTable tr[data-cluster-id="${CSS.escape(h.id)}"] .cl-history-btn`);
+    return { builds: h.builds, before: h.before, after: rowHistoryCount(c), shown: btn && btn.textContent };
+  });
+  if (!hc.skip) check('a rebuild while typing builds the table once; the History count follows the new entry', hc.builds === 1 && hc.after === hc.before + 1 && hc.shown === `🕘 History (${hc.after})`, JSON.stringify(hc));
+  await settle(p);
+  // A construct waiting for a peer row: when the row arrives, it sets the row's base (if not set) and clears the empty-cell note
+  const rp = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order');
+    const row = normalizeCluster({ id: 'cl_peer_test', thirdOrderTitle: 'Peer row', baseDocId: '', cellStatus: { [sec.docId]: { status: 'absent', note: '' } }, order: state.clusters.length });
+    await dbPut('clusters', row); state.clusters.push(row);
+    sec._peerRows = { peer_row: { clusterRelations: 'reciprocal' } }; await dbPut('annotations', sec);
+    const n = await reattachPeerRowPlacements('peer_row', row.id);
+    const stored = await dbGet('clusters', row.id);
+    return { n, base: stored.baseDocId === sec.docId, cleared: !(stored.cellStatus || {})[sec.docId], placed: sec.clusterIds.includes(row.id) };
+  });
+  check('a peer row arriving later sets its base and clears the empty-cell note, as a placement here does', rp.n === 1 && rp.base && rp.cleared && rp.placed, JSON.stringify(rp));
+  // Dialogs that must be answered sit above the project setup
+  const z = await p.evaluate(() => { const zi = id => +getComputedStyle(document.getElementById(id)).zIndex; return { choice: zi('choiceModal'), reason: zi('reasonModal'), setup: zi('reviewerLoginModal') }; });
+  check('choice and reason dialogs open above the project setup', z.choice > z.setup && z.reason > z.setup, JSON.stringify(z));
+  // A reviewer-wrapped construct keeps its quotation marks when its text is edited
+  check('editing a wrapped construct keeps its closing quotation mark', await p.evaluate(() => cleanAnnotationText({ origin: 'wrapped_first_order' }, ' [Concept derived from 1st Order Quote]: "nights alone" ') === '[Concept derived from 1st Order Quote]: "nights alone"' && cleanAnnotationText({}, '"quoted"') === 'quoted'));
+  // A box moved with the arrow keys is saved on a tab switch, before its 600 ms timer
+  await p.click('#toggleLoaDrawerBtn'); await settle(p);
+  await p.evaluate(() => { state.loa.mapLayout = 'circle'; const ids = state.clusters.map(c => c.id); state.loa.links = [{ id: 'k1', from: ids[0], to: ids[1], type: 'leads', note: '' }]; renderLoaMap(); document.getElementById('loaMapBox').scrollIntoView(); });
+  const node = p.locator('#loaMapBox .loa-map-node').first();
+  const nid = await node.getAttribute('data-node');
+  await node.focus(); await p.keyboard.press('ArrowRight');
+  await p.evaluate(() => setActiveTab('audit'));
+  await settle(p);
+  check('a box moved with the arrow keys is saved when the tab is switched at once', await p.evaluate(async id => { const m = (await dbGetAll('meta')).find(x => x.id === 'loa_main'); return !!(m.mapPositions && m.mapPositions.circle && m.mapPositions.circle[id]); }, nid));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });

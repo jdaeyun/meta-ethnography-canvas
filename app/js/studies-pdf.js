@@ -18,7 +18,9 @@ async function attachPdfFileToDoc(doc, file, { buffer = null, sha = '' } = {}) {
   const data = buffer || await file.arrayBuffer();
   doc.hasBinary = true;
   const sameFile = !!sha && sha === doc.sha256;
-  if (!sameFile) doc.fpDone = false; // fingerprint the newly attached file
+  // Another file (or one not checked yet): its fingerprint is worked out again from the file itself, so an old one (e.g. from a
+  // backup) never stands for it. The DOI stays: it describes the study (and may have been entered by hand), not the file.
+  if (!sameFile) { doc.fpDone = false; doc.sha256 = ''; }
   await dbBatch([{ store: 'pdf_binaries', put: { id: doc.id, data } }, { store: 'docs', put: doc }]); // the PDF and its study together
   ensureDocFingerprints(); // only studies not yet fingerprinted are read (e.g. one whose DOI was never looked for)
 }
@@ -137,8 +139,8 @@ async function handleFiles(files) {
       order: state.docs.length,
       addedAt: new Date().toISOString()
     });
-    await dbPut('pdf_binaries', { id: docId, data: buffer });
-    await dbPut('docs', doc);
+    // The PDF and its study in one transaction: a failure part way leaves no PDF without a study
+    await dbBatch([{ store: 'pdf_binaries', put: { id: docId, data: buffer } }, { store: 'docs', put: doc }]);
     state.docs.push(doc);
     lastAffectedId = doc.id;
   }
@@ -736,6 +738,8 @@ function populateMetaEditInputs() {
 }
 
 async function saveCurrentMeta() {
+  // Every field of the dock is read and saved here, the text fields too: nothing is left waiting for commitMeta
+  metaDirty = false; pendingSaveCleanups.delete(commitMeta);
   const doc = state.docs.find(d => d.id === state.activeDocId);
   if (!doc) return;
   normalizeDoc(doc);
@@ -1699,8 +1703,10 @@ async function autoExtractCitationFromPdf() {
           const parsed = extractSurnameFromAuthorString(firstAuthorChunk);
           // A capitalised surname, or one in capitals (SMITH, O'NEILL-JONES) written as Smith, O'Neill-Jones. Names in other
           // scripts are left to the reviewer: the order of family and given name cannot be told from the line.
-          const allCaps = parsed.surname && /^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]+$/.test(parsed.surname);
-          if (parsed.surname && (allCaps || /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ-]+/.test(parsed.surname))) {
+          // Judged on the surname's last word, so one with particles ("de la Cruz", "van Dijk") is accepted
+          const core = parsed.surname ? parsed.surname.split(/\s+/).pop() : '';
+          const allCaps = !!core && /^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]+$/.test(core);
+          if (parsed.surname && (allCaps || /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ-]+/.test(core))) {
             detectedAuthor = allCaps ? parsed.surname.toLowerCase().replace(/(^|[-'’\s])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : parsed.surname;
             detectedEtAl = /,|;|\band\b|&/i.test(rawAuthorLine);
           }

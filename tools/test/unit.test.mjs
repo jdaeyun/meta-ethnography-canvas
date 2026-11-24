@@ -53,6 +53,9 @@ test('merge: emptiness at every depth, union of records, nested answers, conflic
   assert.deepEqual(plain(ru.conflicts), ['links'], 'the same relation with another note is a conflict');
   assert.equal(lu.links.length, 2);
   assert.equal(lu.links[0].note, 'here', 'the local relation stays');
+  const lv = { links: [{ id: 'mine', from: 'a', to: 'b', type: 'leads' }, { id: 'm2', from: 'a', to: 'b', type: 'mutual' }] };
+  L.mergeFillEmpty(lv, { links: [{ id: 'theirs', from: 'a', to: 'b', type: 'leads' }, { id: 't2', from: 'b', to: 'a', type: 'mutual' }, { id: 't3', from: 'b', to: 'a', type: 'leads' }] });
+  assert.deepEqual(plain(lv.links.map(l => l.id)), ['mine', 'm2', 't3'], 'the same relation drawn on both sides (another id) is not added twice; B ➔ A is another relation');
 });
 
 test('project files are sanitised: prototype keys at every depth, records without an id', () => {
@@ -114,6 +117,11 @@ test('PDF text and citations: CJK joins, author surnames, years', () => {
   assert.deepEqual(S('Hernandez, Maria; Lee, J'), { surname: 'Hernandez', hasEtAl: true });
   assert.deepEqual(S('Hamdan A'), { surname: 'Hamdan', hasEtAl: false });
   assert.deepEqual(S('Anna Smith PhD'), { surname: 'Smith', hasEtAl: false });
+  assert.deepEqual(S('De la Cruz M'), { surname: 'De la Cruz', hasEtAl: false }, 'Vancouver: every word before the initials');
+  assert.deepEqual(S('Van der Berg JK'), { surname: 'Van der Berg', hasEtAl: false });
+  assert.deepEqual(S('Juan de la Cruz'), { surname: 'de la Cruz', hasEtAl: false }, 'lower-case particles belong to the surname');
+  assert.deepEqual(S('Ludwig van Beethoven'), { surname: 'van Beethoven', hasEtAl: false });
+  assert.deepEqual(S('Smith'), { surname: 'Smith', hasEtAl: false });
   assert.deepEqual(S('山田 太郎、佐藤 花子'), { surname: '山田', hasEtAl: true });
   assert.deepEqual(S(''), { surname: '', hasEtAl: true });
   const year = s => (String(s).match(L.YEAR_RE) || [])[1] || '';

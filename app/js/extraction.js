@@ -235,7 +235,7 @@ function updateSidebar() {
     quoteDisplay.ondblclick = () => toggleSecEditor(true);
     w.querySelector('.sec-quote-cancel').onclick = () => toggleSecEditor(false);
     w.querySelector('.sec-quote-save').onclick = async () => {
-      const cleaned = stripOuterQuotes(quoteTextarea.value);
+      const cleaned = cleanAnnotationText(sec, quoteTextarea.value);
       if (cleaned && cleaned !== sec.text) {
         const oldText = sec.text;
         sec.text = cleaned;
@@ -596,8 +596,9 @@ async function splitOffPassage(sec, pid) {
 async function removePassage(sec, pid) {
   const p = sec.passages.find(x => x.id === pid);
   if (!p) return;
-  const affectedQuotes = (p.absorbed?.movedQuoteIds || []).map(id => state.annotations.find(a => a.id === id)).filter(Boolean);
-  pushAnnoSnapshotUndo(`Removed passage p.${p.page} from "${secShortLabel(sec)}"`, [sec, ...affectedQuotes]);
+  // Only the construct changes (its quotes stay linked to it): Undo puts back the construct alone, so later edits of those
+  // quotes are not undone with it
+  pushAnnoSnapshotUndo(`Removed passage p.${p.page} from "${secShortLabel(sec)}"`, [sec]);
   sec.passages = sec.passages.filter(x => x.id !== pid);
   await dbPut('annotations', sec);
   updateSidebar();

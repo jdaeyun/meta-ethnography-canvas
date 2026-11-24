@@ -459,7 +459,15 @@ function mapNodeCenter(g) {
     box.querySelector(`.loa-map-node[data-node="${CSS.escape(id)}"]`)?.focus();
     clearTimeout(keyMove.timer);
     const km = keyMove;
-    km.timer = setTimeout(() => { if (keyMove === km) keyMove = null; saveMapPositions(km.layout, km.before, 'Moved a box in the map'); }, 600);
+    // Saved 600 ms after the last press, or at once on a tab switch / page leave (registered like any pending save)
+    if (!km.save) km.save = () => {
+      clearTimeout(km.timer);
+      pendingSaveCleanups.delete(km.save);
+      if (keyMove === km) keyMove = null;
+      return saveMapPositions(km.layout, km.before, 'Moved a box in the map');
+    };
+    pendingSaveCleanups.add(km.save);
+    km.timer = setTimeout(km.save, 600);
   });
 })();
 async function resetLoaMapLayout() {
@@ -712,9 +720,14 @@ function markLoaDrawerDirty() { loaDrawerDirty = true; pendingSaveCleanups.add(c
 LOA_DRAWER_FIELD_IDS().forEach(id => document.getElementById(id)?.addEventListener('input', markLoaDrawerDirty));
 // Focus leaving the drawer commits it; the window losing focus (another window or app) does not (see bindPendingCommit)
 // A dialog opened from the drawer (From the map, Load a model) is part of working in it: focus moving there does not commit
+// A click on a label or an empty part of the drawer also takes the focus from a box (relatedTarget is then null): that is still
+// working in the drawer, so it does not commit
+let loaDrawerPointerDown = false;
+loaDrawer.addEventListener('mousedown', () => { loaDrawerPointerDown = true; setTimeout(() => { loaDrawerPointerDown = false; }, 0); }, true);
 loaDrawer.addEventListener('focusout', e => {
   const to = e.relatedTarget;
   if (!document.hasFocus() || (to && (loaDrawer.contains(to) || to.closest('[role="dialog"]')))) return;
+  if (!to && loaDrawerPointerDown) return;
   commitLoaDrawer();
 });
 document.getElementById('saveLoaBtn').addEventListener('click', async () => {

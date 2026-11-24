@@ -119,7 +119,8 @@ function createDebouncedSaver(fn, delay = 350) {
       pendingSaveCleanups.delete(flush);
       const argsToRun = latestArgs || [];
       latestArgs = null;
-      fn(...argsToRun);
+      // A refused write is already shown to the reviewer (save badge, notice); it is not left as an unhandled rejection
+      Promise.resolve().then(() => fn(...argsToRun)).catch(e => console.error('Save error:', e));
     }, delay);
   };
   debounced.flush = flush;
@@ -444,6 +445,12 @@ function stripOuterQuotes(str) {
     }
   }
   return s.replace(/^["“”]+|["“”]+$/g, '').trim();
+}
+
+// Edited text of a construct: as normalizeAnnotation keeps it (a reviewer-wrapped construct's '[Concept derived from …]: "…"'
+// keeps its quotation marks; any other text loses the quotation marks around it)
+function cleanAnnotationText(a, raw) {
+  return a && a.origin === 'wrapped_first_order' ? String(raw || '').trim() : stripOuterQuotes(raw);
 }
 
 function sanitizePageLabel(p) {
@@ -778,8 +785,11 @@ function askChoice({ title = 'Choose', body = '', choices = [], cancelLabel = 'C
     choiceDismissOpen = () => finish(null);
     document.getElementById('choiceModalCloseBtn').onclick = () => finish(null); // also Escape (modal handling in app.js)
     document.getElementById('choiceModalCancelBtn').onclick = () => finish(null);
+    // One place to start (modalAccessibility in app.js focuses it as the dialog opens); the timer only covers a dialog that was
+    // already open (a new question replacing the last), and does nothing when the focus is already there
+    modal.dataset.focusId = 'choiceModalCancelBtn';
     modal.classList.remove('hidden'); modal.classList.add('flex');
-    setTimeout(() => document.getElementById('choiceModalCancelBtn').focus(), 20);
+    setTimeout(() => { const b = document.getElementById('choiceModalCancelBtn'); if (document.activeElement !== b) b.focus(); }, 20);
   });
 }
 
@@ -823,7 +833,8 @@ function askReason({ title = 'Why?', context = '', label = 'Why? (optional, save
     secBtn.onclick = () => finish(cancelLabel === null ? '' : null);
     closeBtn.onclick = dismiss; // also Escape (modal handling in app.js clicks the close button)
     input.onkeydown = e => { if (e.key === 'Enter' && (singleLine || e.ctrlKey || e.metaKey)) { e.preventDefault(); finish(input.value.trim()); } };
+    modal.dataset.focusId = input.id; // as askChoice: one place to start
     modal.classList.remove('hidden'); modal.classList.add('flex');
-    setTimeout(() => { input.focus(); if (singleLine) input.select(); }, 20);
+    setTimeout(() => { if (document.activeElement !== input) input.focus(); if (singleLine) input.select(); }, 20);
   });
 }

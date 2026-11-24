@@ -386,12 +386,20 @@ function renderComparisonTabContent() {
         + Import All as Discuss
       </button>
     `;
-    topAction.querySelector('#importAllPeerBtn').onclick = async () => {
-      // In bulk, constructs come in as "Discuss": agreement (for now) is reached by reading each one, not in one click
-      for (const item of [...cmp.peerOnlyAnnos]) {
-        await importPeerConstruct(item, 'discuss');
+    topAction.querySelector('#importAllPeerBtn').onclick = async (e) => {
+      // In bulk, constructs come in as "Discuss": agreement (for now) is reached by reading each one, not in one click.
+      // The button is off while it runs, and the views are drawn once at the end.
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try {
+        for (const item of [...cmp.peerOnlyAnnos]) await importPeerConstruct(item, 'discuss', { redraw: false });
+      } finally {
+        btn.disabled = false;
+        renderHighlights();
+        updateSidebar();
+        renderComparisonDashboard();
       }
-      renderComparisonDashboard();
     };
     container.appendChild(topAction);
 
@@ -753,7 +761,9 @@ const PEER_ROW_KEYS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa']
 // A peer row that is here now (imported after its constructs, or a local row with the same title): place the constructs
 // that were waiting for it, with their judgements. peerRowId = the row's id in the peer's file; localRowId = the row here.
 async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
-  let n = 0;
+  const row = state.clusters.find(c => c.id === localRowId);
+  const ops = [];
+  let rowChanged = false;
   for (const a of state.annotations) {
     const w = a.type === 'second_order' && a._peerRows && a._peerRows[peerRowId];
     if (!w) continue;
@@ -761,10 +771,18 @@ async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
     PEER_ROW_KEYS.forEach(k => { if (k in w && !(a[k] && localRowId in a[k])) a[k] = { ...(a[k] || {}), [localRowId]: w[k] }; });
     delete a._peerRows[peerRowId];
     if (!Object.keys(a._peerRows).length) delete a._peerRows;
-    await dbPut('annotations', a);
-    n++;
+    ops.push({ store: 'annotations', put: a });
+    // As a placement made here (assignSecondOrderToCluster): a row without its base yet takes this study's, and an empty-cell
+    // note for this study ("not addressed" / "different aspect") no longer applies now that it has a construct there
+    if (row) {
+      normalizeCluster(row);
+      if (row.baseDocId === '') { row.baseDocId = a.docId; rowChanged = true; }
+      if (row.cellStatus && row.cellStatus[a.docId]) { row.cellStatus = { ...row.cellStatus }; delete row.cellStatus[a.docId]; rowChanged = true; }
+    }
   }
-  return n;
+  if (rowChanged) ops.push({ store: 'clusters', put: row });
+  await dbBatch(ops); // the constructs and what they change in the row, together
+  return ops.filter(o => o.store === 'annotations').length;
 }
 
 // Constructs waiting for a peer row that is now here under the same title (a row made here, not imported): placed when a
@@ -803,7 +821,20 @@ async function reattachWaitingForRow(cluster) {
   return total;
 }
 
-async function importPeerConstruct(item, status) {
+async function importPeerConstruct(item, status, { redraw = true } = {}) {
+  const cmp = state.peerComparison;
+  // Taken off the list at once, before any wait: a second click (or Import All running) finds it gone and adds nothing twice
+  const at = cmp.peerOnlyAnnos.indexOf(item);
+  if (at < 0) return;
+  cmp.peerOnlyAnnos.splice(at, 1);
+  try {
+    await importPeerConstructNow(item, status, redraw);
+  } catch (err) {
+    cmp.peerOnlyAnnos.splice(Math.min(at, cmp.peerOnlyAnnos.length), 0, item); // not imported: it stays on the list
+    throw err;
+  }
+}
+async function importPeerConstructNow(item, status, redraw) {
   await mergePeerAuditLogs();
   const cmp = state.peerComparison;
   // A study connected earlier in this session (by hand, or as a stub for an earlier import) is reused, never added twice
@@ -892,9 +923,6 @@ async function importPeerConstruct(item, status) {
   await dbPut('annotations', imported);
   state.annotations.push(imported);
 
-  const idx = cmp.peerOnlyAnnos.indexOf(item);
-  if (idx >= 0) cmp.peerOnlyAnnos.splice(idx, 1);
-
   const doc = state.docs.find(d => d.id === targetDocId);
   await recordAuditLog({
     category: 'concordance',
@@ -903,7 +931,7 @@ async function importPeerConstruct(item, status) {
     toVal: `${imported.type === 'second_order' ? '2nd Order' : '1st Order'} [${status.toUpperCase()}]`
   });
 
-  if (state.activeDocId === targetDocId) {
+  if (redraw && state.activeDocId === targetDocId) {
     renderHighlights();
     updateSidebar();
   }

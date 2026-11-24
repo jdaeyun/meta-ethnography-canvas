@@ -982,14 +982,22 @@ document.getElementById('copyRichTableBtn').addEventListener('click', async () =
     await navigator.clipboard.write([new ClipboardItem({ 'text/html': blobHtml, 'text/plain': blobText })]);
     showSnackbar('Rich Table copied. Paste directly (Ctrl+V / Cmd+V) into Microsoft Word or Google Docs.');
   } catch (e) {
+    // The older way, from the same cleaned copy (not the preview itself, whose gap links and display mode would come along):
+    // placed out of sight for the moment it takes to copy
+    copyEl.removeAttribute('id');
+    copyEl.classList.remove('gaps-quiet');
+    copyEl.className += ' fixed -left-[9999px] top-0';
+    document.body.appendChild(copyEl);
     const range = document.createRange();
-    range.selectNodeContents(container);
+    range.selectNodeContents(copyEl);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
-    document.execCommand('copy');
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
     sel.removeAllRanges();
-    showSnackbar('Table copied to the clipboard.');
+    copyEl.remove();
+    showSnackbar(ok ? 'Table copied to the clipboard.' : 'The browser did not allow copying. Use Download Word instead, or allow clipboard access for this page.');
   }
 });
 
@@ -1147,7 +1155,19 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   function widthTable(rows, pcts) {
     const total = pcts.reduce((a, b) => a + b, 0) || 1;
     const twips = pcts.map(p => Math.round(TEXT_WIDTH_TWIPS * p / total));
-    return new Table({ width: { size: TEXT_WIDTH_TWIPS, type: WidthType.DXA }, columnWidths: twips, layout: TableLayoutType.FIXED, rows });
+    // Each cell states its own width too (w:tcW): LibreOffice and some versions of Word ignore the grid alone. A cell spanning
+    // several columns gets their sum. Rows and cells are rebuilt from the options they were made with.
+    const sized = rows.map(row => {
+      let col = 0;
+      const cells = (row.options.children || []).map(cell => {
+        const span = cell.options.columnSpan || 1;
+        const w = twips.slice(col, col + span).reduce((a, b) => a + b, 0);
+        col += span;
+        return w ? new TableCell({ ...cell.options, width: { size: w, type: WidthType.DXA } }) : cell;
+      });
+      return new TableRow({ ...row.options, children: cells });
+    });
+    return new Table({ width: { size: TEXT_WIDTH_TWIPS, type: WidthType.DXA }, columnWidths: twips, layout: TableLayoutType.FIXED, rows: sized });
   }
   // Even widths for the study columns of Table 2b; the first and last columns keep a fixed share
   function gridPcts(nStudies) {

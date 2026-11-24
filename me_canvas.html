@@ -990,7 +990,7 @@
   </div>
 
   <!-- A choice between named actions (askChoice in core.js): every button says what it does; closing it = Cancel -->
-  <div id="choiceModal" role="dialog" aria-modal="true" aria-labelledby="choiceModalTitle" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] hidden items-center justify-center p-6">
+  <div id="choiceModal" role="dialog" aria-modal="true" aria-labelledby="choiceModalTitle" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] hidden items-center justify-center p-6">
     <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl max-h-[88vh] flex flex-col overflow-hidden">
       <div class="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
         <h2 id="choiceModalTitle" class="text-sm font-bold">Choose</h2>
@@ -1005,7 +1005,7 @@
   </div>
 
   <!-- Reason for a decision (askReason in core.js): a multi-line box instead of the browser's one-line prompt -->
-  <div id="reasonModal" role="dialog" aria-modal="true" aria-labelledby="reasonModalTitle" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] hidden items-center justify-center p-6">
+  <div id="reasonModal" role="dialog" aria-modal="true" aria-labelledby="reasonModalTitle" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] hidden items-center justify-center p-6">
     <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden">
       <div class="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
         <h2 id="reasonModalTitle" class="text-sm font-bold">Why?</h2>
@@ -1172,7 +1172,7 @@
     </div>
   </div>
 
-  <div id="snackbar" role="status" aria-live="polite" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded shadow-lg text-xs transition-opacity duration-300 opacity-0 pointer-events-none z-[70] flex items-center gap-3 max-w-[90vw]"><span id="snackbarText" class="whitespace-pre-line"></span><button id="snackbarAction" type="button" class="hidden font-bold text-amber-300 hover:text-amber-200 uppercase tracking-wide cursor-pointer">Undo</button></div>
+  <div id="snackbar" role="status" aria-live="polite" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded shadow-lg text-xs transition-opacity duration-300 opacity-0 pointer-events-none z-[120] flex items-center gap-3 max-w-[90vw]"><span id="snackbarText" class="whitespace-pre-line"></span><button id="snackbarAction" type="button" class="hidden font-bold text-amber-300 hover:text-amber-200 uppercase tracking-wide cursor-pointer">Undo</button></div>
 
   <!-- App scripts: classic scripts sharing one global scope. core.js must come first; keep this order. -->
   <script src="app/version.js"></script>

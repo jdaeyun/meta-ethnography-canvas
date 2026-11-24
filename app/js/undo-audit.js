@@ -139,16 +139,10 @@ async function performUndoStep() {
     const d = last.doc;
     // The study, its PDF and its constructs come back in one transaction (as they went); a construct's placement in a row
     // that was deleted in the meantime is not brought back
-    const liveRows = new Set(state.clusters.map(c => c.id));
+    // (the same tidying as every other Undo: dropGoneLinks; a quote keeps its links to the study's constructs coming back with it)
     const ops = [];
-    const restored = (last.annotations || []).map(raw => {
-      const a = normalizeAnnotation(JSON.parse(JSON.stringify(raw)));
-      if (a.type === 'second_order') {
-        a.clusterIds = a.clusterIds.filter(id => liveRows.has(id));
-        ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'].forEach(k => { if (a[k]) Object.keys(a[k]).forEach(id => { if (!liveRows.has(id)) delete a[k][id]; }); });
-      }
-      return a;
-    });
+    const backSecIds = (last.annotations || []).filter(a => a.type === 'second_order').map(a => a.id);
+    const restored = (last.annotations || []).map(raw => dropGoneLinks(normalizeAnnotation(JSON.parse(JSON.stringify(raw))), backSecIds));
     const isNew = !state.docs.find(x => x.id === d.id);
     if (isNew) {
       d.hasBinary = Boolean(last.binary && last.binary.byteLength > 0);
@@ -380,6 +374,7 @@ async function recordAuditLog({ category, action, detail, fromVal = '', toVal = 
   state.logs.unshift(entry);
   invalidateMatrixIndex('logs'); // the entry joined the in-memory trail after the write
   updateAuditBadge();
+  if (entry.clusterIds && typeof refreshRowHistoryButtons === 'function') refreshRowHistoryButtons(entry.clusterIds);
   if (!divAudit.classList.contains('hidden')) renderAuditView();
   return entry;
 }

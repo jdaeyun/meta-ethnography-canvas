@@ -140,7 +140,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
             addedBinKeys.push(d.id);
             d.hasBinary = true;
             d.fpDone = false; // another file under this id: fingerprint it again
-            d.sha256 = ''; d.doi = ''; // until then, no fingerprint of the backup's file stands for this one (Compare matches on it)
+            d.sha256 = ''; // until then, no fingerprint of the backup's file stands for this one (the DOI describes the study: it stays)
           }
         }
         await dbPut('docs', d);
@@ -376,7 +376,12 @@ async function releaseWorkspaceView() {
   Object.keys(matrixRowHeights).forEach(k => delete matrixRowHeights[k]);
 }
 
-document.getElementById('resetProjectBtn').addEventListener('click', async () => {
+document.getElementById('resetProjectBtn').addEventListener('click', () => {
+  // In the demo, starting blank would leave an empty "demo" (it is not filled again on reload): reset the demo instead
+  if (DEMO_MODE && document.getElementById('demoResetBtn')) { document.getElementById('demoResetBtn').click(); return; }
+  resetProject();
+});
+async function resetProject() {
   const ok = await askChoice({
     title: 'Reset the project (start blank)?',
     body: 'All studies, PDFs, constructs, matrix rows and audit trail entries in this browser are removed. This cannot be undone: use Backup first if you may need this project again.',
@@ -428,7 +433,7 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
     isInitialOrReset: true,
     titleText: 'New Project Setup & Phase 1 (Getting Started)'
   });
-});
+}
 
 // ---- After a restore: list the studies whose PDF is not stored in this browser and offer to import them ----
 // How alike a file name and a study's file name are (shared words / numbers such as the year): used only to list the likeliest study first
