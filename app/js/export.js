@@ -64,61 +64,9 @@ function buildAppraisalDomainsHtml() {
 }
 
 function buildTable1Html() {
-  let rowsHtml = '';
-  state.docs.forEach((d, idx) => {
-    normalizeDoc(d);
-    const isIdx = idx === 0;
-    rowsHtml += `
-      <tr>
-        <td><b>${escapeHtml(getDisplayName(d))}</b>${isIdx ? ` <br><span style="font-size:10px; color:#b45309;">${escapeHtml(firstStudyMeta().short)}</span>` : ''}</td>
-        <td>${escapeHtml(d.title || d.name)}</td>
-        <td>${escapeHtml(d.setting || '-')}</td>
-        <td>${escapeHtml(d.participants || '-')}</td>
-        <td>${escapeHtml(d.methodology || '-')}</td>
-        <td>${escapeHtml(getAppraisalDisplayString(d))}</td>
-        <td>${escapeHtml(d.richness || '-')}</td>
-        <td>${escapeHtml(d.contextNote || '-')}</td>
-        <td>${escapeHtml(funderLinkedText(d))}</td>
-      </tr>
-    `;
-  });
-
-  return `
-    <div class="mb-3">
-      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Table 1. Characteristics and Critical Appraisal of Included Studies (${state.docs.length} studies)</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Ordered by translation sequence (${escapeHtml(getOrderStrategy() === 'index' ? '#1 denotes the index paper' : getOrderStrategy() === 'chronological' ? 'chronological order of publication' : 'order chosen by the review team')}). Appraisal tool per study as recorded (e.g., CASP, JBI, MMAT, ETQS, Dixon-Woods prompts).</p>
-    </div>
-    <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
-      <thead>
-        <tr>
-          <th>Study (Author, Year)</th>
-          <th>Full Title</th>
-          <th>Country / Setting</th>
-          <th>Participants / Sample</th>
-          <th>Methodology & Analysis</th>
-          <th>Methodological Quality (Tool / Rating)</th>
-          <th>Conceptual Depth (Richness)</th>
-          <th>Limitations / Contextual Notes</th>
-          <th>Funder / Linked Accounts</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rowsHtml || '<tr><td colspan="9">No studies added yet.</td></tr>'}
-      </tbody>
-    </table>
-    ${buildAppraisalDomainsHtml()}
-  `;
+  return specTableHtml(getTable1Spec()) + buildAppraisalDomainsHtml();
 }
 
-function teamModelsHtml() {
-  const models = Array.isArray(state.loa.teamModels) ? state.loa.teamModels : [];
-  if (models.length === 0) return '';
-  return `<div style="margin-top: 12px; padding-top: 8px; border-top: 1px dashed #94a3b8;">
-    <div style="font-size: 12px; font-weight: bold; color: #0f172a; margin-bottom: 4px;">Independent models developed before merging (${models.length})</div>
-    ${models.map(m => `<div style="font-size: 11.5px; color: #334155; margin-bottom: 6px;"><b>@${escapeHtml(m.reviewer)}${m.title ? ' — ' + escapeHtml(m.title) : ''}</b>${m.flow ? `<div style="font-family: monospace;">${escapeHtml(m.flow)}</div>` : ''}${(m.links || []).length ? `<div>${m.links.map(l => `${escapeHtml(l.from)} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${escapeHtml(l.to)}`).join('; ')}</div>` : ''}${m.narrative ? `<div style="white-space: pre-wrap;">${escapeHtml(m.narrative)}</div>` : ''}</div>`).join('')}
-    ${state.loa.teamMergeNote ? `<div style="font-size: 11.5px; color: #334155;"><b>How the models were merged:</b> ${escapeHtml(state.loa.teamMergeNote)}</div>` : ''}
-  </div>`;
-}
 
 // Relation tag for a construct in a Table 2 row (the study that established the row has none)
 function relTag(s, cid) {
@@ -147,100 +95,243 @@ function cellPagesLabel(docSecs) {
   return [...new Set(docSecs.flatMap(s => secAllPassages(s).map(ps => String(ps.page)).filter(Boolean)))].map(pg => 'p.' + pg).join(', ');
 }
 
-function buildTable2Html() {
-  let rowsHtml = '';
-  const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
-
-  state.clusters.forEach(c => {
-    normalizeCluster(c);
-    const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
-    const contributingDocs = [...new Set(mappedSecs.map(s => {
-      const doc = state.docs.find(d => d.id === s.docId);
-      return doc ? getDisplayName(doc) : null;
-    }).filter(Boolean))];
-
-    const secondOrderListHtml = mappedSecs.map(s => {
-      const doc = state.docs.find(d => d.id === s.docId);
-      const dName = doc ? getDisplayName(doc) : 'Study';
-      const rt = relTag(s, c.id);
-      const refutBadge = rt ? `<span style="color:${rt.includes('⚡') ? '#be123c' : '#475569'}; font-weight:bold;">${escapeHtml(rt.trim())}</span> ` : '';
-      const cellNuance = (s.clusterComments && s.clusterComments[c.id]) ? ` <i>[${escapeHtml(s.clusterComments[c.id])}]</i>` : '';
-      const wrapTag = s.origin === 'wrapped_first_order' ? `<span style="color:#b45309; font-size:10px;">[reviewer-wrapped 1st-order quote]</span> ` : '';
-      return `<div style="margin-bottom:6px;">• ${refutBadge}${wrapTag}<b>${escapeHtml(dName)} (p.${escapeHtml(secPagesLabel(s))}):</b> ${s.note ? `<b>${escapeHtml(s.note)}</b>${secLabelTag(s) ? ' <span style="color:#b45309; font-size:10px;">' + secLabelTag(s).trim() + '</span>' : ''} — ` : ''}"${escapeHtml(secEvidenceText(s))}"${cellNuance}</div>`;
-    }).join('');
-
-    const linkedQuotesList = [];
-    const seenQ = new Set(); // a quote linked to two constructs in this row is listed once
-    mappedSecs.forEach(s => {
-      const doc = state.docs.find(d => d.id === s.docId);
-      const dName = doc ? getDisplayName(doc) : 'Study';
-      const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
-      firsts.forEach(f => {
-        const attrTag = f.note ? ` <b>[${escapeHtml(f.note)}]</b>` : '';
-        linkedQuotesList.push(`<div style="margin-bottom:5px;">• <i>"${escapeHtml(f.text)}"</i>${attrTag} (${escapeHtml(dName)}, p.${escapeHtml(f.page)})</div>`);
-      });
-    });
-
-    const transLabel = clusterTranslationLabel(c);
-
-    rowsHtml += `
-      <tr>
-        <td>
-          <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Construct)')}</b>${rowStatusNotes(c).map(n => ` <span style="font-size:10px; color:#b45309;">(${escapeHtml(n)})</span>`).join('')}
-          <div style="font-size:10.5px; color:#475569; margin-top:4px;"><b>Type:</b> ${escapeHtml(transLabel)}</div>
-          <div style="font-size:10px; color:#64748b; margin-top:2px;"><b>Team status:</b> ${escapeHtml(concordanceLabel(c.concordanceStatus))}</div>
-        </td>
-        <td>${c.translationSummary ? `<div style="margin-bottom:6px;"><b>Translation:</b> ${escapeHtml(c.translationSummary)}</div>` : ''}${c.synthesisNote ? `<div><b>3rd order interpretation:</b> ${escapeHtml(c.synthesisNote)}</div>` : ''}${(!c.translationSummary && !c.synthesisNote) ? '-' : ''}</td>
-        <td>${secondOrderListHtml || '-'}${cellStatusLines(c).map(l => `<div style="margin-top:4px; font-size:11px; color:#0369a1;">${escapeHtml(l)}</div>`).join('')}</td>
-        <td>${linkedQuotesList.join('') || '-'}</td>
-        <td>${escapeHtml(contributingDocs.join('; ') || '-')}</td>
-        <td>
-          <b>${escapeHtml(c.cerqualConfidence || 'Not assessed')}</b>
-          ${c.cerqualExplanation ? `<div style="font-size:10px; color:#475569; margin-top:3px;">${escapeHtml(c.cerqualExplanation)}</div>` : ''}
-        </td>
-      </tr>
-    `;
-  });
-
-  const loaBlockHtml = ((state.loa.teamModels || []).length || state.loa.aim || state.loa.title || state.loa.flow || state.loa.narrative || state.loa.relateProcess || state.loa.relateOutcome || state.loa.synthStudies || getLoaLinks().length) ? `
-    <div style="margin-top: 22px; padding: 14px; border: 1.5px solid #0f172a; background-color: #f8fafc; font-family: Georgia, serif;">
-      ${state.loa.aim ? `<div style="font-size: 11.5px; color: #334155; margin-bottom: 6px;"><b>Synthesis Aim / Review Question:</b> ${escapeHtml(state.loa.aim)}</div>` : ''}
-      ${state.loa.relateProcess ? `<div style="font-size: 11.5px; color: #334155; margin-bottom: 6px;"><b>Phase 4 — Process of relating studies:</b> ${escapeHtml(state.loa.relateProcess)}</div>` : ''}
-      ${state.loa.synthStudies ? `<div style="font-size: 11.5px; color: #334155; margin-bottom: 8px;"><b>Studies synthesized (Item 15):</b> ${escapeHtml(state.loa.synthStudies)}</div>` : ''}
-      ${state.loa.relateOutcome ? `<div style="font-size: 11.5px; color: #334155; margin-bottom: 8px;"><b>Phase 4 — Outcome of relating studies:</b> ${escapeHtml(state.loa.relateOutcome)}</div>` : ''}
-      <div style="font-size: 13px; font-weight: bold; color: #0f172a; margin-bottom: 6px;">
-        Overarching Line of Argument Synthesis: ${escapeHtml(state.loa.title || '(Untitled Model)')}
-      </div>
-      ${(() => { const svg = buildConceptMapSvg('pub', 640, 360); return svg ? `<div style="margin-bottom:8px; text-align:center; background:#fff; border:1px solid #cbd5e1; padding:4px;"><div style="font-size:11px; font-weight:bold; text-align:left;">Concept relationship map (➔ leads to; ⇄ mutually related; dashed ⚡ in tension)</div>${svg}</div>` : ''; })()}
-      ${state.loa.flow ? `<div style="font-size: 11.5px; font-family: monospace; background: #ffffff; padding: 6px 8px; border: 1px solid #cbd5e1; margin-bottom: 8px;"><b>Relational Flow:</b> ${escapeHtml(state.loa.flow)}</div>` : ''}
-      ${state.loa.narrative ? `<div style="font-size: 13.5px; line-height: 1.55; color: #1e293b; white-space: pre-wrap;">${escapeHtml(state.loa.narrative)}</div>` : ''}
-      ${state.loa.modelContext ? `<div style="font-size: 11.5px; color: #334155; margin-top: 8px;"><b>Where the model applies (Item 16):</b> ${escapeHtml(state.loa.modelContext)}</div>` : ''}
-      ${teamModelsHtml()}
-    </div>
-  ` : '';
-
+// ======================= Tables 1, 2, 2b and the line-of-argument block: one spec each, three renderers =======================
+// The content of each table is built ONCE (get…Spec) and rendered by the preview (HTML), the Markdown copy and the Word file,
+// so the three cannot differ in what they show (as Table 3 and the appendices already were).
+// A cell is a list of lines; a line is a list of pieces: a string, or { t, b, i, tone, small, title }.
+// tone: 'muted' (grey), 'accent' (amber: tags such as [Index Paper]), 'refut' (rose: refutational), 'aspect' (sky: different aspect).
+// title: a note shown on hover in the preview only. A cell that is null is blank on purpose (Table 2b: not yet checked);
+// any other empty cell shows "-".
+const RT_TONE = { muted: ['#64748b', '64748B'], accent: ['#b45309', 'B45309'], refut: ['#be123c', 'BE123C'], aspect: ['#0369a1', '0369A1'] };
+/** @returns {{ t: string, b?: boolean, i?: boolean, tone?: string, small?: boolean, title?: string }} */
+const rtPiece = p => typeof p === 'string' ? { t: p } : p;
+const rtLines = cell => (Array.isArray(cell) ? cell : [[String(cell ?? '')]]).filter(l => l && l.some(p => rtPiece(p).t));
+function rtText(cell) { return rtLines(cell).map(l => l.map(p => rtPiece(p).t).join('')).join('\n'); }
+function rtHtml(cell, { gap = 4 } = {}) {
+  if (cell === null) return '';
+  const lines = rtLines(cell);
+  if (!lines.length) return '-';
+  return lines.map((line, n) => `<div${n ? ` style="margin-top:${gap}px;"` : ''}>${line.map(rtPiece).map(p => {
+    let h = escapeHtml(p.t);
+    if (p.b) h = `<b>${h}</b>`;
+    if (p.i) h = `<i>${h}</i>`;
+    const st = [p.tone ? `color:${RT_TONE[p.tone][0]}` : '', p.small ? 'font-size:10.5px' : ''].filter(Boolean).join('; ');
+    return st || p.title ? `<span${st ? ` style="${st};"` : ''}${p.title ? ` title="${escapeHtml(p.title)}"` : ''}>${h}</span>` : h;
+  }).join('')}</div>`).join('');
+}
+// Markdown: one table cell on one line (lines joined with "; "), | and line breaks escaped
+const mdCell = s => String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+function rtMd(cell) {
+  if (cell === null) return ' ';
+  const lines = rtLines(cell);
+  if (!lines.length) return '-';
+  return lines.map(l => l.map(rtPiece).map(p => {
+    const t = mdCell(p.t);
+    if (!t.trim()) return t;
+    // emphasis marks go round the words, not round the spaces at either end
+    const [, lead, core, tail] = t.match(/^(\s*)([\s\S]*?)(\s*)$/);
+    const mark = (p.b ? '**' : '') + (p.i ? '*' : '');
+    return lead + mark + core + [...mark].reverse().join('') + tail;
+  }).join('')).join('; ');
+}
+// A table spec: { title, caption, headers: cell[], widths: %[], rows: cell[][], empty, center?: column indexes }
+function specTableHtml(spec) {
+  const center = new Set(spec.center || []);
+  const td = (cell, i, tag) => `<${tag}${spec.widths && tag === 'th' ? ` style="width:${spec.widths[i]}%;${center.has(i) ? ' text-align:center;' : ''}"` : center.has(i) ? ' style="text-align:center;"' : ''}>${rtHtml(cell)}</${tag}>`;
   return `
     <div class="mb-3">
-      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Table 2. Meta-Ethnographic Translation and Synthesis of 1st, 2nd, and 3rd Order Constructs</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Illustrating how participant quotes (1st order, as reported in the primary studies) and primary author interpretations (2nd order) were translated into overarching 3rd order constructs with GRADE-CERQual confidence ratings.</p>
+      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">${escapeHtml(spec.title)}</h3>
+      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">${escapeHtml(spec.caption)}</p>
     </div>
     <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
-      <thead>
-        <tr>
-          <th style="width:16%;">3rd Order Construct & Translation Type</th>
-          <th style="width:20%;">Translation (A) & 3rd Order Interpretation (B)</th>
-          <th style="width:24%;">2nd Order Constructs (Author Interpretations)</th>
-          <th style="width:20%;">Illustrating 1st Order Quotes</th>
-          <th style="width:10%;">Contributing Studies</th>
-          <th style="width:10%;">GRADE-CERQual Confidence</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rowsHtml || '<tr><td colspan="6">No 3rd Order rows created yet.</td></tr>'}
-      </tbody>
-    </table>
-    ${loaBlockHtml}
-  `;
+      <thead><tr>${spec.headers.map((h, i) => td(h, i, 'th')).join('')}</tr></thead>
+      <tbody>${spec.rows.length ? spec.rows.map(r => `<tr>${r.map((c, i) => td(c, i, 'td')).join('')}</tr>`).join('') : `<tr><td colspan="${spec.headers.length}">${escapeHtml(spec.empty)}</td></tr>`}</tbody>
+    </table>`;
+}
+function specTableMd(spec) {
+  const center = new Set(spec.center || []);
+  let md = `### ${spec.title}\n\n*${mdCell(spec.caption)}*\n\n`;
+  md += `| ${spec.headers.map(h => mdCell(rtText(h))).join(' | ')} |\n|${spec.headers.map((_, i) => center.has(i) ? ':---:' : '---').join('|')}|\n`;
+  if (!spec.rows.length) md += `| ${mdCell(spec.empty)} |${' |'.repeat(spec.headers.length - 1)}\n`;
+  spec.rows.forEach(r => { md += `| ${r.map(rtMd).join(' | ')} |\n`; });
+  return md;
+}
+
+function getTable1Spec() {
+  const strategy = getOrderStrategy();
+  return {
+    title: `Table 1. Characteristics and Critical Appraisal of Included Studies (${state.docs.length} studies)`,
+    caption: `Ordered by translation sequence (${strategy === 'index' ? '#1 denotes the index paper' : strategy === 'chronological' ? 'chronological order of publication' : 'order chosen by the review team'}). Appraisal tool per study as recorded (e.g., CASP, JBI, MMAT, ETQS, Dixon-Woods prompts).`,
+    headers: ['Study (Author, Year)', 'Full Title', 'Country / Setting', 'Participants / Sample', 'Methodology & Analysis', 'Methodological Quality (Tool / Rating)', 'Conceptual Depth (Richness)', 'Limitations / Contextual Notes', 'Funder / Linked Accounts'],
+    widths: [11, 15, 10, 10, 13, 10, 9, 12, 10],
+    empty: 'No studies added yet.',
+    rows: state.docs.map((d, idx) => {
+      normalizeDoc(d);
+      return [
+        [[{ t: getDisplayName(d), b: true }], ...(idx === 0 ? [[{ t: firstStudyMeta().short, tone: 'accent', small: true }]] : [])],
+        d.title || d.name, d.setting || '-', d.participants || '-', d.methodology || '-', getAppraisalDisplayString(d),
+        d.richness || '-', d.contextNote || '-', funderLinkedText(d)
+      ];
+    })
+  };
+}
+
+// The first cell of a row in Tables 2 and 2b: the row's title, its status notes and (Table 2) its type and team status
+function rowTitleCell(c, { full = true } = {}) {
+  return [
+    [{ t: c.thirdOrderTitle || '(Untitled 3rd Order Construct)', b: true }, ...rowStatusNotes(c, { short: !full }).map(n => ({ t: ` (${n})`, tone: 'accent', small: true }))],
+    [{ t: full ? 'Type: ' : '', b: true, small: true, tone: 'muted' }, { t: clusterTranslationLabel(c), small: true, tone: 'muted' }],
+    ...(full ? [[{ t: 'Team status: ', b: true, small: true, tone: 'muted' }, { t: concordanceLabel(c.concordanceStatus), small: true, tone: 'muted' }]] : [])
+  ];
+}
+
+function getTable2Spec() {
+  const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
+  const nameOf = docId => { const d = state.docs.find(x => x.id === docId); return d ? getDisplayName(d) : 'Study'; };
+  return {
+    title: 'Table 2. Meta-Ethnographic Translation and Synthesis of 1st, 2nd, and 3rd Order Constructs',
+    caption: 'Illustrating how participant quotes (1st order, as reported in the primary studies) and primary author interpretations (2nd order) were translated into overarching 3rd order constructs with GRADE-CERQual confidence ratings.',
+    headers: ['3rd Order Construct & Translation Type', 'Translation (A) & 3rd Order Interpretation (B)', '2nd Order Constructs (Author Interpretations)', 'Illustrating 1st Order Quotes', 'Contributing Studies', 'GRADE-CERQual Confidence'],
+    widths: [16, 20, 24, 20, 10, 10],
+    empty: 'No 3rd Order rows created yet.',
+    rows: state.clusters.map(c => {
+      normalizeCluster(c);
+      const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
+      const secLines = mappedSecs.map(s => {
+        const rt = relTag(s, c.id);
+        const note = (s.clusterComments || {})[c.id];
+        return [
+          '• ',
+          ...(rt ? [{ t: rt, b: true, tone: rt.includes('⚡') ? 'refut' : 'muted' }] : []),
+          ...(s.origin === 'wrapped_first_order' ? [{ t: '[reviewer-wrapped 1st-order quote] ', tone: 'accent', small: true }] : []),
+          { t: `${nameOf(s.docId)} (p.${secPagesLabel(s)}): `, b: true },
+          ...(s.note ? [{ t: s.note, b: true }, ...(secLabelTag(s) ? [{ t: secLabelTag(s), tone: 'accent', small: true }] : []), ' — '] : []),
+          `"${secEvidenceText(s)}"`,
+          ...(note ? [{ t: ` [${note}]`, i: true }] : [])
+        ];
+      });
+      const quoteLines = [];
+      const seenQ = new Set(); // a quote linked to two constructs in this row is listed once
+      mappedSecs.forEach(s => quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id)).forEach(f => {
+        quoteLines.push(['• ', { t: `"${f.text}"`, i: true }, ...(f.note ? [' ', { t: `[${f.note}]`, b: true }] : []), ` (${nameOf(f.docId)}, p.${f.page})`]);
+      }));
+      return [
+        rowTitleCell(c),
+        [
+          ...(c.translationSummary ? [[{ t: 'Translation: ', b: true }, c.translationSummary]] : []),
+          ...(c.synthesisNote ? [[{ t: '3rd order interpretation: ', b: true }, c.synthesisNote]] : [])
+        ],
+        [...secLines, ...cellStatusLines(c).map(l => [{ t: l, small: true, tone: 'aspect' }])],
+        quoteLines,
+        [[[...new Set(mappedSecs.map(s => nameOf(s.docId)))].join('; ')]],
+        [[{ t: c.cerqualConfidence || 'Not assessed', b: true }], ...(c.cerqualExplanation ? [[{ t: c.cerqualExplanation, small: true, tone: 'muted' }]] : [])]
+      ];
+    })
+  };
+}
+
+// Even widths for the study columns of Table 2b; the first and last columns keep a fixed share
+function gridPcts(nStudies) {
+  const first = nStudies > 8 ? 18 : 24, last = 10;
+  return [first, ...Array(nStudies).fill((100 - first - last) / Math.max(1, nStudies)), last];
+}
+function getTable2bSpec() {
+  const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
+  return {
+    title: 'Table 2b. Concept-by-Study Contribution Matrix Across Included Studies',
+    caption: `Showing which primary studies contributed 2nd order constructs to each 3rd order theme (${TABLE2B_LEGEND}). ${TABLE2B_NOTE}`,
+    headers: [
+      '3rd Order Construct (Theme)',
+      ...state.docs.map((d, idx) => [[{ t: getDisplayName(d) }], ...(idx === 0 ? [[{ t: firstStudyMeta().short, tone: 'accent', small: true }]] : [])]),
+      'CERQual Confidence'
+    ],
+    widths: gridPcts(state.docs.length),
+    center: [...state.docs.map((_, i) => i + 1), state.docs.length + 1],
+    empty: 'No 3rd Order rows created yet.',
+    rows: state.clusters.map(c => {
+      normalizeCluster(c);
+      const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
+      return [
+        rowTitleCell(c, { full: false }),
+        ...state.docs.map(d => {
+          const docSecs = mappedSecs.filter(s => s.docId === d.id);
+          if (!docSecs.length) {
+            const info = emptyCellInfo(c, d.id);
+            return info ? [[{ t: info.symbol, tone: info.status === 'other_aspect' ? 'aspect' : 'muted', title: info.note || '' }]] : null; // blank: not yet checked
+          }
+          const pages = cellPagesLabel(docSecs);
+          return [[{ t: contribSymbol(docSecs, c.id), b: true, tone: docSecs.some(s => isSecRefutational(s, c.id)) ? 'refut' : undefined }], ...(pages ? [[{ t: pages, small: true, tone: 'muted' }]] : [])];
+        }),
+        [[{ t: c.cerqualConfidence || 'Not assessed', b: true }]]
+      ];
+    })
+  };
+}
+
+// The line of argument under Table 2: { show, items: [{ label, text, style? }], map: has relations, models, mergeNote }
+// style: 'heading' (the model's title line), 'mono' (the relational flow), 'narrative'
+function getLoaBlockSpec() {
+  const L = state.loa;
+  const links = getLoaLinks();
+  const models = Array.isArray(L.teamModels) ? L.teamModels : [];
+  const linkText = l => `${clusterLabel(state.clusters.find(c => c.id === l.from))} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${clusterLabel(state.clusters.find(c => c.id === l.to))}${l.note ? ' (' + l.note + ')' : ''}`;
+  const items = [
+    { label: 'Synthesis aim / review question:', text: L.aim },
+    { label: 'Phase 4 — Process of relating studies:', text: L.relateProcess },
+    { label: 'Studies synthesized (Item 15):', text: L.synthStudies },
+    { label: 'Phase 4 — Outcome of relating studies:', text: L.relateOutcome },
+    { label: 'Concept relationships:', text: links.map(linkText).join('; ') },
+    { label: 'Overarching Line of Argument Synthesis:', text: (L.title || L.flow || L.narrative) ? (L.title || '(Untitled Model)') : '', style: 'heading' },
+    { label: 'Relational flow:', text: L.flow, style: 'mono' },
+    { label: '', text: L.narrative || ((L.title || L.flow) ? '(narrative not entered)' : ''), style: 'narrative' },
+    { label: 'Where the model applies (Item 16):', text: L.modelContext }
+  ].filter(x => x.text && String(x.text).trim());
+  return {
+    show: items.length > 0 || models.length > 0,
+    items, map: links.length > 0,
+    models: models.map(m => ({ who: `@${m.reviewer}${m.title ? ' — ' + m.title : ''}`, text: [m.flow, (m.links || []).map(l => `${l.from} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${l.to}`).join('; '), m.narrative].filter(Boolean).join(' | ') })),
+    mergeNote: L.teamMergeNote || ''
+  };
+}
+// The map is a picture in the preview; the Word file and the Markdown say where to insert it
+const LOA_MAP_NOTE = '[Note: Export the visual Concept Relationship Map (.svg) from the Line of Argument drawer to insert as Figure 1 here]';
+function loaBlockHtml() {
+  const sp = getLoaBlockSpec();
+  if (!sp.show) return '';
+  const item = x => x.style === 'heading'
+    ? `<div style="font-size: 13px; font-weight: bold; color: #0f172a; margin: 8px 0 6px;">${escapeHtml(x.label)} ${escapeHtml(x.text)}</div>${sp.map ? (() => { const svg = buildConceptMapSvg('pub', 640, 360); return svg ? `<div style="margin-bottom:8px; text-align:center; background:#fff; border:1px solid #cbd5e1; padding:4px;"><div style="font-size:11px; font-weight:bold; text-align:left;">Concept relationship map (➔ leads to; ⇄ mutually related; dashed ⚡ in tension)</div>${svg}</div>` : ''; })() : ''}`
+    : x.style === 'mono' ? `<div style="font-size: 11.5px; font-family: monospace; background: #ffffff; padding: 6px 8px; border: 1px solid #cbd5e1; margin-bottom: 8px;"><b>${escapeHtml(x.label)}</b> ${escapeHtml(x.text)}</div>`
+    : x.style === 'narrative' ? `<div style="font-size: 13.5px; line-height: 1.55; color: #1e293b; white-space: pre-wrap; margin-bottom: 8px;">${escapeHtml(x.text)}</div>`
+    : `<div style="font-size: 11.5px; color: #334155; margin-bottom: 6px;"><b>${escapeHtml(x.label)}</b> ${escapeHtml(x.text)}</div>`;
+  return `
+    <div style="margin-top: 22px; padding: 14px; border: 1.5px solid #0f172a; background-color: #f8fafc; font-family: Georgia, serif;">
+      ${sp.items.map(item).join('')}
+      ${sp.models.length ? `<div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #cbd5e1;">
+        <div style="font-size: 12px; font-weight: bold; color: #0f172a; margin-bottom: 4px;">Independent models developed before merging (${sp.models.length})</div>
+        ${sp.models.map(m => `<div style="font-size: 11.5px; color: #334155; margin-bottom: 6px;"><b>${escapeHtml(m.who)}</b>${m.text ? ': ' + escapeHtml(m.text) : ''}</div>`).join('')}
+        ${sp.mergeNote ? `<div style="font-size: 11.5px; color: #334155;"><b>How the models were merged:</b> ${escapeHtml(sp.mergeNote)}</div>` : ''}
+      </div>` : ''}
+    </div>`;
+}
+function loaBlockMd() {
+  const sp = getLoaBlockSpec();
+  if (!sp.show) return '';
+  const one = t => String(t).trim().replace(/\r?\n/g, ' ');
+  let md = `\n#### Line of Argument / Overarching Model\n\n`;
+  sp.items.forEach(x => {
+    md += x.style === 'heading' ? `**${x.label} ${one(x.text)}**\n\n${sp.map ? `*${LOA_MAP_NOTE}*\n\n` : ''}` : x.label ? `**${x.label}** ${one(x.text)}\n\n` : `${one(x.text)}\n\n`;
+  });
+  if (sp.models.length) {
+    md += `**Independent models developed before merging (${sp.models.length}):**\n\n`;
+    sp.models.forEach(m => { md += `- ${m.who}${m.text ? ': ' + one(m.text) : ''}\n`; });
+    md += '\n';
+    if (sp.mergeNote) md += `**How the models were merged:** ${one(sp.mergeNote)}\n\n`;
+  }
+  return md;
+}
+
+function buildTable2Html() {
+  return specTableHtml(getTable2Spec()) + loaBlockHtml();
 }
 
 // ---- Table 3 (GRADE-CERQual): one spec, rendered to HTML / Markdown / Word ----
@@ -406,6 +497,7 @@ function getAppendixMode() { const m = lsGet('me_appendix_mode'); return APPENDI
 function getAppendixASpec(mode = getAppendixMode()) {
   const all = [...state.logs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
   const fmt = t => new Date(t).toLocaleString();
+  /** @returns {Record<string, any>} a row of the table, with any extra fields (an edit series: n, firstT, lastT…) */
   const rowOf = (l, extra = {}) => ({
     when: fmt(l.timestamp), reviewer: l.reviewer || 'Unknown', cat: l.category, category: getCategoryMeta(l.category).label,
     action: l.action || '', detail: l.detail || '', fromVal: l.fromVal || '', toVal: l.toVal || '', rationale: rationaleExportText(l), ...extra
@@ -421,7 +513,13 @@ function getAppendixASpec(mode = getAppendixMode()) {
   // An audit trail entry deleted by mistake and restored with Ctrl+Z: the two cancel out (the full trail keeps both)
   const cancelled = new Set();
   all.forEach((l, i) => {
-    const m = /^Deleted an audit trail entry: ([\s\S]*)$/.exec(l.action || '');
+    // By the entry they are about (targetId); entries from before that was recorded, by their action text
+    if (l.kind === 'trail_delete' && l.targetId) {
+      const back = all.slice(i + 1).find(x => !cancelled.has(x) && x.kind === 'trail_restore' && x.targetId === l.targetId);
+      if (back) { cancelled.add(l); cancelled.add(back); }
+      return;
+    }
+    const m = !l.kind && /^Deleted an audit trail entry: ([\s\S]*)$/.exec(l.action || '');
     if (!m) return;
     const back = all.slice(i + 1).find(x => !cancelled.has(x) && x.action === `Restored a deleted audit trail entry (Undo): ${m[1]}`);
     if (back) { cancelled.add(l); cancelled.add(back); }
@@ -434,12 +532,12 @@ function getAppendixASpec(mode = getAppendixMode()) {
     if (ser) {
       const g = open.get(ser.key);
       if (g) {
-        g.n++; g.toVal = l.toVal || ''; g.lastT = l.timestamp; g.lastDetail = l.detail || '';
+        g.n++; g.toVal = l.toVal || ''; g.lastT = l.timestamp; g.lastDetail = l.detail || ''; if (l.targetLabel) g.targetLabel = l.targetLabel;
         const rv = l.reviewer || 'Unknown';
         if (g.reviewers.indexOf(rv) < 0) g.reviewers.push(rv);
         continue;
       }
-      const r = rowOf(l, { n: 1, firstT: l.timestamp, lastT: l.timestamp, lastDetail: l.detail || '', reviewers: [l.reviewer || 'Unknown'], seriesLabel: ser.label, rowIds });
+      const r = rowOf(l, { n: 1, firstT: l.timestamp, lastT: l.timestamp, lastDetail: l.detail || '', reviewers: [l.reviewer || 'Unknown'], seriesLabel: ser.label, rowIds, targetLabel: l.targetLabel || '' });
       rows.push(r); open.set(ser.key, r);
       continue;
     }
@@ -456,7 +554,10 @@ function getAppendixASpec(mode = getAppendixMode()) {
     if (!r.n || r.n < 2) return;
     r.when = `${fmt(r.firstT)} – ${fmt(r.lastT)}`;
     r.reviewer = r.reviewers.join(', ');
-    r.action = `${r.seriesLabel} (${r.n} edits)${r.action.match(/ for "(.*)"$/) ? ': "' + r.action.match(/ for "(.*)"$/)[1] + '"' : ''}`;
+    // The row it concerns: as named in the last edit (targetLabel); for entries from older versions, at the end of the action
+    // in any of its forms (… for "Row", … on "Row", … ("Row"))
+    const rowName = r.rowIds.length && r.targetLabel ? r.targetLabel : (r.action.match(/(?: for | on | \()"(.*)"\)?$/) || [])[1];
+    r.action = `${r.seriesLabel} (${r.n} edits)${rowName !== undefined ? ': "' + rowName + '"' : ''}`;
     // The latest notes (e.g. the CERQual explanations) stay; Before ➔ After spans the first and the last edit
     r.detail = `${r.lastDetail ? r.lastDetail + '\n' : ''}(Before ➔ After: from the first to the last of these edits; each edit is in the full audit trail.)`;
   });
@@ -508,59 +609,7 @@ function buildAppendixHtml() {
 }
 
 function buildTable2GridHtml() {
-  const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
-  const studyHeaders = state.docs.map((d, idx) =>
-    `<th style="text-align:center; font-size:12px; min-width:70px;">${escapeHtml(getDisplayName(d))}${idx === 0 ? `<br><span style="font-size:9.5px; color:#b45309;">${escapeHtml(firstStudyMeta().short)}</span>` : ''}</th>`
-  ).join('');
-
-  let rowsHtml = '';
-  state.clusters.forEach(c => {
-    normalizeCluster(c);
-    const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
-    const studyCells = state.docs.map(d => {
-      const docSecs = mappedSecs.filter(s => s.docId === d.id);
-      if (docSecs.length === 0) {
-        const info = emptyCellInfo(c, d.id);
-        return `<td style="text-align:center; color:${info && info.status === 'other_aspect' ? '#0369a1' : '#64748b'};"${info && info.note ? ` title="${escapeHtml(info.note)}"` : ''}>${info ? info.symbol : ''}</td>`;
-      }
-      const hasRefut = docSecs.some(s => isSecRefutational(s, c.id));
-      const symbol = contribSymbol(docSecs, c.id);
-      const pages = cellPagesLabel(docSecs);
-      return `<td style="text-align:center; font-weight:bold; color:${hasRefut ? '#be123c' : '#0f172a'};">${symbol}<div style="font-size:9.5px; font-weight:normal; color:#64748b;">${escapeHtml(pages)}</div></td>`;
-    }).join('');
-
-    const transLabel = clusterTranslationLabel(c);
-
-    rowsHtml += `
-      <tr>
-        <td>
-          <b>${escapeHtml(c.thirdOrderTitle || '(Untitled 3rd Order Theme)')}</b>${rowStatusNotes(c, { short: true }).map(n => ` <span style="font-size:10px; color:#b45309;">(${escapeHtml(n)})</span>`).join('')}
-          <div style="font-size:10.5px; color:#475569;">${escapeHtml(transLabel)}</div>
-        </td>
-        ${studyCells}
-        <td style="text-align:center;"><b>${escapeHtml(c.cerqualConfidence || 'Not assessed')}</b></td>
-      </tr>
-    `;
-  });
-
-  return `
-    <div class="mb-3">
-      <h3 style="font-family: Georgia, serif; font-size: 15px; font-weight: bold; color: #0f172a;">Table 2b. Concept-by-Study Contribution Matrix Across Included Studies</h3>
-      <p style="font-family: Georgia, serif; font-size: 11px; color: #475569; font-style: italic;">Showing which primary studies contributed 2nd order constructs to each 3rd order theme (${escapeHtml(TABLE2B_LEGEND)}). ${escapeHtml(TABLE2B_NOTE)}</p>
-    </div>
-    <table class="pub-table" border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse; width:100%;">
-      <thead>
-        <tr>
-          <th style="width:22%;">3rd Order Construct (Theme)</th>
-          ${studyHeaders}
-          <th style="text-align:center; width:10%;">CERQual Confidence</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rowsHtml || `<tr><td colspan="${state.docs.length + 2}">No 3rd Order rows created yet.</td></tr>`}
-      </tbody>
-    </table>
-  `;
+  return specTableHtml(getTable2bSpec());
 }
 
 // ---- GRADE-CERQual display helpers ----
@@ -576,7 +625,7 @@ function cqExplainText(c) {
 function getEmergeChecklist() {
   const nDocs = state.docs.length;
   const nCl = state.clusters.length;
-  const loa = state.loa || {};
+  const loa = state.loa;
   const hasAim = !!(loa.aim && loa.aim.trim());
   const hasLoa = !!(loa.title || loa.flow || loa.narrative);
   const hasRelProc = !!(loa.relateProcess && loa.relateProcess.trim());
@@ -642,9 +691,10 @@ function getEmergeChecklist() {
       ['Ext. 3', 'GRADE-CERQual confidence in review findings', 'Confidence in each finding, with all four components incl. methodological limitations, in a Summary of Qualitative Findings table (guidance for applying CERQual to a line of argument / theory is still to be developed)', nCl === 0 ? A('No 3rd order constructs yet') : (assessed === nCl ? R('Table 3') : (assessed > 0 ? P('Table 3 (some findings are still unrated)') : A('No finding assessed yet')))] ] }
   ];
   const rows = [];
-  phases.forEach(ph => ph.items.forEach((it, i) => rows.push({
-    phase: i === 0 ? ph.name : '', no: it[0], title: it[1], desc: it[2], level: it[3].level, text: it[3].text
-  })));
+  phases.forEach(ph => ph.items.forEach((it, i) => {
+    const st = /** @type {{ level: string, text: string }} */ (it[3]);
+    rows.push({ phase: i === 0 ? ph.name : '', no: it[0], title: it[1], desc: it[2], level: st.level, text: st.text });
+  }));
   return rows;
 }
 
@@ -982,14 +1032,22 @@ document.getElementById('copyRichTableBtn').addEventListener('click', async () =
     await navigator.clipboard.write([new ClipboardItem({ 'text/html': blobHtml, 'text/plain': blobText })]);
     showSnackbar('Rich Table copied. Paste directly (Ctrl+V / Cmd+V) into Microsoft Word or Google Docs.');
   } catch (e) {
+    // The older way, from the same cleaned copy (not the preview itself, whose gap links and display mode would come along):
+    // placed out of sight for the moment it takes to copy
+    copyEl.removeAttribute('id');
+    copyEl.classList.remove('gaps-quiet');
+    copyEl.className += ' fixed -left-[9999px] top-0';
+    document.body.appendChild(copyEl);
     const range = document.createRange();
-    range.selectNodeContents(container);
+    range.selectNodeContents(copyEl);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
-    document.execCommand('copy');
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
     sel.removeAllRanges();
-    showSnackbar('Table copied to the clipboard.');
+    copyEl.remove();
+    showSnackbar(ok ? 'Table copied to the clipboard.' : 'The browser did not allow copying. Use Download Word instead, or allow clipboard access for this page.');
   }
 });
 
@@ -1010,13 +1068,7 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       md += `| ${cleanMd(r.phase.replace('\n', ' — '))} | ${cleanMd(r.no + '. ' + r.title)} | ${cleanMd(r.desc)} | ${cleanMd(st)} |\n`;
     });
   } else if (state.activePubTable === 'table1') {
-    md += `### Table 1. Characteristics and Critical Appraisal of Included Studies\n\n`;
-    md += `| Study | Title | Setting | Participants | Methodology | Critical Appraisal (Tool / Rating) | Richness | Notes | Funder / Linked Accounts |\n`;
-    md += `|---|---|---|---|---|---|---|---|---|\n`;
-    state.docs.forEach((d, idx) => {
-      const name = getDisplayName(d) + (idx === 0 ? ` *${firstStudyMeta().short}*` : '');
-      md += `| **${cleanMd(name)}** | ${cleanMd(d.title || d.name)} | ${cleanMd(d.setting)} | ${cleanMd(d.participants)} | ${cleanMd(d.methodology)} | ${cleanMd(getAppraisalDisplayString(d))} | ${cleanMd(d.richness)} | ${cleanMd(d.contextNote)} | ${cleanMd(funderLinkedText(d))} |\n`;
-    });
+    md += specTableMd(getTable1Spec());
     getAppraisalDomainSpecs().forEach(spec => {
       md += `\n### ${spec.title}\n\n*${spec.caption}*\n\n`;
       md += `| ${spec.headers.map(cleanMd).join(' | ')} |\n|${spec.headers.map(() => '---').join('|')}|\n`;
@@ -1025,69 +1077,9 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       if (spec.summaries.length) md += `\n**Appraisal summary**  \n${spec.summaries.join('  \n')}\n`;
     });
   } else if (state.activePubTable === 'table2') {
-    md += `### Table 2. Meta-Ethnographic Translation and Synthesis Table\n\n`;
-    md += `| 3rd Order Construct | Translation Type | Team Status | Translation Summary (A) | 3rd Order Interpretation (B) | 2nd Order Constructs | 1st Order Quotes | Studies | CERQual Confidence |\n`;
-    md += `|---|---|---|---|---|---|---|---|---|\n`;
-    const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
-    state.clusters.forEach(c => {
-      normalizeCluster(c);
-      const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
-      const docs = [...new Set(mappedSecs.map(s => getDisplayName(state.docs.find(d => d.id === s.docId))))];
-      const secStr = mappedSecs.map(s => {
-        const dName = getDisplayName(state.docs.find(d => d.id === s.docId));
-        return `${relTag(s, c.id)}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): ${s.note ? `**${s.note}**${secLabelTag(s)} - ` : ''}"${secEvidenceText(s)}"`;
-      }).concat(cellStatusLines(c)).join('; ');
-      const quotes = [];
-      const seenQ = new Set();
-      mappedSecs.forEach(s => {
-        const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
-        // With the study's name, as in the HTML and Word tables
-        firsts.forEach(f => quotes.push(`"${f.text}"${f.note ? ' [' + f.note + ']' : ''} (${getDisplayName(state.docs.find(d => d.id === f.docId))}, p.${f.page})`));
-      });
-      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}**${rowStatusNotes(c).length ? ' (' + cleanMd(rowStatusNotes(c).join('; ')) + ')' : ''} | ${cleanMd(clusterTranslationLabel(c))} | ${cleanMd(concordanceLabel(c.concordanceStatus))} | ${cleanMd(c.translationSummary)} | ${cleanMd(c.synthesisNote)} | ${cleanMd(secStr)} | ${cleanMd(quotes.join('; '))} | ${cleanMd(docs.join(', '))} | **${cleanMd(c.cerqualConfidence)}** ${cleanMd(c.cerqualExplanation)} |\n`;
-    });
-    // Line of Argument block (same content as the HTML preview and the Word export)
-    const L = state.loa || {};
-    const line = (label, v) => v && String(v).trim() ? `**${label}** ${String(v).trim().replace(/\r?\n/g, ' ')}\n\n` : '';
-    const linksTxt = getLoaLinks().map(l => `${clusterLabel(state.clusters.find(c => c.id === l.from))} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${clusterLabel(state.clusters.find(c => c.id === l.to))}${l.note ? ' (' + l.note + ')' : ''}`).join('; ');
-    const models = Array.isArray(L.teamModels) ? L.teamModels : [];
-    if (L.aim || L.title || L.flow || L.narrative || L.relateProcess || L.relateOutcome || L.synthStudies || L.modelContext || linksTxt || models.length) {
-      md += `\n#### Line of Argument / Overarching Model\n\n`;
-      md += line('Synthesis aim / review question:', L.aim);
-      md += line('Phase 4 — Process of relating studies:', L.relateProcess);
-      md += line('Studies synthesized (Item 15):', L.synthStudies);
-      md += line('Phase 4 — Outcome of relating studies:', L.relateOutcome);
-      md += line('Concept relationships:', linksTxt);
-      md += line(`Overarching Line of Argument${L.title ? ' (' + L.title + ')' : ''}${L.flow ? ' — relational flow: ' + L.flow : ''}:`, L.narrative || (L.title || L.flow ? '(narrative not entered)' : ''));
-      md += line('Where the model applies (Item 16):', L.modelContext);
-      if (models.length) {
-        md += `**Independent models developed before merging (${models.length}):**\n\n`;
-        models.forEach(m => {
-          const links = (m.links || []).map(l => `${l.from} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${l.to}`).join('; ');
-          md += `- @${m.reviewer}${m.title ? ' — ' + m.title : ''}: ${[m.flow, links, m.narrative].filter(Boolean).join(' | ').replace(/\r?\n/g, ' ')}\n`;
-        });
-        md += `\n`;
-        md += line('How the models were merged:', L.teamMergeNote);
-      }
-    }
+    md += specTableMd(getTable2Spec()) + loaBlockMd();
   } else if (state.activePubTable === 'table2_grid') {
-    md += `### Table 2b. Concept-by-Study Contribution Matrix\n\n*${TABLE2B_LEGEND}. ${TABLE2B_NOTE}*\n\n`;
-    const studyCols = state.docs.map((d, idx) => cleanMd(getDisplayName(d) + (idx === 0 ? ' ' + firstStudyMeta().short : '')));
-    md += `| 3rd Order Construct | ${studyCols.join(' | ')} | CERQual |\n`;
-    md += `|---|${state.docs.map(() => ':---:').join('|')}|:---:|\n`;
-    const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
-    state.clusters.forEach(c => {
-      normalizeCluster(c);
-      const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
-      const cells = state.docs.map(d => {
-        const docSecs = mappedSecs.filter(s => s.docId === d.id);
-        if (!docSecs.length) { const info = emptyCellInfo(c, d.id); return info ? info.symbol : ' '; }
-        const pg = cellPagesLabel(docSecs);
-        return contribSymbol(docSecs, c.id).replace(/ \/ /g, '/') + (pg ? ' (' + pg + ')' : '');
-      });
-      const notes = rowStatusNotes(c, { short: true });
-      md += `| **${cleanMd(c.thirdOrderTitle || 'Untitled')}**${notes.length ? ' (' + cleanMd(notes.join('; ')) + ')' : ''} | ${cells.join(' | ')} | **${cleanMd(c.cerqualConfidence)}** |\n`;
-    });
+    md += specTableMd(getTable2bSpec());
   } else if (state.activePubTable === 'table3') {
     getTable3Specs().forEach(spec => {
       md += `### ${spec.title}\n\n*${spec.caption}*\n\n`;
@@ -1147,12 +1139,19 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   function widthTable(rows, pcts) {
     const total = pcts.reduce((a, b) => a + b, 0) || 1;
     const twips = pcts.map(p => Math.round(TEXT_WIDTH_TWIPS * p / total));
-    return new Table({ width: { size: TEXT_WIDTH_TWIPS, type: WidthType.DXA }, columnWidths: twips, layout: TableLayoutType.FIXED, rows });
-  }
-  // Even widths for the study columns of Table 2b; the first and last columns keep a fixed share
-  function gridPcts(nStudies) {
-    const first = nStudies > 8 ? 18 : 24, last = 10;
-    return [first, ...Array(nStudies).fill((100 - first - last) / Math.max(1, nStudies)), last];
+    // Each cell states its own width too (w:tcW): LibreOffice and some versions of Word ignore the grid alone. A cell spanning
+    // several columns gets their sum. Rows and cells are rebuilt from the options they were made with.
+    const sized = rows.map(row => {
+      let col = 0;
+      const cells = (row.options.children || []).map(cell => {
+        const span = cell.options.columnSpan || 1;
+        const w = twips.slice(col, col + span).reduce((a, b) => a + b, 0);
+        col += span;
+        return w ? new TableCell({ ...cell.options, width: { size: w, type: WidthType.DXA } }) : cell;
+      });
+      return new TableRow({ ...row.options, children: cells });
+    });
+    return new Table({ width: { size: TEXT_WIDTH_TWIPS, type: WidthType.DXA }, columnWidths: twips, layout: TableLayoutType.FIXED, rows: sized });
   }
 
   function makeCell(childrenOrText, { isHeader = false, isLastRow = false, bold = false } = {}) {
@@ -1176,142 +1175,51 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
     });
   }
 
-  const t1Headers = [
-    'Study (Author, Year)', 'Full Title', 'Country / Setting',
-    'Participants / Sample', 'Methodology & Analysis',
-    'Methodological Quality', 'Conceptual Depth', 'Limitations / Notes', 'Funder / Linked Accounts'
+  // ---- Rich cells and table specs (Tables 1, 2, 2b and the line of argument), as in the preview and the Markdown ----
+  const rtWord = cell => {
+    if (cell === null) return [new Paragraph({ children: [] })];
+    const lines = rtLines(cell);
+    if (!lines.length) return [new Paragraph({ children: [new TextRun({ text: '-', font: "Times New Roman", size: 20 })] })];
+    return lines.map(line => new Paragraph({
+      children: line.map(rtPiece).map(p => new TextRun({ text: p.t, bold: !!p.b, italics: !!p.i, color: p.tone ? RT_TONE[p.tone][1] : undefined, font: "Times New Roman", size: p.small ? 18 : 20 })),
+      spacing: { after: 60 }
+    }));
+  };
+  const specTableWord = spec => {
+    const rows = [new TableRow({ tableHeader: true, children: spec.headers.map(h => makeCell(rtText(h).replace(/\n/g, ' '), { isHeader: true })) })];
+    if (!spec.rows.length) rows.push(new TableRow({ children: [makeCell(spec.empty, { isLastRow: true }), ...spec.headers.slice(1).map(() => makeCell('-', { isLastRow: true }))] }));
+    spec.rows.forEach((r, i) => rows.push(new TableRow({ children: r.map(cell => makeCell(rtWord(cell), { isLastRow: i === spec.rows.length - 1 })) })));
+    return widthTable(rows, spec.widths);
+  };
+  const specBlockWord = spec => [
+    new Paragraph({ children: [new TextRun({ text: spec.title, bold: true, font: "Times New Roman", size: 24 })], spacing: { after: 60 } }),
+    new Paragraph({ children: [new TextRun({ text: spec.caption, italics: true, font: "Times New Roman", size: 18 })], spacing: { after: 140 } }),
+    specTableWord(spec)
   ];
-  const t1Rows = [
-    new TableRow({ tableHeader: true, children: t1Headers.map(h => makeCell(h, { isHeader: true })) })
-  ];
-
-  if (state.docs.length === 0) {
-    t1Rows.push(new TableRow({ children: [makeCell('No studies added yet.', { isLastRow: true }), ...Array(8).fill(0).map(() => makeCell('-', { isLastRow: true }))] }));
-  } else {
-    state.docs.forEach((d, idx) => {
-      normalizeDoc(d);
-      const isLast = idx === state.docs.length - 1;
-      const studyLabel = getDisplayName(d) + (idx === 0 ? ' ' + firstStudyMeta().short : '');
-      t1Rows.push(new TableRow({
-        children: [
-          makeCell(studyLabel, { isLastRow: isLast, bold: true }),
-          makeCell(d.title || d.name, { isLastRow: isLast }),
-          makeCell(d.setting || '-', { isLastRow: isLast }),
-          makeCell(d.participants || '-', { isLastRow: isLast }),
-          makeCell(d.methodology || '-', { isLastRow: isLast }),
-          makeCell(getAppraisalDisplayString(d), { isLastRow: isLast }),
-          makeCell(d.richness || '-', { isLastRow: isLast }),
-          makeCell(d.contextNote || '-', { isLastRow: isLast }),
-          makeCell(funderLinkedText(d), { isLastRow: isLast })
-        ]
-      }));
+  const loaBlockWord = () => {
+    const sp = getLoaBlockSpec();
+    if (!sp.show) return [];
+    const para = (label, text, { size = 22, before = 0, mono = false } = {}) => new Paragraph({
+      children: [
+        ...(label ? [new TextRun({ text: label + ' ', bold: true, font: "Times New Roman", size })] : []),
+        new TextRun({ text, font: mono ? "Courier New" : "Times New Roman", size })
+      ],
+      spacing: { before, after: 140 }
     });
-  }
-
-  const t2Headers = [
-    '3rd Order Construct & Type', 'Translation (A) & 3rd Order Interpretation (B)',
-    '2nd Order Constructs (Author Interpretations)', 'Illustrating 1st Order Quotes',
-    'Contributing Studies', 'GRADE-CERQual Confidence'
-  ];
-  const t2Rows = [
-    new TableRow({ tableHeader: true, children: t2Headers.map(h => makeCell(h, { isHeader: true })) })
-  ];
-  const allSeconds = state.annotations.filter(a => a.type === 'second_order').map(normalizeAnnotation);
-
-  if (state.clusters.length === 0) {
-    t2Rows.push(new TableRow({ children: [makeCell('No 3rd Order rows created yet.', { isLastRow: true }), ...Array(5).fill(0).map(() => makeCell('-', { isLastRow: true }))] }));
-  } else {
-    state.clusters.forEach((c, idx) => {
-      normalizeCluster(c);
-      const isLast = idx === state.clusters.length - 1;
-      const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
-      const contributingDocs = [...new Set(mappedSecs.map(s => {
-        const doc = state.docs.find(d => d.id === s.docId);
-        return doc ? getDisplayName(doc) : null;
-      }).filter(Boolean))];
-
-      const secParagraphs = mappedSecs.length > 0 ? mappedSecs.map(s => {
-        const doc = state.docs.find(d => d.id === s.docId);
-        const dName = doc ? getDisplayName(doc) : 'Study';
-        const cellNuance = (s.clusterComments && s.clusterComments[c.id]) ? ` [${s.clusterComments[c.id]}]` : '';
-        return new Paragraph({
-          children: [
-            new TextRun({ text: `• ${relTag(s, c.id)}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): `, bold: true, font: "Times New Roman", size: 20 }),
-            ...(s.note ? [new TextRun({ text: `${s.note}${secLabelTag(s)} — `, bold: true, font: "Times New Roman", size: 20 })] : []),
-            new TextRun({ text: `"${secEvidenceText(s)}"${cellNuance}`, font: "Times New Roman", size: 20 })
-          ],
-          spacing: { after: 80 }
-        });
-      }) : [new Paragraph({ children: [new TextRun({ text: '-', font: "Times New Roman", size: 20 })] })];
-
-      const quoteParagraphs = [];
-      const seenQ = new Set();
-      mappedSecs.forEach(s => {
-        const doc = state.docs.find(d => d.id === s.docId);
-        const dName = doc ? getDisplayName(doc) : 'Study';
-        const firsts = quotesOf(s.id).filter(f => !seenQ.has(f.id) && seenQ.add(f.id));
-        firsts.forEach(f => {
-          quoteParagraphs.push(new Paragraph({
-            children: [
-              new TextRun({ text: `• "${f.text}" `, italics: true, font: "Times New Roman", size: 20 }),
-              ...(f.note ? [new TextRun({ text: `[${f.note}] `, bold: true, font: "Times New Roman", size: 20 })] : []),
-              new TextRun({ text: `(${dName}, p.${f.page})`, font: "Times New Roman", size: 20 })
-            ],
-            spacing: { after: 80 }
-          }));
-        });
-      });
-      if (quoteParagraphs.length === 0) {
-        quoteParagraphs.push(new Paragraph({ children: [new TextRun({ text: '-', font: "Times New Roman", size: 20 })] }));
-      }
-
-      const transLabel = clusterTranslationLabel(c);
-
-      t2Rows.push(new TableRow({
-        children: [
-          makeCell(`${c.thirdOrderTitle || '(Untitled)'}${rowStatusNotes(c).map(n => ` (${n})`).join('')}\n[Type: ${transLabel} | Team status: ${concordanceLabel(c.concordanceStatus)}]`, { isLastRow: isLast, bold: true }),
-          makeCell([c.translationSummary ? 'Translation: ' + c.translationSummary : '', c.synthesisNote ? '3rd order interpretation: ' + c.synthesisNote : ''].filter(Boolean).join('\n\n') || '-', { isLastRow: isLast }),
-          makeCell([...secParagraphs, ...cellStatusLines(c).map(l => new Paragraph({ children: [new TextRun({ text: l, italics: true, font: "Times New Roman", size: 18 })], spacing: { after: 60 } }))], { isLastRow: isLast }),
-          makeCell(quoteParagraphs, { isLastRow: isLast }),
-          makeCell(contributingDocs.join('; ') || '-', { isLastRow: isLast }),
-          makeCell(`${c.cerqualConfidence || 'Not assessed'}${c.cerqualExplanation ? '\n' + c.cerqualExplanation : ''}`, { isLastRow: isLast })
-        ]
-      }));
+    const out = [];
+    sp.items.forEach((x, i) => {
+      if (x.style === 'heading') {
+        out.push(new Paragraph({ children: [new TextRun({ text: `${x.label} ${x.text}`, bold: true, font: "Times New Roman", size: 22 })], spacing: { before: 220, after: 140 } }));
+        if (sp.map) out.push(new Paragraph({ children: [new TextRun({ text: LOA_MAP_NOTE, italics: true, color: "2563EB", font: "Times New Roman", size: 20 })], spacing: { after: 140 } }));
+      } else out.push(para(x.label, x.text, { before: i === 0 ? 220 : 0, mono: x.style === 'mono' }));
     });
-  }
-
-  // Build Table 2b: Concept-by-Study Contribution Grid for Word (.docx)
-  const t2bHeaders = [
-    '3rd Order Construct (Theme)',
-    ...state.docs.map((d, idx) => getDisplayName(d) + (idx === 0 ? ' ' + firstStudyMeta().short : '')),
-    'CERQual'
-  ];
-  const t2bRows = [
-    new TableRow({ tableHeader: true, children: t2bHeaders.map(h => makeCell(h, { isHeader: true })) })
-  ];
-  if (state.clusters.length === 0) {
-    t2bRows.push(new TableRow({ children: [makeCell('No themes yet.', { isLastRow: true }), ...Array(state.docs.length + 1).fill(0).map(() => makeCell('-', { isLastRow: true }))] }));
-  } else {
-    state.clusters.forEach((c, idx) => {
-      normalizeCluster(c);
-      const isLast = idx === state.clusters.length - 1;
-      const mappedSecs = allSeconds.filter(s => s.clusterIds.includes(c.id));
-      const studyCells = state.docs.map(d => {
-        const docSecs = mappedSecs.filter(s => s.docId === d.id);
-        if (docSecs.length === 0) { const info = emptyCellInfo(c, d.id); return makeCell(info ? info.symbol : '', { isLastRow: isLast }); }
-        const sym = contribSymbol(docSecs, c.id);
-        const pg = cellPagesLabel(docSecs);
-        return makeCell(pg ? `${sym}\n${pg}` : sym, { isLastRow: isLast, bold: true });
-      });
-      t2bRows.push(new TableRow({
-        children: [
-          makeCell((c.thirdOrderTitle || '(Untitled)') + rowStatusNotes(c, { short: true }).map(n => ` (${n})`).join(''), { isLastRow: isLast, bold: true }),
-          ...studyCells,
-          makeCell(c.cerqualConfidence || 'Not assessed', { isLastRow: isLast, bold: true })
-        ]
-      }));
-    });
-  }
+    if (sp.models.length) {
+      out.push(new Paragraph({ children: [new TextRun({ text: `Independent models developed before merging (${sp.models.length})`, bold: true, font: "Times New Roman", size: 22 })], spacing: { before: 200, after: 80 } }));
+      sp.models.forEach(m => out.push(para(m.who + (m.text ? ':' : ''), m.text, { size: 20 })));
+      if (sp.mergeNote) out.push(para('How the models were merged:', sp.mergeNote, { size: 20 }));
+    }
+    return out;
+  };
 
   // Table 3 blocks (one or two tables depending on the Table 3 layout option)
   const t3Blocks = getTable3Specs().flatMap((spec, si) => {
@@ -1427,11 +1335,7 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
           ], [18, 22, 30, 30]),
         new Paragraph({ children: [new PageBreak()] }),
 
-        new Paragraph({
-          children: [new TextRun({ text: `Table 1. Characteristics and Critical Appraisal of Included Studies (${state.docs.length} studies)`, bold: true, font: "Times New Roman", size: 24 })],
-          spacing: { after: 140 }
-        }),
-        widthTable(t1Rows, [11, 15, 10, 10, 13, 10, 9, 12, 10]),
+        ...specBlockWord(getTable1Spec()),
         ...getAppraisalDomainSpecs().flatMap(spec => [
           new Paragraph({ children: [new PageBreak()] }),
           new Paragraph({ children: [new TextRun({ text: spec.title, bold: true, font: "Times New Roman", size: 24 })], spacing: { after: 80 } }),
@@ -1446,68 +1350,11 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
         ]),
 
         new Paragraph({ children: [new PageBreak()] }),
-        new Paragraph({
-          children: [new TextRun({ text: "Table 2. Meta-Ethnographic Translation and Synthesis of 1st, 2nd, and 3rd Order Constructs", bold: true, font: "Times New Roman", size: 24 })],
-          spacing: { after: 140 }
-        }),
-        widthTable(t2Rows, [16, 20, 24, 20, 10, 10]),
-        ...(state.loa.relateProcess || state.loa.relateOutcome ? [
-          new Paragraph({
-            children: [
-              new TextRun({ text: "Phase 4 \u2014 Relating the studies: ", bold: true, font: "Times New Roman", size: 22 }),
-              new TextRun({ text: `${state.loa.relateProcess ? 'Process: ' + state.loa.relateProcess + ' ' : ''}${state.loa.relateOutcome ? 'Outcome: ' + state.loa.relateOutcome : ''}`, font: "Times New Roman", size: 22 })
-            ],
-            spacing: { before: 220, after: 140 }
-          })
-        ] : []),
-        ...(getLoaLinks().length ? [
-          new Paragraph({
-            children: [
-              new TextRun({ text: "Concept relationships: ", bold: true, font: "Times New Roman", size: 22 }),
-              new TextRun({ text: getLoaLinks().map(l => `${clusterLabel(state.clusters.find(c => c.id === l.from))} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${clusterLabel(state.clusters.find(c => c.id === l.to))}${l.note ? ' (' + l.note + ')' : ''}`).join('; '), font: "Times New Roman", size: 22 })
-            ],
-            spacing: { before: 220, after: 140 }
-          }),
-          new Paragraph({
-            children: [new TextRun({ text: "[Note: Export the visual Concept Relationship Map (.svg) from the Line of Argument drawer to insert as Figure 1 here]", italics: true, color: "2563EB", font: "Times New Roman", size: 20 })],
-            spacing: { after: 140 }
-          })
-        ] : []),
-        ...(state.loa.title || state.loa.flow || state.loa.narrative ? [
-          new Paragraph({
-            children: [
-              new TextRun({ text: `Overarching Line of Argument Synthesis (${state.loa.title || 'Conceptual Model'}): `, bold: true, font: "Times New Roman", size: 22 }),
-              new TextRun({ text: `${state.loa.flow ? '[' + state.loa.flow + '] ' : ''}${state.loa.narrative || ''}`, font: "Times New Roman", size: 22 })
-            ],
-            spacing: { before: 220, after: 140 }
-          })
-        ] : []),
-        ...(state.loa.modelContext ? [new Paragraph({ children: [
-            new TextRun({ text: "Where the model applies (eMERGe item 16): ", bold: true, font: "Times New Roman", size: 22 }),
-            new TextRun({ text: state.loa.modelContext, font: "Times New Roman", size: 22 })
-          ], spacing: { after: 140 } })] : []),
-        ...((state.loa.teamModels || []).length ? [
-          new Paragraph({ children: [new TextRun({ text: `Independent models developed before merging (${state.loa.teamModels.length})`, bold: true, font: "Times New Roman", size: 22 })], spacing: { before: 200, after: 80 } }),
-          ...state.loa.teamModels.map(m => new Paragraph({ children: [
-            new TextRun({ text: `@${m.reviewer}${m.title ? ' — ' + m.title : ''}: `, bold: true, font: "Times New Roman", size: 20 }),
-            new TextRun({ text: [m.flow, (m.links || []).map(l => `${l.from} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${l.to}`).join('; '), m.narrative].filter(Boolean).join(' | '), font: "Times New Roman", size: 20 })
-          ], spacing: { after: 80 } })),
-          ...(state.loa.teamMergeNote ? [new Paragraph({ children: [
-            new TextRun({ text: 'How the models were merged: ', bold: true, font: "Times New Roman", size: 20 }),
-            new TextRun({ text: state.loa.teamMergeNote, font: "Times New Roman", size: 20 })
-          ], spacing: { after: 140 } })] : [])
-        ] : []),
+        ...specBlockWord(getTable2Spec()),
+        ...loaBlockWord(),
 
         new Paragraph({ children: [new PageBreak()] }),
-        new Paragraph({
-          children: [new TextRun({ text: "Table 2b. Concept-by-Study Contribution Matrix", bold: true, font: "Times New Roman", size: 24 })],
-          spacing: { after: 60 }
-        }),
-        new Paragraph({
-          children: [new TextRun({ text: TABLE2B_LEGEND + '. ' + TABLE2B_NOTE, italics: true, font: "Times New Roman", size: 18 })],
-          spacing: { after: 140 }
-        }),
-        widthTable(t2bRows, gridPcts(state.docs.length)),
+        ...specBlockWord(getTable2bSpec()),
 
         new Paragraph({ children: [new PageBreak()] }),
         ...t3Blocks,
@@ -1566,7 +1413,8 @@ document.getElementById('exportCsvBtn').addEventListener('click', async () => {
     const docIdx = state.docs.findIndex(d => d.id === sec.docId);
     const doc = state.docs[docIdx] ? normalizeDoc(state.docs[docIdx]) : null;
     const firsts = quotesOf(sec.id);
-    const targetClusterIds = sec.clusterIds.length > 0 ? sec.clusterIds : [null];
+    const live = liveClusterIds(sec); // rows that exist (a stale id would read as "(Unassigned)" without its not-translated note)
+    const targetClusterIds = live.length > 0 ? live : [null];
 
     targetClusterIds.forEach(cid => {
       const cluster = state.clusters.find(c => c.id === cid);
@@ -1606,7 +1454,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', async () => {
     });
   });
 
-  const csvContent = '\uFEFF' + rows.map(r => r.map(csvCell).join(',')).join('\n');
+  const csvContent = '\uFEFF' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'); // CRLF, as the full-trail CSV (Excel)
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

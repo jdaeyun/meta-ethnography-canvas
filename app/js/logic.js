@@ -6,7 +6,44 @@
 // Audit actions that other code reads back (row title history, Appendix A): written and matched from one place
 const LOG_ACTION = { rowTitle: 'Refined 3rd Order Construct Title' };
 
+// What kind of entry an audit entry is, written with it (recordAuditLog({ kind, targetLabel })). Appendix A decides by the kind,
+// so rewording an action's text in the UI changes nothing here. The patterns further down read entries written before kinds
+// existed (they stay as they are in old trails), and only those.
+//   series: repeated edits of one text, shown as one line in Appendix A (its label; one series per row, or per targetLabel)
+//   routine: bookkeeping, in Appendix A only when a reason was recorded with it; writeup: the Methods wording itself (Tab 4)
+//   rowsKey: a key decision only when it concerns rows (clusterIds); changedKey: only when it changes an earlier judgement
+/** @type {Record<string, { series?: string, routine?: boolean, writeup?: boolean, key?: boolean, rowsKey?: boolean, changedKey?: boolean }>} */
+const LOG_KINDS = {
+  row_title: { series: 'Row title refined' },
+  step_a: { series: 'Step A translation summary revised' },
+  step_b: { series: 'Step B third-order interpretation revised' },
+  row_reflexive: { series: 'Reflexive note on the row revised' },
+  row_team: { series: 'Team perspective on the row revised' },
+  row_cerqual: { series: 'GRADE-CERQual assessment revised' },
+  aim: { series: 'Research aim revised' },
+  review_question: { series: 'Review question revised' },
+  line_of_argument: { series: 'Line of argument revised' },
+  relate_outcome: { series: 'Outcome of relating studies (Item 12) revised' },
+  alternative_interpretations: { series: 'Alternative interpretations revised' },
+  model_context: { series: 'Context where the model applies (Item 16) revised' },
+  writeup: { writeup: true },
+  memo: { key: true },
+  auto_place: { key: true },
+  construct_delete: { rowsKey: true },
+  construct_restore: { rowsKey: true },
+  judgement: { changedKey: true },
+  trail_delete: { key: true },
+  trail_restore: { key: true },
+  undo_extraction: { routine: true }
+};
+['quote_link', 'quote_unlink', 'order_switch', 'wrap', 'label_source', 'construct_label', 'place', 'unplace', 'passage_add', 'passage_absorb',
+  'passage_split', 'within_study_link', 'within_study_unlink', 'extract_edit', 'study_overview', 'quote_delete', 'quote_restore', 'peer_import',
+  'peer_logs', 'provisional_agreement', 'construct_team', 'row_reorder', 'cell_note', 'not_translated', 'subgroup', 'appraisal_answer',
+  'appraisal', 'companion', 'reviewer_change'].forEach(k => { LOG_KINDS[k] = { routine: true }; });
+
+// ---- Entries written before kinds existed: recognised by their action text ----
 // Edits of one text that are shown as one line in Appendix A (family name; same row for row texts)
+/** @type {[RegExp, string][]} */
 const APPENDIX_EDIT_SERIES = [
   [new RegExp('^' + LOG_ACTION.rowTitle + '$'), 'Row title refined'],
   [/^Updated Step A Translation Summary for /, 'Step A translation summary revised'],
@@ -22,12 +59,13 @@ const APPENDIX_EDIT_SERIES = [
   [/^Updated Context where the model applies/, 'Context where the model applies (Item 16) revised']
 ];
 function appendixSeries(l) {
-  const hit = APPENDIX_EDIT_SERIES.find(([re]) => re.test(l.action || ''));
-  if (!hit) return null;
-  // Same row by id; entries from older versions without row ids are kept apart by their action text (it names the row)
-  return { label: hit[1], key: hit[1] + '|' + ((l.clusterIds || [])[0] || l.action || '') };
+  const kind = l.kind && LOG_KINDS[l.kind];
+  const label = kind ? kind.series : (APPENDIX_EDIT_SERIES.find(([re]) => re.test(l.action || '')) || [])[1];
+  if (!label) return null;
+  // Same row by id; else by what it is about (targetLabel); entries from older versions without row ids by their action text
+  return { label, key: label + '|' + ((l.clusterIds || [])[0] || l.targetLabel || l.action || '') };
 }
-function isMemoLog(l) { return /^\[[^\]]+\]/.test(l.action || '') && !/^\[Reviewer-wrapped\]/.test(l.action || ''); }
+function isMemoLog(l) { return l.kind ? l.kind === 'memo' : /^\[[^\]]+\]/.test(l.action || '') && !/^\[Reviewer-wrapped\]/.test(l.action || ''); }
 // Routine bookkeeping: shown in the full trail; in Appendix A only when a reason was recorded with it
 const APPENDIX_ROUTINE = [
   /^Linked 1st Order Quote/, /^Unlinked 1st Order Quote/, /^Switched (1st|2nd) Order/, /^\[Reviewer-wrapped\]/, /^Set 2nd Order label source/,
@@ -45,20 +83,30 @@ function isKeyDecisionLog(l) {
   if ((l.rationale || '').trim()) return true;
   if (isMemoLog(l)) return true;
   const a = l.action || '';
-  // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
-  if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false; // undoing a passage step is routine like the step
-  // Restoring a deleted construct is a key decision when the construct is placed in rows (as its deletion is)
-  if (/^Restored a deleted 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
-  // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
-  if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
-  if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
-  if (l.category === 'linking' || l.category === 'matrix_mapping' && !/^Auto-placed/.test(a)) return false;
+  const kind = l.kind && LOG_KINDS[l.kind];
+  if (kind) {
+    if (kind.routine || kind.writeup) return false;
+    // Deleting / restoring a construct is part of the reading; it is a decision about the synthesis when it was placed in a row
+    if (kind.rowsKey) return (l.clusterIds || []).length > 0;
+    // A first judgement of a placement is shown in Tables 2 / 2b: only a CHANGED judgement is a decision here
+    if (kind.changedKey) return !/Not yet judged/.test(l.fromVal || '');
+    if (kind.key || kind.series) return true;
+  } else {
+    // Undoing a key decision (a row merge / split, a removed row or study) is itself key; undoing an extraction step is not
+    if (/^Undid: /.test(a) && l.category === 'reading_extraction') return false; // undoing a passage step is routine like the step
+    if (/^Restored a deleted 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
+    // Older trails logged several drawer fields in one entry ("Updated A / B / C"): leave it out only if every part is write-up wording
+    if (/^Updated /.test(a) && a.slice(8).split(' / ').every(part => APPENDIX_WRITEUP.test('Updated ' + part))) return false;
+    if (APPENDIX_ROUTINE.some(re => re.test(a))) return false;
+    if (/^Judged construct as /.test(a)) return !/Not yet judged/.test(l.fromVal || '');
+    if (/^Deleted a 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
+  }
+  // By category, for entries of any age (an entry with a kind that says nothing above, or none)
+  const isAutoPlace = l.kind ? l.kind === 'auto_place' : /^Auto-placed/.test(a);
+  const isOutcome = l.kind ? l.kind === 'relate_outcome' : /^Updated Phase 4/.test(a);
+  if (l.category === 'linking' || (l.category === 'matrix_mapping' && !isAutoPlace)) return false;
   if (l.category === 'context_appraisal') return false; // reported per study in Table 1 / 1b
-  // Empty-cell statuses are shown in Table 2b; a first judgement of a placement is shown in Tables 2 / 2b: only a CHANGED judgement is a decision here
-  if (l.category === 'relating_studies' && !/^Updated Phase 4/.test(a)) return false;
-  if (/^Judged construct as /.test(a)) return !/Not yet judged/.test(l.fromVal || '');
-  // Deleting a construct is part of the reading; it is a decision about the synthesis only when it was placed in a row
-  if (/^Deleted a 2nd Order construct/.test(a)) return (l.clusterIds || []).length > 0;
+  if (l.category === 'relating_studies' && !isOutcome) return false; // empty-cell statuses are shown in Table 2b
   return true;
 }
 
@@ -88,6 +136,82 @@ function sanitizeProjectData(data) {
   return data;
 }
 
+// ======================= The project's consistency rules (checked in the tests; nothing here changes data) =======================
+// A 2nd Order construct's per-row fields (keyed by 3rd Order row id), besides its clusterIds
+const ANNOTATION_ROW_FIELDS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+
+// Every rule the project's records must keep, in one place. Returns the violations ([] = consistent): { rule, id, detail }.
+// Run after each step of the smoke tests (and available in the browser console), so a record left pointing at something that
+// is gone is caught where it is made, not later in an export.
+/** @param {{ docs?: any[], annotations?: any[], clusters?: any[], loa?: Record<string, any> }} project */
+function checkInvariants({ docs = [], annotations = [], clusters = [], loa = {} }) {
+  const out = [];
+  const bad = (rule, id, detail) => out.push({ rule, id, detail });
+  const docIds = new Set(docs.map(d => d.id)), rowIds = new Set(clusters.map(c => c.id));
+  const secs = annotations.filter(a => a.type === 'second_order');
+  const secById = new Map(secs.map(a => [a.id, a]));
+  /** @type {[string, any[]][]} */ ([['docs', docs], ['annotations', annotations], ['clusters', clusters]]).forEach(([store, list]) => {
+    const seen = new Set();
+    list.forEach(r => { if (seen.has(r.id)) bad('unique-id', r.id, `${store}: the id is used twice`); seen.add(r.id); });
+  });
+  annotations.forEach(a => {
+    if (!docIds.has(a.docId)) bad('annotation-study', a.id, `its study ${a.docId} is not in the project`);
+    if (a.type === 'second_order') {
+      const ids = Array.isArray(a.clusterIds) ? a.clusterIds : [];
+      if (new Set(ids).size !== ids.length) bad('row-once', a.id, 'placed in the same row twice');
+      ids.forEach(id => { if (!rowIds.has(id)) bad('row-exists', a.id, `placed in row ${id}, which is not in the project`); });
+      ANNOTATION_ROW_FIELDS.forEach(k => Object.keys(a[k] || {}).forEach(id => {
+        if (!ids.includes(id)) bad('row-fields-in-rows', a.id, `${k} for row ${id}, where it is not placed`);
+      }));
+    } else if (a.type === 'first_order') {
+      if ((a.clusterIds || []).length) bad('quote-shape', a.id, 'a quote placed in a row');
+      if ((a.passages || []).length) bad('quote-shape', a.id, 'a quote with passages');
+      ANNOTATION_ROW_FIELDS.forEach(k => { if (Object.keys(a[k] || {}).length) bad('quote-shape', a.id, `a quote with ${k}`); });
+      (a.parentIds || []).forEach(pid => {
+        const p = secById.get(pid);
+        if (!p) bad('quote-parent', a.id, `linked to construct ${pid}, which is not in the project`);
+        else if (p.docId !== a.docId) bad('quote-parent', a.id, `linked to construct ${pid} of another study`);
+      });
+    }
+  });
+  clusters.forEach(c => {
+    Object.keys(c.cellStatus || {}).forEach(docId => {
+      if (secs.some(a => a.docId === docId && (a.clusterIds || []).includes(c.id))) bad('cell-status-with-card', c.id, `an empty-cell record for study ${docId}, which has a construct in the row`);
+    });
+  });
+  (Array.isArray(loa.links) ? loa.links : []).forEach(l => {
+    if (!rowIds.has(l.from) || !rowIds.has(l.to)) bad('map-link', l.id, `a map relation to a row not in the project (${l.from} → ${l.to})`);
+  });
+  docs.forEach(d => {
+    if (d.companionOf && (d.companionOf === d.id || !docIds.has(d.companionOf))) bad('companion', d.id, `"same primary study as" ${d.companionOf}, not another study here`);
+    // A construct absorbed as a passage keeps its relationships under its id (they come back when it is split off)
+    const own = new Set(secs.filter(a => a.docId === d.id).flatMap(a => [a.id, ...(a.passages || []).map(p => p.absorbed && p.absorbed.snapshot && p.absorbed.snapshot.id).filter(Boolean)]));
+    (Array.isArray(d.conceptLinks) ? d.conceptLinks : []).forEach(l => {
+      if (!own.has(l.from) || !own.has(l.to)) bad('concept-link', d.id, `a within-study relationship to a construct not in this study (${l.from} → ${l.to})`);
+    });
+  });
+  return out;
+}
+
+// ======================= Study ids from another file (backup.js merge, compare.js) =======================
+// Another reviewer's file, or a backup, can call a study by another id. Every place a 3rd Order row names a study goes
+// through here, so none is forgotten: its base (◆), its empty-cell records (keyed by study) and the re-reading note after
+// study #1 changed. toLocal(id) gives this project's id (or the same id). Returns a new row object; an empty id stays as is.
+function remapRowDocIds(row, toLocal) {
+  const map = id => (id ? toLocal(id) || id : id);
+  const out = { ...row };
+  if ('baseDocId' in out) out.baseDocId = map(out.baseDocId);
+  if (out.cellStatus && typeof out.cellStatus === 'object') {
+    const cs = {};
+    Object.keys(out.cellStatus).forEach(id => { cs[map(id)] = out.cellStatus[id]; });
+    out.cellStatus = cs;
+  }
+  if (out.baselineChange && typeof out.baselineChange === 'object') {
+    out.baselineChange = { ...out.baselineChange, fromDocId: map(out.baselineChange.fromDocId), toDocId: map(out.baselineChange.toDocId) };
+  }
+  return out;
+}
+
 // ======================= Merge of a backup into the open project (backup.js) =======================
 // Empty at every depth: an object counts as empty when all of its values are (e.g. appraisalItems { CASP: {} }, which the app
 // creates as soon as a study's appraisal is looked at)
@@ -100,9 +224,21 @@ function isEmptyValue(v) {
 const isPlainObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
 // Lists of separate records (relations, team models, within-study links, set-aside items) are merged as a union: what is only
 // in the backup is added, a record in both (same key) keeps the local version. Key per list field:
+function unionItemContent(k, x) {
+  if (k !== 'links' && k !== 'conceptLinks') return stableJson(x);
+  const { id, from, to, ...rest } = x; // (id, from and to are in the key)
+  return stableJson(rest);
+}
+function relationKey(x) {
+  if (!x.from || !x.to) return 'id:' + x.id; // not a complete relation: only its id can tell it apart
+  const pair = isDirectedLink(x.type) ? `${x.from}|${x.to}` : [x.from, x.to].sort().join('|');
+  return `${pair}|${x.type}`;
+}
 const MERGE_UNION_KEYS = {
-  links: x => x.id || [x.from, x.to, x.type].join('|'),
-  conceptLinks: x => x.id || [x.from, x.to, x.type].join('|'),
+  // A relation is the same relation when it joins the same two items in the same way, whatever id each side gave it
+  // (two reviewers drawing A ➔ B each make their own id); for one without direction, A–B and B–A are the same
+  links: x => relationKey(x),
+  conceptLinks: x => relationKey(x),
   teamModels: x => x.id || [x.reviewer, x.title, x.capturedAt].join('|'),
   peerSetAside: x => [x.peerId, x.reviewer, x.textKey].join('|')
 };
@@ -115,11 +251,14 @@ function mergeFillEmpty(local, incoming, skip = []) {
     if (UNSAFE_KEYS.has(k) || skip.includes(k) || isEmptyValue(incoming[k])) return;
     if (MERGE_UNION_KEYS[k] && Array.isArray(incoming[k]) && Array.isArray(local[k])) {
       const keyOf = MERGE_UNION_KEYS[k], have = new Map(local[k].filter(Boolean).map(x => [keyOf(x), x]));
-      const add = incoming[k].filter(x => x && !have.has(keyOf(x)));
+      // Each new item once, even if the file lists it twice
+      const add = [], seen = new Set();
+      incoming[k].forEach(x => { if (x && !have.has(keyOf(x)) && !seen.has(keyOf(x))) { seen.add(keyOf(x)); add.push(x); } });
       if (add.length) { local[k] = [...local[k], ...add]; filled.push(k); }
       // The same item on both sides with other content (e.g. a relation's note edited elsewhere): the local one stays, and it is
-      // listed as a conflict, so the difference is seen
-      if (incoming[k].some(x => x && have.has(keyOf(x)) && stableJson(have.get(keyOf(x))) !== stableJson(x))) conflicts.push(k);
+      // listed as a conflict, so the difference is seen. What the key already says (a relation's ends, and the id each side
+      // gave it) is not a difference.
+      if (incoming[k].some(x => x && have.has(keyOf(x)) && unionItemContent(k, have.get(keyOf(x))) !== unionItemContent(k, x))) conflicts.push(k);
       return;
     }
     if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
@@ -274,6 +413,8 @@ function joinTextItems(strs) {
   strs.forEach(t => { if (!t) return; out += (out ? joinSeparator(out, t) : '') + t; });
   return out;
 }
+// Lower-case particles that belong to a surname written after the given name (case-sensitive: "Van" at the start is a name)
+const SURNAME_PARTICLES = new Set(['de', 'del', 'della', 'der', 'den', 'des', 'di', 'da', 'das', 'do', 'dos', 'du', 'la', 'le', 'van', 'von', 'ten', 'ter', 'zu']);
 function extractSurnameFromAuthorString(rawAuthor) {
   if (!rawAuthor) return { surname: '', hasEtAl: true };
   const cleaned = String(rawAuthor)
@@ -292,13 +433,18 @@ function extractSurnameFromAuthorString(rawAuthor) {
   if (firstChunk.includes(',')) {
     // "Surname, GivenName" format
     const surname = firstChunk.split(',')[0].trim().replace(/\s+[A-Z]{1,3}\.?$/, ''); // "Hernandez M" -> "Hernandez"
-    return { surname, hasEtAl: multiAuthors || cleaned.split(',').length > 2 };
+    // "Smith, John" is one author (its comma separates surname and given name): another author shows as ; / and / &, or a
+    // further comma ("Smith, J, Lee, K")
+    return { surname, hasEtAl: /;|\band\b|&/i.test(cleaned) || cleaned.split(',').length > 2 };
   }
   const parts = firstChunk.split(/\s+/).filter(Boolean);
-  // Vancouver style ("Hamdan A"): trailing initials -> surname is the first token
+  // Vancouver style ("Hamdan A", "De la Cruz M"): trailing initials -> the surname is everything before them
   const initialsLast = parts.length > 1 && /^[A-Z]{1,3}\.?$/.test(parts[parts.length - 1]);
-  const surname = parts.length > 0 ? (initialsLast ? parts[0] : parts[parts.length - 1]) : '';
-  return { surname, hasEtAl: multiAuthors };
+  if (initialsLast) return { surname: parts.slice(0, -1).join(' '), hasEtAl: multiAuthors };
+  // "Given Surname": the last word, with the lower-case particles before it ("Juan de la Cruz" -> "de la Cruz")
+  let from = parts.length - 1;
+  while (from > 1 && SURNAME_PARTICLES.has(parts[from - 1])) from--;
+  return { surname: from >= 0 ? parts.slice(from).join(' ') : '', hasEtAl: multiAuthors };
 }
 
 // Publication years 1940–2039 (classic qualitative studies of the 1960s and 1970s included), one pattern for every stage

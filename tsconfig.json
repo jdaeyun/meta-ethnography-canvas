@@ -1,0 +1,32 @@
+{
+  // `npm run typecheck`: tsc checks the app's classic scripts as one program (they share one global scope, as in the page).
+  // No build: noEmit. The order of "files" is the load order of me_canvas.html.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "strict": false,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "files": [
+    "tools/types/app-globals.d.ts",
+    "app/version.js",
+    "app/js/core.js",
+    "app/js/logic.js",
+    "app/checklists/casp-qualitative-2024.js",
+    "app/js/app.js",
+    "app/js/undo-audit.js",
+    "app/js/loa.js",
+    "app/js/studies-pdf.js",
+    "app/js/extraction.js",
+    "app/js/matrix.js",
+    "app/js/audit-view.js",
+    "app/js/compare.js",
+    "app/js/export.js",
+    "app/js/backup.js",
+    "app/js/demo.js"
+  ]
+}

@@ -122,7 +122,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       state.clusters = [];
       state.logs = [];
       clearUndoStack();
-      state.loa = { id: 'loa_main', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null };
+      state.loa = { id: 'loa_main', projectCode: incomingProjCode || '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null };
 
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);
@@ -140,7 +140,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
             addedBinKeys.push(d.id);
             d.hasBinary = true;
             d.fpDone = false; // another file under this id: fingerprint it again
-            d.sha256 = ''; d.doi = ''; // until then, no fingerprint of the backup's file stands for this one (Compare matches on it)
+            d.sha256 = ''; // until then, no fingerprint of the backup's file stands for this one (the DOI describes the study: it stays)
           }
         }
         await dbPut('docs', d);
@@ -153,11 +153,11 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         await dbPut('clusters', c);
         state.clusters.push(c);
       }
-      const fileSecIds = new Set(data.annotations.filter(a => a && a.type === 'second_order').map(a => a.id));
+      const fileSecs = data.annotations.filter(a => a && a.type === 'second_order');
       for (const rawA of data.annotations) {
         const a = normalizeAnnotation(rawA);
         const was = JSON.stringify([a.clusterIds, a.clusterRelations, a.clusterComments, a.aspectUsedInLoa, a.parentIds]);
-        dropGoneLinks(a, fileSecIds); // rows: those restored above; quotes' constructs: those in the file
+        dropGoneLinks(a, fileSecs); // rows: those restored above; quotes' constructs: those of its study in the file
         if (JSON.stringify([a.clusterIds, a.clusterRelations, a.clusterComments, a.aspectUsedInLoa, a.parentIds]) !== was) mergeReport.tidied++;
         await dbPut('annotations', a);
         state.annotations.push(a);
@@ -221,7 +221,9 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);
         if (d.companionOf) d.companionOf = toLocalDoc(d.companionOf);
-        const existing = findLocalDoc(d);
+        // The study the map points to (not a new search: a second study of the same name in the backup would otherwise be
+        // matched with the first one just added, while its constructs still point to its own id)
+        const existing = state.docs.find(x => x.id === mergeDocIdMap[rawD.id]);
         if (existing) {
           const r = mergeFillEmpty(existing, d, ['id', 'hasBinary', 'order', 'fpDone']); // fpDone: bookkeeping, not content
           if (r.conflicts.length) mergeReport.conflicts.push(`Study ${getDisplayName(existing)}: ${r.conflicts.join(', ')}`);
@@ -251,13 +253,8 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         mergeReport.annotations++;
       }
       for (const rawC of (data.clusters || [])) {
-        if (rawC && rawC.baseDocId) rawC.baseDocId = toLocalDoc(rawC.baseDocId);
-        if (rawC && rawC.cellStatus && typeof rawC.cellStatus === 'object') {
-          const cs = {};
-          Object.keys(rawC.cellStatus).forEach(id => { cs[toLocalDoc(id)] = rawC.cellStatus[id]; });
-          rawC.cellStatus = cs;
-        }
-        const c = normalizeCluster(rawC);
+        if (!rawC) continue;
+        const c = normalizeCluster(remapRowDocIds(rawC, toLocalDoc)); // base, empty-cell records, re-reading note
         const local = state.clusters.find(x => x.id === c.id);
         if (local) {
           if (!sameRecord(local, c)) {
@@ -270,21 +267,16 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         state.clusters.push(c);
         mergeReport.clusters++;
       }
-      // Items added from the backup may point to rows or 2nd Order constructs that are not in this project: drop those references
-      const liveRows = new Set(state.clusters.map(c => c.id));
-      const liveSecs = new Set(state.annotations.filter(a => a.type === 'second_order').map(a => a.id));
-      for (const a of state.annotations.filter(x => addedAnnoIds.has(x.id))) {
-        let changed = false;
-        if (a.type === 'second_order') {
-          const keep = a.clusterIds.filter(id => liveRows.has(id));
-          if (keep.length !== a.clusterIds.length) { a.clusterIds = keep; changed = true; }
-          ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'].forEach(k => Object.keys(a[k] || {}).forEach(id => { if (!liveRows.has(id)) { delete a[k][id]; changed = true; } }));
-        } else if (a.type === 'first_order') {
-          const keep = quoteParentIds(a).filter(id => liveSecs.has(id));
-          if (keep.length !== a.parentIds.length) { a.parentIds = keep; changed = true; }
-        }
-        if (changed) { mergeReport.tidied++; await dbPut('annotations', a); }
+      // Items added from the backup may point to rows or 2nd Order constructs that are not in this project (or, for a quote,
+      // to a construct of another study): those references are dropped (dropGoneLinks, as everywhere else)
+      const added = state.annotations.filter(x => addedAnnoIds.has(x.id));
+      for (const a of added) {
+        const was = JSON.stringify([a.clusterIds, a.parentIds, ...ANNOTATION_ROW_FIELDS.map(k => a[k])]);
+        dropGoneLinks(a);
+        if (JSON.stringify([a.clusterIds, a.parentIds, ...ANNOTATION_ROW_FIELDS.map(k => a[k])]) !== was) { mergeReport.tidied++; await dbPut('annotations', a); }
       }
+      // An added construct in a row: the row's base if not set yet, no empty-cell record for its study there
+      await dbBatch(placementRowOps(added));
       for (const l of (data.logs || [])) {
         if (state.logs.find(x => x.id === l.id)) continue;
         await dbPut('logs', l);
@@ -300,7 +292,8 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     if (data.loa && !replaceCleanly) {
       // MERGE: the aim, model and narrative are only filled where they are empty here
       if (data.loa.baselineDocId) data.loa.baselineDocId = mergeDocIdMap[data.loa.baselineDocId] || data.loa.baselineDocId;
-      const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt']);
+      // (where the map's boxes were dragged to is layout, not a reading: it is neither merged nor a conflict)
+      const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt', 'mapPositions', 'mapLayout']);
       if (r.conflicts.length) mergeReport.conflicts.push(`Research Aim & Overall Model: ${r.conflicts.join(', ')}`);
       const droppedLinks = dropGoneMapLinks(); // concept-map relations taken from the backup between rows not in this project
       if (r.filled.length || droppedLinks) { state.loa.id = 'loa_main'; await dbPut('meta', state.loa); }
@@ -364,19 +357,16 @@ function dropGoneMapLinks() {
 // The workspace is being replaced (reset, clean restore): let go of the open PDF and of what was cached for the old project
 // (PDF search index, matrix row heights), so nothing of it lingers when the new project has no study to open
 async function releaseWorkspaceView() {
-  if (pageObserver) {
-    pageObserver.disconnect();
-    pageObserver = null;
-  }
-  if (state.activePdfDoc) {
-    try { await state.activePdfDoc.destroy(); } catch (e) {}
-    state.activePdfDoc = null;
-  }
-  Object.assign(pdfSearchState, { docId: null, pageTexts: [], matches: [], activeIdx: -1, lastQuery: '' });
+  await closeActivePdf();
   Object.keys(matrixRowHeights).forEach(k => delete matrixRowHeights[k]);
 }
 
-document.getElementById('resetProjectBtn').addEventListener('click', async () => {
+document.getElementById('resetProjectBtn').addEventListener('click', () => {
+  // In the demo, starting blank would leave an empty "demo" (it is not filled again on reload): reset the demo instead
+  if (DEMO_MODE && document.getElementById('demoResetBtn')) { document.getElementById('demoResetBtn').click(); return; }
+  resetProject();
+});
+async function resetProject() {
   const ok = await askChoice({
     title: 'Reset the project (start blank)?',
     body: 'All studies, PDFs, constructs, matrix rows and audit trail entries in this browser are removed. This cannot be undone: use Backup first if you may need this project again.',
@@ -428,7 +418,7 @@ document.getElementById('resetProjectBtn').addEventListener('click', async () =>
     isInitialOrReset: true,
     titleText: 'New Project Setup & Phase 1 (Getting Started)'
   });
-});
+}
 
 // ---- After a restore: list the studies whose PDF is not stored in this browser and offer to import them ----
 // How alike a file name and a study's file name are (shared words / numbers such as the year): used only to list the likeliest study first

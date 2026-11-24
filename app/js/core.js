@@ -96,36 +96,6 @@ function flushAllPendingSaves() {
   return Promise.all(running);
 }
 
-function createDebouncedSaver(fn, delay = 350) {
-  let timer = null;
-  let latestArgs = null;
-  const flush = () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-      pendingSaveCleanups.delete(flush);
-      const argsToRun = latestArgs || [];
-      latestArgs = null;
-      return fn(...argsToRun);
-    }
-  };
-  const debounced = (...args) => {
-    latestArgs = args;
-    flashSaveStatus('saving');
-    if (timer) clearTimeout(timer);
-    pendingSaveCleanups.add(flush);
-    timer = setTimeout(() => {
-      timer = null;
-      pendingSaveCleanups.delete(flush);
-      const argsToRun = latestArgs || [];
-      latestArgs = null;
-      fn(...argsToRun);
-    }, delay);
-  };
-  debounced.flush = flush;
-  return debounced;
-}
-
 // Text field whose "commit" (save + audit-log entry) must never be skipped.
 // The commit runs once after typing, on whichever comes first: change, blur, a tab switch / re-render
 // (flushAllPendingSaves) or leaving the page. Use it instead of a bare `onchange` for every logged text field.
@@ -145,6 +115,36 @@ function bindPendingCommit(el, commitFn) {
   el.addEventListener('change', onLeave);
   el.addEventListener('blur', onLeave);
   return run;
+}
+
+// A text field of a record (a row's Step A, a construct's label…): the ONE way such a box saves and logs.
+//  - While typing, the text goes into the record (set) and the record is saved after a short pause (a draft, so nothing is
+//    lost if the browser closes while the box is still being written in).
+//  - When the box is left (or on a tab switch, a re-render, the page closing: bindPendingCommit), a draft still waiting is
+//    dropped and the commit runs once: the trimmed text is set and saved, and commit(prev, next) is called only if it changed
+//    since the last commit (it writes the audit entry and anything else that follows from the change).
+// So a record is never saved by two paths for one edit, and a saved text never lacks its audit entry.
+// get(): the text as stored; set(v): put it into the record; save(): write the record; onInput(v): e.g. a live preview.
+/** @param {any} el @param {{ get: () => any, set: (v: string) => void, save: () => any, commit?: (prev: string, next: string) => any, onInput?: (v: string) => void, delay?: number }} o */
+function bindTextField(el, { get, set, save, commit, onInput, delay = 350 }) {
+  let committed = String(get() || '').trim();
+  let timer = null;
+  el.addEventListener('input', () => {
+    set(el.value);
+    if (onInput) onInput(el.value);
+    flashSaveStatus('saving');
+    clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; Promise.resolve().then(save).catch(e => console.error('Save error:', e)); }, delay);
+  });
+  return bindPendingCommit(el, async () => {
+    clearTimeout(timer); timer = null; // the commit writes the record itself
+    const next = el.value.trim();
+    set(next);
+    const prev = committed;
+    committed = next;
+    await save();
+    if (next !== prev && commit) await commit(prev, next);
+  });
 }
 
 // The browser does not wait for asynchronous work while a page closes. If a text commit (save + audit entry) is still
@@ -219,6 +219,8 @@ async function dbPut(store, item, { quiet = false } = {}) {
 // Several writes across stores in ONE transaction: all of them are stored, or none (a crash, a full disk or an error part way
 // leaves the project as it was). For operations that change several records at once: merging / splitting / deleting rows and
 // deleting a study. ops: [{ store, put: item } | { store, del: key }]. quiet: as for dbPut (writes the user did not make)
+/** @typedef {{ store: string, put?: any, del?: any }} DbOp */
+/** @param {DbOp[]} ops */
 async function dbBatch(ops, { quiet = false } = {}) {
   if (!ops.length) return;
   const stores = [...new Set(ops.map(o => o.store))];
@@ -294,6 +296,41 @@ async function dbClear(store) {
 // ========================================================
 // STATE & NORMALIZATION
 // ========================================================
+// The page's state. Typed for `npm run typecheck`, so a misspelt field (state.annotaions) is an error: a new field is added
+// here and in the typedef below.
+/**
+ * @typedef {Object} AppState
+ * @property {string} reviewerId
+ * @property {string} projectCode
+ * @property {boolean} teamMode
+ * @property {boolean} logMinorOps
+ * @property {Set<string>} hiddenStudyIds
+ * @property {any[]} docs
+ * @property {any[]} annotations
+ * @property {any[]} clusters
+ * @property {any[]} logs
+ * @property {Record<string, any>} loa
+ * @property {string | null} activeDocId
+ * @property {any} activePdfDoc
+ * @property {number} scale
+ * @property {any} pendingSelection
+ * @property {boolean} isEditMetaMode
+ * @property {boolean} showContextRow
+ * @property {boolean} isLoaOpen
+ * @property {Record<string, string>} clusterActiveTabs
+ * @property {Set<string>} rowToolsOpen
+ * @property {string} activePubTable
+ * @property {any} peerComparison
+ * @property {string} activeCompareTab
+ * @property {string} poolSearchQuery
+ * @property {string} poolStudyFilter
+ * @property {boolean} poolRefutationalOnly
+ * @property {boolean} matrixRefutationalOnly
+ * @property {boolean} matrixCompactMode
+ * @property {boolean} matrixThemeFolded
+ * @property {any[]} undoStack
+ */
+/** @type {AppState} */
 const state = {
   reviewerId: lsGet('me_reviewer_id') || '',
   projectCode: lsGet('me_project_code') || '',
@@ -304,7 +341,8 @@ const state = {
   annotations: [],
   clusters: [],
   logs: [],
-  loa: { id: 'loa_main', projectCode: '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null },
+  // The project-wide record (meta store, 'loa_main'): these fields and many optional ones (write-up fields, map, team models…)
+  loa: /** @type {Record<string, any>} */ ({ id: 'loa_main', projectCode: '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null }),
   activeDocId: null,
   activePdfDoc: null,
   scale: 1.3,
@@ -446,6 +484,12 @@ function stripOuterQuotes(str) {
   return s.replace(/^["“”]+|["“”]+$/g, '').trim();
 }
 
+// Edited text of a construct: as normalizeAnnotation keeps it (a reviewer-wrapped construct's '[Concept derived from …]: "…"'
+// keeps its quotation marks; any other text loses the quotation marks around it)
+function cleanAnnotationText(a, raw) {
+  return a && a.origin === 'wrapped_first_order' ? String(raw || '').trim() : stripOuterQuotes(raw);
+}
+
 function sanitizePageLabel(p) {
   if (p === null || p === undefined) return '';
   return String(p).replace(/[^\p{L}\p{N}\s.,\-–—:\/()]/gu, '').trim().slice(0, 24);
@@ -499,15 +543,69 @@ function clearQuoteLinks(f) { f.parentIds = []; }
 function fileNamePart(s) {
   return String(s || '').replace(/[\\/:*?"<>|\x00-\x1f\s]+/g, '_').replace(/^[._]+|[._]+$/g, '');
 }
-// A 2nd Order construct's per-row fields (keyed by 3rd Order row id), besides its clusterIds
-const ANNOTATION_ROW_FIELDS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+// (A 2nd Order construct's per-row fields: ANNOTATION_ROW_FIELDS, in logic.js)
+// ---- A construct and a row: the one place that changes a construct's membership of a row ----
+// A construct's place in a row is clusterIds plus one value per row in each of ANNOTATION_ROW_FIELDS (judgement, cell note,
+// line-of-argument mark). Every code path that puts a construct into a row, takes it out, or records / restores what it had
+// there goes through these three, so no field is forgotten (the source of many earlier bugs).
+// What the construct has in the row: { clusterRelations?, clusterComments?, aspectUsedInLoa? } (only the fields it has)
+function rowFieldsOf(a, rowId) {
+  const out = {};
+  ANNOTATION_ROW_FIELDS.forEach(k => { if (a[k] && typeof a[k] === 'object' && rowId in a[k]) out[k] = a[k][rowId]; });
+  return out;
+}
+// Out of the row, with everything it had there. Returns what it had (rowFieldsOf), e.g. for Undo.
+function takeOutOfRow(a, rowId) {
+  const had = rowFieldsOf(a, rowId);
+  if (Array.isArray(a.clusterIds)) a.clusterIds = a.clusterIds.filter(id => id !== rowId);
+  ANNOTATION_ROW_FIELDS.forEach(k => { if (a[k] && typeof a[k] === 'object' && rowId in a[k]) { a[k] = { ...a[k] }; delete a[k][rowId]; } });
+  return had;
+}
+// Into the row, with exactly the given fields: anything left there from an earlier placement does not come back (a new
+// placement starts unjudged). What it changes in the row itself (base, empty-cell note): placementRowOps.
+function putIntoRow(a, rowId, fields = {}) {
+  if (!Array.isArray(a.clusterIds)) a.clusterIds = [];
+  if (!a.clusterIds.includes(rowId)) a.clusterIds.push(rowId);
+  ANNOTATION_ROW_FIELDS.forEach(k => {
+    const has = a[k] && typeof a[k] === 'object' && rowId in a[k];
+    if (k in fields && fields[k] !== undefined) a[k] = { ...(a[k] || {}), [rowId]: fields[k] };
+    else if (has) { a[k] = { ...a[k] }; delete a[k][rowId]; }
+  });
+  return a;
+}
+
+// A construct is in a row (placed, imported, or brought back by Undo): what that changes in the row, in one place.
+// A row whose base is not set yet ('') takes this study's; an empty-cell record for this study ("— not addressed" /
+// "◇ different aspect") no longer applies now that the study has a construct there. Returns the rows changed (to write).
+function rowsTouchedByPlacement(a) {
+  if (!a || a.type !== 'second_order') return [];
+  const changed = [];
+  (a.clusterIds || []).forEach(id => {
+    const row = state.clusters.find(c => c.id === id);
+    if (!row) return;
+    let ch = false;
+    if (row.baseDocId === '') { row.baseDocId = a.docId; ch = true; }
+    if (row.cellStatus && row.cellStatus[a.docId]) { row.cellStatus = { ...row.cellStatus }; delete row.cellStatus[a.docId]; ch = true; }
+    if (ch) changed.push(row);
+  });
+  return changed;
+}
+// The same for several constructs, as dbBatch ops (each row once)
+function placementRowOps(annos) {
+  const rows = new Map();
+  annos.forEach(a => rowsTouchedByPlacement(a).forEach(r => rows.set(r.id, r)));
+  return [...rows.values()].map(r => ({ store: 'clusters', put: r }));
+}
 // Drop links to what no longer exists, for an annotation brought back (Undo, split off a passage, a restored file): a construct's
 // placements in deleted rows (its clusterIds and every per-row field), a quote's links to deleted 2nd Order constructs.
-// alsoSecIds: constructs being brought back together with it (not in state.annotations yet). Returns the annotation.
-function dropGoneLinks(a, alsoSecIds = []) {
+// A quote keeps links only to constructs of its own study (as checkInvariants requires).
+// alsoSecs: constructs being brought back together with it (records, not in state.annotations yet). Returns the annotation.
+/** @param {any} a @param {Iterable<any>} [alsoSecs] */
+function dropGoneLinks(a, alsoSecs = []) {
   if (!a) return a;
   if (a.type === 'first_order') {
-    const secs = new Set([...alsoSecIds, ...state.annotations.filter(x => x.type === 'second_order').map(x => x.id)]);
+    const secs = new Set([...alsoSecs, ...state.annotations]
+      .filter(x => x && x.type === 'second_order' && x.docId === a.docId).map(x => x.id));
     a.parentIds = quoteParentIds(a).filter(id => secs.has(id));
     return a;
   }
@@ -778,8 +876,11 @@ function askChoice({ title = 'Choose', body = '', choices = [], cancelLabel = 'C
     choiceDismissOpen = () => finish(null);
     document.getElementById('choiceModalCloseBtn').onclick = () => finish(null); // also Escape (modal handling in app.js)
     document.getElementById('choiceModalCancelBtn').onclick = () => finish(null);
+    // One place to start (modalAccessibility in app.js focuses it as the dialog opens); the timer only covers a dialog that was
+    // already open (a new question replacing the last), and does nothing when the focus is already there
+    modal.dataset.focusId = 'choiceModalCancelBtn';
     modal.classList.remove('hidden'); modal.classList.add('flex');
-    setTimeout(() => document.getElementById('choiceModalCancelBtn').focus(), 20);
+    setTimeout(() => { const b = document.getElementById('choiceModalCancelBtn'); if (document.activeElement !== b) b.focus(); }, 20);
   });
 }
 
@@ -823,7 +924,8 @@ function askReason({ title = 'Why?', context = '', label = 'Why? (optional, save
     secBtn.onclick = () => finish(cancelLabel === null ? '' : null);
     closeBtn.onclick = dismiss; // also Escape (modal handling in app.js clicks the close button)
     input.onkeydown = e => { if (e.key === 'Enter' && (singleLine || e.ctrlKey || e.metaKey)) { e.preventDefault(); finish(input.value.trim()); } };
+    modal.dataset.focusId = input.id; // as askChoice: one place to start
     modal.classList.remove('hidden'); modal.classList.add('flex');
-    setTimeout(() => { input.focus(); if (singleLine) input.select(); }, 20);
+    setTimeout(() => { if (document.activeElement !== input) input.focus(); if (singleLine) input.select(); }, 20);
   });
 }

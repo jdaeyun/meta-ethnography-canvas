@@ -27,11 +27,13 @@ function clusterTitleHistory(cluster) {
 
 document.getElementById('addMemoBtn').addEventListener('click', async () => {
   const subType = document.getElementById('memoSubType').value;
-  const targetRef = document.getElementById('memoTargetRef').value;
+  // The option's value is unique (rows and studies by id: two rows may share a title); the entry names it by its label
+  const refOpt0 = document.getElementById('memoTargetRef').selectedOptions[0];
+  const targetRef = refOpt0 && refOpt0.value ? refOpt0.dataset.ref : '';
   const content = document.getElementById('memoContentInput').value.trim();
   if (!content) { showSnackbar('Write the memo first.'); return; }
 
-  const cat = subType === 'Team Concordance Meeting' ? 'concordance' :
+  const cat = subType === 'Team Perspectives Meeting' ? 'concordance' : // (category key kept: older entries use it)
               subType === 'GRADE-CERQual Rationale' ? 'cerqual' :
               subType === 'Line of Argument' ? 'line_of_argument' : 'reflexive_memo';
 
@@ -41,6 +43,7 @@ document.getElementById('addMemoBtn').addEventListener('click', async () => {
   box.value = '';
   try {
     await recordAuditLog({
+      kind: 'memo',
       category: cat,
       action: `[${subType}] ${targetRef ? '— ' + targetRef : ''}`,
       detail: content,
@@ -59,7 +62,8 @@ function renderAuditView() {
   refSel.innerHTML = '<option value="">General (Whole Synthesis)</option>';
   state.clusters.forEach(c => {
     const opt = document.createElement('option');
-    opt.value = `3rd Order Row: ${c.thirdOrderTitle || 'Untitled'}`;
+    opt.value = `row:${c.id}`;
+    opt.dataset.ref = `3rd Order Row: ${c.thirdOrderTitle || 'Untitled'}`;
     opt.textContent = `3rd Order: ${c.thirdOrderTitle || '(Untitled Row)'}`;
     opt.dataset.clusterId = c.id;
     refSel.appendChild(opt);
@@ -70,11 +74,13 @@ function renderAuditView() {
   rowSel.value = state.clusters.some(c => c.id === prevRow) ? prevRow : 'all';
   state.docs.forEach(d => {
     const opt = document.createElement('option');
-    opt.value = `Study: ${getDisplayName(d)}`;
+    opt.value = `doc:${d.id}`;
+    opt.dataset.ref = `Study: ${getDisplayName(d)}`;
     opt.textContent = `Study: ${getDisplayName(d)}`;
     refSel.appendChild(opt);
   });
   refSel.value = currentVal;
+  if (refSel.selectedIndex < 0) refSel.value = ''; // the row or study chosen before is gone
 
   renderAuditTimeline();
 }
@@ -126,10 +132,20 @@ function renderAuditTimeline() {
   if (typing) {
     if (!auditRedrawWaiting) {
       auditRedrawWaiting = true;
-      document.activeElement.addEventListener('blur', () => { auditRedrawWaiting = false; setTimeout(renderAuditTimeline, 0); }, { once: true });
+      // Left for real (not just the window losing focus, which keeps the text uncommitted): the commit runs on that blur, then
+      // the timeline is drawn again
+      const box = document.activeElement;
+      const onLeave = () => {
+        if (!document.hasFocus()) { box.addEventListener('blur', onLeave, { once: true }); return; }
+        auditRedrawWaiting = false; setTimeout(renderAuditTimeline, 0);
+      };
+      box.addEventListener('blur', onLeave, { once: true });
     }
     return;
   }
+  // A reason box the reviewer has just moved into (nothing typed yet) keeps the focus and caret across the redraw
+  const keep = ae && ae.classList.contains('rationale-input') && container.contains(ae) && ae.dataset.logId
+    ? { id: ae.dataset.logId, start: ae.selectionStart, end: ae.selectionEnd } : null;
   container.innerHTML = '';
   const filter = document.getElementById('auditFilterCategory').value;
   const rowFilter = document.getElementById('auditFilterRow')?.value || 'all';
@@ -188,7 +204,7 @@ function renderAuditTimeline() {
       ${log.detail ? `<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(log.detail)}</div>` : ''}
       ${diffHtml}
       <div class="pt-1">
-        <textarea rows="${Math.min(6, (log.rationale || '').split('\n').length)}" class="lazy-grow rationale-input w-full text-[13px] border border-dashed border-slate-300 rounded px-2 py-1 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-none text-slate-700 resize-none" placeholder="+ Add reason for this decision...">${escapeHtml(log.rationale || '')}</textarea>
+        <textarea rows="${Math.min(6, (log.rationale || '').split('\n').length)}" class="${log.rationale ? '' : 'lazy-grow '}rationale-input w-full text-[13px] border border-dashed border-slate-300 rounded px-2 py-1 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-none text-slate-700 resize-none" placeholder="+ Add reason for this decision...">${escapeHtml(log.rationale || '')}</textarea>
         <div class="rationale-stamp text-[11px] text-slate-400 ${rationaleStampText(log) ? '' : 'hidden'}">${escapeHtml(rationaleStampText(log))}</div>
       </div>
     `;
@@ -196,6 +212,7 @@ function renderAuditTimeline() {
     card.querySelector('.log-rev-btn').onclick = () => promptReassignItemReviewer(log, 'logs', renderAuditTimeline);
 
     const rationaleEl = card.querySelector('.rationale-input');
+    rationaleEl.dataset.logId = log.id;
     bindPendingCommit(rationaleEl, async () => {
       const next = rationaleEl.value.trim();
       const prev = (log.rationale || '').trim();
@@ -225,11 +242,13 @@ function renderAuditTimeline() {
       state.logs = state.logs.filter(x => x.id !== log.id);
       // Keep the trail honest: the deletion itself is recorded (with the removed entry's content)
       await recordAuditLog({
+        kind: 'trail_delete', targetId: log.id,
         category: 'audit_edit',
         action: `Deleted an audit trail entry: ${log.action}`,
         detail: `Original entry (${new Date(log.timestamp).toLocaleString()}, @${log.reviewer || 'Unknown'}, ${getCategoryMeta(log.category).label})${log.detail ? ':\n' + log.detail : ''}`,
         fromVal: log.fromVal || '',
-        toVal: log.toVal || ''
+        toVal: log.toVal || '',
+        clusterIds: log.clusterIds || null // so a row's history shows that one of its entries was deleted
       });
       updateAuditBadge();
       renderAuditTimeline();
@@ -245,5 +264,9 @@ function renderAuditTimeline() {
     more.textContent = `Show ${Math.min(AUDIT_PAGE, total - auditShownCount)} more (${total - auditShownCount} not shown)`;
     more.onclick = () => { auditShownCount += AUDIT_PAGE; renderAuditTimeline(); };
     container.appendChild(more);
+  }
+  if (keep) {
+    const box = [...container.querySelectorAll('.rationale-input')].find(x => x.dataset.logId === keep.id);
+    if (box) { box.focus({ preventScroll: true }); try { box.setSelectionRange(keep.start, keep.end); } catch (e) { /* not a text box */ } }
   }
 }

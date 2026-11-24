@@ -18,8 +18,11 @@ async function attachPdfFileToDoc(doc, file, { buffer = null, sha = '' } = {}) {
   const data = buffer || await file.arrayBuffer();
   doc.hasBinary = true;
   const sameFile = !!sha && sha === doc.sha256;
-  if (!sameFile) doc.fpDone = false; // fingerprint the newly attached file
+  // Another file (or one not checked yet): its fingerprint is worked out again from the file itself, so an old one (e.g. from a
+  // backup) never stands for it. The DOI stays: it describes the study (and may have been entered by hand), not the file.
+  if (!sameFile) { doc.fpDone = false; doc.sha256 = ''; }
   await dbBatch([{ store: 'pdf_binaries', put: { id: doc.id, data } }, { store: 'docs', put: doc }]); // the PDF and its study together
+  if (pdfSearchState.docId === doc.id) Object.assign(pdfSearchState, { docId: null, pageTexts: [] }); // its text index was the old file's
   ensureDocFingerprints(); // only studies not yet fingerprinted are read (e.g. one whose DOI was never looked for)
 }
 
@@ -137,8 +140,8 @@ async function handleFiles(files) {
       order: state.docs.length,
       addedAt: new Date().toISOString()
     });
-    await dbPut('pdf_binaries', { id: docId, data: buffer });
-    await dbPut('docs', doc);
+    // The PDF and its study in one transaction: a failure part way leaves no PDF without a study
+    await dbBatch([{ store: 'pdf_binaries', put: { id: docId, data: buffer } }, { store: 'docs', put: doc }]);
     state.docs.push(doc);
     lastAffectedId = doc.id;
   }
@@ -331,7 +334,7 @@ async function moveStudyOrder(fromIdx, toIdx) {
 function renderStudyList() {
   const list = document.getElementById('studyList');
   list.innerHTML = '';
-  document.getElementById('studiesCount').textContent = state.docs.length;
+  document.getElementById('studiesCount').textContent = String(state.docs.length);
 
   if (state.docs.length === 0) {
     list.innerHTML = `
@@ -393,6 +396,7 @@ function renderStudyList() {
         confirmLabel: 'Remove study', draftKey: 'remove-study-' + doc.id
       });
       if (why !== null) {
+        await flushAllPendingSaves(); // nothing of the study still waiting to be saved lands after the deletion
         const wasIndex = idx === 0;
         const binRec = await dbGet('pdf_binaries', doc.id);
         const toDel = state.annotations.filter(a => a.docId === doc.id);
@@ -415,7 +419,6 @@ function renderStudyList() {
         await dbBatch([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refOps]);
         state.docs = state.docs.filter(d => d.id !== doc.id);
         state.annotations = state.annotations.filter(a => a.docId !== doc.id);
-        await persistDocOrder();
         await recordAuditLog({
           category: 'study_order',
           rationale: why,
@@ -424,11 +427,13 @@ function renderStudyList() {
           fromVal: `${state.docs.length + 1} studies`,
           toVal: `${state.docs.length} studies`
         });
+        await persistDocOrder(); // after the removal's entry: a change of #1 it causes is logged after it
         if (state.activeDocId === doc.id) state.activeDocId = state.docs[0]?.id || null;
         showUndoSnackbar(`Removed ${getDisplayName(doc)}`);
         renderStudyList();
         if (state.activeDocId) switchStudy(state.activeDocId);
         else {
+          await closeActivePdf(); // the last study went: its PDF is let go, not only hidden behind the welcome guide
           renderWelcomeGuideIfNeeded();
           updateDocHeaderUI();
           updateSidebar();
@@ -736,6 +741,8 @@ function populateMetaEditInputs() {
 }
 
 async function saveCurrentMeta() {
+  // Every field of the dock is read and saved here, the text fields too: nothing is left waiting for commitMeta
+  metaDirty = false; pendingSaveCleanups.delete(commitMeta);
   const doc = state.docs.find(d => d.id === state.activeDocId);
   if (!doc) return;
   normalizeDoc(doc);
@@ -748,7 +755,12 @@ async function saveCurrentMeta() {
   doc.etAl = document.getElementById('metaEtAl').checked;
   doc.year = document.getElementById('metaYear').value.trim();
   doc.title = document.getElementById('metaTitle').value.trim();
-  doc.doi = normalizeDoi(document.getElementById('metaDoi').value) || '';
+  const doiEl = document.getElementById('metaDoi'), doiRaw = doiEl.value.trim();
+  doc.doi = normalizeDoi(doiRaw) || '';
+  // The box shows what is stored (e.g. "https://doi.org/10.1/x" is kept as 10.1/x); text that is not a DOI is said so, not
+  // silently kept on screen while nothing is stored
+  if (doiRaw && !doc.doi) showSnackbar('That is not a DOI (it starts with 10.…): it was not saved.');
+  if (document.activeElement !== doiEl) doiEl.value = doc.doi;
   doc.setting = document.getElementById('metaSetting').value.trim();
   doc.participants = document.getElementById('metaParticipants').value.trim();
   const prevGroup = doc.group || '';
@@ -768,6 +780,7 @@ async function saveCurrentMeta() {
 
   if (prevGroup !== doc.group) {
     await recordAuditLog({
+      kind: 'subgroup',
       category: 'context_appraisal',
       action: `Set subgroup for ${getDisplayName(doc)}`,
       fromVal: prevGroup || '(none)',
@@ -778,6 +791,7 @@ async function saveCurrentMeta() {
 
   if (prevSummary !== newSummary) {
     await recordAuditLog({
+      kind: 'appraisal',
       category: 'context_appraisal',
       action: `Updated Critical Appraisal / Richness for ${getDisplayName(doc)}`,
       detail: `Setting: ${doc.setting || '-'} | Sample: ${doc.participants || '-'} | Note: ${doc.contextNote || '-'}`,
@@ -788,6 +802,7 @@ async function saveCurrentMeta() {
 
   if (prevOverview !== doc.studyOverview) {
     await recordAuditLog({
+      kind: 'study_overview',
       category: 'reading_extraction',
       action: `${prevOverview ? 'Revised' : 'Wrote'} Study Overview / Key Metaphors for ${getDisplayName(doc)}`,
       detail: 'Phase 3–4: the account read as a whole (storyline, key metaphors and how they relate) before / alongside construct extraction.',
@@ -799,6 +814,7 @@ async function saveCurrentMeta() {
   if (prevCompanion !== doc.companionOf) {
     const other = state.docs.find(d => d.id === doc.companionOf);
     await recordAuditLog({
+      kind: 'companion',
       category: 'context_appraisal',
       action: doc.companionOf ? `Linked ${getDisplayName(doc)} as a companion paper (same primary study)` : `Unlinked companion paper: ${getDisplayName(doc)}`,
       detail: doc.companionOf ? `Same primary study as ${getDisplayName(other)} (eMERGe item 10).` : '',
@@ -836,6 +852,7 @@ function renderAppraisalDomains(doc) {
   updateStatus();
   const logChange = async (what, detail, from, to) => {
     await recordAuditLog({
+      kind: 'appraisal_answer',
       category: 'context_appraisal',
       action: `Appraisal (${tool} ${what}) for ${getDisplayName(doc)}: ${from ? 'changed' : 'recorded'}`,
       detail, fromVal: from || '', toVal: to || ''
@@ -949,7 +966,7 @@ document.querySelectorAll('.meta-drop-target').forEach(input => {
     input.classList.add('drop-input-active');
   });
   input.addEventListener('dragleave', () => input.classList.remove('drop-input-active'));
-  input.addEventListener('drop', async e => {
+  input.addEventListener('drop', async (/** @type {DragEvent} */ e) => {
     e.preventDefault();
     input.classList.remove('drop-input-active');
     const droppedText = (e.dataTransfer.getData('text/plain') || '').replace(/\s+/g, ' ').trim();
@@ -1068,7 +1085,7 @@ async function renderPageContentNow(container, num) {
     txtLayer.className = 'textLayer';
     txtLayer.style.width = vp.width + 'px';
     txtLayer.style.height = vp.height + 'px';
-    txtLayer.style.setProperty('--scale-factor', state.scale);
+    txtLayer.style.setProperty('--scale-factor', String(state.scale));
     container.appendChild(txtLayer);
 
     await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
@@ -1123,12 +1140,15 @@ function selectionTextWithSpaces(range) {
 
 document.addEventListener('mouseup', (e) => {
   const tt = document.getElementById('selectionTooltip');
-  if (tt.contains(e.target)) return;
+  if (tt.contains(/** @type {Node} */ (e.target))) return;
   if (divExtract.classList.contains('hidden')) return tt.classList.add('hidden'); // the PDF is only in Tab 1
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !state.activeDocId) return tt.classList.add('hidden');
 
   const range = sel.getRangeAt(0);
+  // Both ends in the PDF: a drag that runs on into the sidebar would take its button labels along as "quote" text
+  const inPdf = n => { const el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('#pdfPagesWrapper')); };
+  if (!inPdf(range.startContainer) || !inPdf(range.endContainer)) return tt.classList.add('hidden');
   const txt = selectionTextWithSpaces(range).normalize('NFC').trim();
   if (!txt) return tt.classList.add('hidden');
 
@@ -1441,6 +1461,20 @@ async function ensurePdfTextIndex() {
   return pageTexts;
 }
 
+// No study is open any more (the last one deleted, a reset, a clean restore): let go of the PDF that was shown, its page
+// observer and its search index
+async function closeActivePdf() {
+  if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
+  if (state.activePdfDoc) {
+    try { await state.activePdfDoc.destroy(); } catch (e) { /* already closed */ }
+    state.activePdfDoc = null;
+  }
+  Object.assign(pdfSearchState, { docId: null, pageTexts: [] });
+  resetPdfSearchResults();
+  const label = document.getElementById('pdfPageCountLabel');
+  if (label) label.textContent = '0 pages';
+}
+
 // Another study opened: forget the hits of the previous one (the words typed stay, so Enter searches the new paper)
 function resetPdfSearchResults() {
   pdfSearchState.matches = [];
@@ -1699,10 +1733,14 @@ async function autoExtractCitationFromPdf() {
           const parsed = extractSurnameFromAuthorString(firstAuthorChunk);
           // A capitalised surname, or one in capitals (SMITH, O'NEILL-JONES) written as Smith, O'Neill-Jones. Names in other
           // scripts are left to the reviewer: the order of family and given name cannot be told from the line.
-          const allCaps = parsed.surname && /^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]+$/.test(parsed.surname);
-          if (parsed.surname && (allCaps || /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ-]+/.test(parsed.surname))) {
+          // Judged on the surname's last word, so one with particles ("de la Cruz", "van Dijk") is accepted
+          const core = parsed.surname ? parsed.surname.split(/\s+/).pop() : '';
+          const allCaps = !!core && /^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]+$/.test(core);
+          if (parsed.surname && (allCaps || /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ-]+/.test(core))) {
             detectedAuthor = allCaps ? parsed.surname.toLowerCase().replace(/(^|[-'’\s])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : parsed.surname;
-            detectedEtAl = /,|;|\band\b|&/i.test(rawAuthorLine);
+            // On a title page commas separate authors ("Ann Lee, Bo Kim"); affiliation marks ("Ann Lee1,2*") are taken out first,
+            // so one author with two affiliations is not read as several
+            detectedEtAl = /,|;|\band\b|&/i.test(rawAuthorLine.replace(/[\d*†‡§¶✉]+(?:\s*,\s*[\d*†‡§¶✉]+)*/g, ''));
           }
         }
       }
@@ -1727,7 +1765,7 @@ async function autoExtractCitationFromPdf() {
   }
 
   if (detectedAuthor) document.getElementById('metaAuthor').value = detectedAuthor;
-  document.getElementById('metaEtAl').checked = detectedEtAl;
+  if (detectedAuthor) document.getElementById('metaEtAl').checked = detectedEtAl; // "et al." is only judged with an author found
   if (detectedYear) document.getElementById('metaYear').value = detectedYear;
   if (detectedTitle) document.getElementById('metaTitle').value = detectedTitle;
 

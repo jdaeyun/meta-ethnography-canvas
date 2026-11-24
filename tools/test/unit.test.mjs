@@ -12,9 +12,9 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'app/js/logic.js'), 'utf8'), ctx, { filename: 'app/js/logic.js' });
-const L = vm.runInContext(`({ LOG_ACTION, appendixSeries, isMemoLog, isKeyDecisionLog, sanitizeProjectData, isEmptyValue, mergeFillEmpty,
+const L = vm.runInContext(`({ LOG_KINDS, LOG_ACTION, appendixSeries, isMemoLog, isKeyDecisionLog, sanitizeProjectData, isEmptyValue, mergeFillEmpty,
   mergeFillTexts, MERGE_FILL_TEXT, stableJson, sameRecord, computeTextSimilarity, isDirectedLink, linkPairOffsets, flowColumnRanks,
-  joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate })`, ctx);
+  joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds, checkInvariants })`, ctx);
 // Objects made inside the context have that context's prototypes: compare them as plain JSON
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -53,6 +53,13 @@ test('merge: emptiness at every depth, union of records, nested answers, conflic
   assert.deepEqual(plain(ru.conflicts), ['links'], 'the same relation with another note is a conflict');
   assert.equal(lu.links.length, 2);
   assert.equal(lu.links[0].note, 'here', 'the local relation stays');
+  const lv = { links: [{ id: 'mine', from: 'a', to: 'b', type: 'leads' }, { id: 'm2', from: 'a', to: 'b', type: 'mutual' }] };
+  L.mergeFillEmpty(lv, { links: [{ id: 'theirs', from: 'a', to: 'b', type: 'leads' }, { id: 't2', from: 'b', to: 'a', type: 'mutual' }, { id: 't3', from: 'b', to: 'a', type: 'leads' }] });
+  assert.deepEqual(plain(lv.links.map(l => l.id)), ['mine', 'm2', 't3'], 'the same relation drawn on both sides (another id) is not added twice; B ➔ A is another relation');
+  const lw = { links: [{ id: 'x', from: 'a', to: 'b', type: 'mutual', note: '' }] };
+  const rw = L.mergeFillEmpty(lw, { links: [{ id: 'y', from: 'b', to: 'a', type: 'mutual', note: '' }, { id: 'z', from: 'c', to: 'd', type: 'leads' }, { id: 'z2', from: 'c', to: 'd', type: 'leads' }] });
+  assert.deepEqual(plain(rw.conflicts), [], 'the same relation with another id or drawn the other way round is no conflict');
+  assert.equal(lw.links.length, 2, 'a relation listed twice in the file is added once');
 });
 
 test('project files are sanitised: prototype keys at every depth, records without an id', () => {
@@ -72,6 +79,61 @@ test('flow columns: a chain of ⇄ / ⚡ relations takes the column of the const
   const links = [{ id: '1', from: 'A', to: 'B', type: 'leads' }, { id: '2', from: 'B', to: 'C', type: 'mutual' }, { id: '3', from: 'C', to: 'D', type: 'contradicts' }];
   const { rank } = L.flowColumnRanks(['A', 'B', 'C', 'D'], links);
   assert.deepEqual(plain(rank), { A: 0, B: 1, C: 1, D: 1 });
+});
+
+test('study ids from another file: every place a row names a study is turned into the local id', () => {
+  const map = { p1: 'l1', p2: 'l2' };
+  const toLocal = id => map[id];
+  const row = { id: 'r', baseDocId: 'p1', cellStatus: { p2: { status: 'absent' }, p9: { status: 'other_aspect' } }, baselineChange: { fromDocId: 'p1', toDocId: 'p2', at: 1 } };
+  const out = plain(L.remapRowDocIds(row, toLocal));
+  assert.equal(out.baseDocId, 'l1');
+  assert.deepEqual(Object.keys(out.cellStatus).sort(), ['l2', 'p9'], 'an id with no local counterpart stays');
+  assert.deepEqual([out.baselineChange.fromDocId, out.baselineChange.toDocId, out.baselineChange.at], ['l1', 'l2', 1]);
+  assert.equal(row.baseDocId, 'p1', 'the row given is not changed');
+  assert.equal(L.remapRowDocIds({ baseDocId: null }, toLocal).baseDocId, null, '"No single base" stays');
+  assert.equal(L.remapRowDocIds({ baseDocId: '' }, toLocal).baseDocId, '', 'a base not set yet stays');
+});
+
+test('consistency rules: a consistent project passes, each kind of stale link is named', () => {
+  const docs = [{ id: 'd1', conceptLinks: [{ id: 'k', from: 's1', to: 's2' }] }, { id: 'd2', companionOf: 'd1' }];
+  const clusters = [{ id: 'r1', cellStatus: { d2: { status: 'absent' } } }];
+  const annotations = [
+    { id: 's1', docId: 'd1', type: 'second_order', clusterIds: ['r1'], clusterRelations: { r1: 'reciprocal' } },
+    { id: 's2', docId: 'd1', type: 'second_order', clusterIds: [] },
+    { id: 'q1', docId: 'd1', type: 'first_order', parentIds: ['s1'] }
+  ];
+  const loa = { links: [] };
+  assert.deepEqual(plain(L.checkInvariants({ docs, annotations, clusters, loa })), []);
+  const rules = x => plain(L.checkInvariants(x)).map(v => v.rule).sort();
+  assert.deepEqual(rules({ docs, clusters, loa, annotations: [...annotations, { id: 's3', docId: 'd2', type: 'second_order', clusterIds: ['r1', 'gone'], clusterComments: { r9: 'x' } }] }),
+    ['cell-status-with-card', 'row-exists', 'row-fields-in-rows']);
+  assert.deepEqual(rules({ docs, clusters, loa, annotations: [...annotations, { id: 'q2', docId: 'd2', type: 'first_order', parentIds: ['s1', 'gone'], clusterIds: ['r1'] }] }),
+    ['quote-parent', 'quote-parent', 'quote-shape']);
+  assert.deepEqual(rules({ docs: [...docs, { id: 'd3', companionOf: 'd3', conceptLinks: [{ from: 's1', to: 's2' }] }], clusters, annotations, loa: { links: [{ id: 'l', from: 'r1', to: 'gone' }] } }),
+    ['companion', 'concept-link', 'map-link']);
+  // A construct absorbed as a passage keeps its within-study relationships under its id: not a violation
+  const absorbed = annotations.map(a => a.id === 's2' ? { ...a, passages: [{ id: 'p', absorbed: { snapshot: { id: 's9' } } }] } : a);
+  assert.deepEqual(plain(L.checkInvariants({ docs: [{ id: 'd1', conceptLinks: [{ from: 's1', to: 's9' }] }], clusters: [], loa, annotations: absorbed.map(a => ({ ...a, clusterIds: [], clusterRelations: {} })) })), []);
+});
+
+test('Appendix A goes by the kind of an entry, so rewording an action changes nothing; old entries are read by their text', () => {
+  const K = L.isKeyDecisionLog;
+  // Reworded actions, same kinds
+  const ser = L.appendixSeries({ kind: 'step_a', action: 'Revised the translation summary', clusterIds: ['r1'] });
+  assert.equal(ser.label, 'Step A translation summary revised');
+  assert.equal(L.appendixSeries({ kind: 'step_a', action: 'x', clusterIds: ['r1'] }).key, ser.key, 'one series per row');
+  assert.ok(!K({ kind: 'quote_link', action: 'Joined a quote and a construct', category: 'x' }), 'routine by kind');
+  assert.ok(!K({ kind: 'writeup', action: 'Rewrote the reading process', category: 'reading_extraction' }));
+  assert.ok(K({ kind: 'construct_delete', action: 'Removed a concept', clusterIds: ['r1'] }) && !K({ kind: 'construct_delete', action: 'Removed a concept', clusterIds: [] }));
+  assert.ok(!K({ kind: 'judgement', action: 'Read as reciprocal', category: 'third_order', fromVal: '○ Not yet judged' }));
+  assert.ok(K({ kind: 'auto_place', action: 'Seeded rows', category: 'matrix_mapping' }), 'auto-placement is the one key matrix entry');
+  assert.ok(K({ kind: 'memo', action: 'A note without brackets' }));
+  // An action text that an old pattern matches, but with a kind that says otherwise: the kind wins
+  assert.ok(K({ kind: 'auto_place', action: 'Linked 1st Order Quote to …', category: 'matrix_mapping' }));
+  // Entries without a kind (older trails): by their text, as before
+  assert.equal(L.appendixSeries({ action: 'Updated Step A Translation Summary for "R"', clusterIds: ['r1'] }).label, 'Step A translation summary revised');
+  assert.ok(!K({ action: 'Linked 1st Order Quote to …', category: 'linking' }));
+  assert.ok(Object.values(L.LOG_KINDS).every(k => Object.keys(k).length > 0), 'every kind says how Appendix A treats it');
 });
 
 test('Appendix A: key decisions, routine bookkeeping, edit series', () => {
@@ -114,6 +176,13 @@ test('PDF text and citations: CJK joins, author surnames, years', () => {
   assert.deepEqual(S('Hernandez, Maria; Lee, J'), { surname: 'Hernandez', hasEtAl: true });
   assert.deepEqual(S('Hamdan A'), { surname: 'Hamdan', hasEtAl: false });
   assert.deepEqual(S('Anna Smith PhD'), { surname: 'Smith', hasEtAl: false });
+  assert.deepEqual(S('De la Cruz M'), { surname: 'De la Cruz', hasEtAl: false }, 'Vancouver: every word before the initials');
+  assert.deepEqual(S('Van der Berg JK'), { surname: 'Van der Berg', hasEtAl: false });
+  assert.deepEqual(S('Juan de la Cruz'), { surname: 'de la Cruz', hasEtAl: false }, 'lower-case particles belong to the surname');
+  assert.deepEqual(S('Ludwig van Beethoven'), { surname: 'van Beethoven', hasEtAl: false });
+  assert.deepEqual(S('Smith'), { surname: 'Smith', hasEtAl: false });
+  assert.deepEqual(S('Smith, John'), { surname: 'Smith', hasEtAl: false }, 'one author written surname first');
+  assert.deepEqual(S('Smith, J, Lee, K'), { surname: 'Smith', hasEtAl: true });
   assert.deepEqual(S('山田 太郎、佐藤 花子'), { surname: '山田', hasEtAl: true });
   assert.deepEqual(S(''), { surname: '', hasEtAl: true });
   const year = s => (String(s).match(L.YEAR_RE) || [])[1] || '';

@@ -112,7 +112,9 @@ function buildConceptMapSvg(prefix, width, height, layout = getLoaMapLayout()) {
   });
   const edge = (a, b) => {
     let dx = b.x - a.x, dy = b.y - a.y;
-    const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) return { x1: a.x, y1: a.y, x2: b.x, y2: b.y }; // two boxes dragged onto one place: no direction, no NaN
+    dx /= len; dy /= len;
     const t = (n) => Math.min(Math.abs(dx) < 1e-6 ? Infinity : (n.w / 2 + 3) / Math.abs(dx), Math.abs(dy) < 1e-6 ? Infinity : (n.h / 2 + 3) / Math.abs(dy));
     return { x1: a.x + dx * t(a), y1: a.y + dy * t(a), x2: b.x - dx * t(b), y2: b.y - dy * t(b) };
   };
@@ -257,6 +259,8 @@ function downloadConceptMapSvg() {
   svg = svg.replace(/viewBox="0 0 [\d.]+ [\d.]+" width="100%" style="[^"]*"/, `viewBox="0 0 ${W} ${H + legendH}" width="${W}" height="${H + legendH}"`);
   const legend = `<g font-family="Georgia, serif" font-size="10" fill="#334155"><text x="8" y="${H + 15}">${escapeHtml(state.loa.title || 'Line of argument')} — ${[...new Set(getLoaLinks().map(l => l.type))].map(t => (LINK_TYPES[t] || LINK_TYPES.leads)).map(m => m.sym + ' ' + m.label).join(' · ')}</text></g>`;
   svg = svg.replace('</svg>', legend + '</svg>');
+  // A white ground under the whole file (both layouts, legend included), so it stays readable on a dark slide
+  svg = svg.replace(/(<svg[^>]*>)/, `$1<rect x="0" y="0" width="${W}" height="${H + legendH}" fill="#ffffff"/>`);
   const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -321,8 +325,9 @@ function renderLoaAspects() {
     await recordAuditLog({
       clusterIds: [x.cluster.id],
       category: 'line_of_argument',
-      action: cb.checked ? `Line of argument draws on a different aspect: ${getDisplayName(x.doc)} (beside "${clusterLabel(x.cluster)}")`
-        : `Line of argument no longer draws on: ${getDisplayName(x.doc)} (beside "${clusterLabel(x.cluster)}")`,
+      // (a card placed in the row and judged ◇, or an empty cell marked ◇ beside it)
+      action: cb.checked ? `Line of argument draws on a different aspect: ${getDisplayName(x.doc)} (${x.sec ? 'in' : 'beside'} "${clusterLabel(x.cluster)}")`
+        : `Line of argument no longer draws on: ${getDisplayName(x.doc)} (${x.sec ? 'in' : 'beside'} "${clusterLabel(x.cluster)}")`,
       detail: x.note,
       fromVal: cb.checked ? 'Not used' : 'Used in the line of argument',
       toVal: cb.checked ? 'Used in the line of argument' : 'Not used'
@@ -459,10 +464,19 @@ function mapNodeCenter(g) {
     box.querySelector(`.loa-map-node[data-node="${CSS.escape(id)}"]`)?.focus();
     clearTimeout(keyMove.timer);
     const km = keyMove;
-    km.timer = setTimeout(() => { if (keyMove === km) keyMove = null; saveMapPositions(km.layout, km.before, 'Moved a box in the map'); }, 600);
+    // Saved 600 ms after the last press, or at once on a tab switch / page leave (registered like any pending save)
+    if (!km.save) km.save = () => {
+      clearTimeout(km.timer);
+      pendingSaveCleanups.delete(km.save);
+      if (keyMove === km) keyMove = null;
+      return saveMapPositions(km.layout, km.before, 'Moved a box in the map');
+    };
+    pendingSaveCleanups.add(km.save);
+    km.timer = setTimeout(km.save, 600);
   });
 })();
 async function resetLoaMapLayout() {
+  await flushAllPendingSaves(); // an arrow-key move still waiting is saved (and undoable) before the reset, not after it
   const layout = getLoaMapLayout();
   const before = mapPositionsCopy(layout);
   if (!before) return;
@@ -672,6 +686,7 @@ WRITEUP_FIELDS.forEach(([key, id, category]) => {
     state.loa = { ...state.loa, id: 'loa_main', [key]: newVal, updatedAt: Date.now() };
     await dbPut('meta', state.loa);
     await recordAuditLog({
+      kind: key === 'reviewQuestion' ? 'review_question' : 'writeup', targetLabel: key,
       category,
       action: `Updated ${LOA_FIELD_LABELS[key]}`,
       fromVal: oldVal ? writeupFieldText(key, oldVal) : '(empty)',
@@ -682,13 +697,12 @@ WRITEUP_FIELDS.forEach(([key, id, category]) => {
 });
 
 function populateLoaInputs() {
-  document.getElementById('loaAimInput').value = state.loa.aim || '';
-  document.getElementById('loaTitleInput').value = state.loa.title || '';
-  document.getElementById('loaFlowInput').value = state.loa.flow || '';
-  document.getElementById('loaNarrativeInput').value = state.loa.narrative || '';
-  document.getElementById('loaRelateOutcomeInput').value = state.loa.relateOutcome || '';
-  // A field being typed in keeps its text (its commit is still to come)
-  [...LOA_EXTRA_FIELDS, ...WRITEUP_FIELDS].forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement) el.value = state.loa[k] || ''; });
+  // A field being typed in keeps its text (its commit is still to come); so do the drawer's fields while the drawer has
+  // edits not saved yet (they are saved together: commitLoaDrawer)
+  const drawerDirty = loaDrawerDirty; // (declared below; this runs only after the script has loaded)
+  const drawer = [['aim', 'loaAimInput'], ['title', 'loaTitleInput'], ['flow', 'loaFlowInput'], ['narrative', 'loaNarrativeInput'], ['relateOutcome', 'loaRelateOutcomeInput'], ...LOA_EXTRA_FIELDS];
+  drawer.forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement && !drawerDirty) el.value = state.loa[k] || ''; });
+  WRITEUP_FIELDS.forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement) el.value = state.loa[k] || ''; });
   const ordSel = document.getElementById('orderStrategySelect');
   if (ordSel) ordSel.value = getOrderStrategy();
   if (state.loa.updatedAt) {
@@ -712,9 +726,14 @@ function markLoaDrawerDirty() { loaDrawerDirty = true; pendingSaveCleanups.add(c
 LOA_DRAWER_FIELD_IDS().forEach(id => document.getElementById(id)?.addEventListener('input', markLoaDrawerDirty));
 // Focus leaving the drawer commits it; the window losing focus (another window or app) does not (see bindPendingCommit)
 // A dialog opened from the drawer (From the map, Load a model) is part of working in it: focus moving there does not commit
+// A click on a label or an empty part of the drawer also takes the focus from a box (relatedTarget is then null): that is still
+// working in the drawer, so it does not commit
+let loaDrawerPointerDown = false;
+loaDrawer.addEventListener('mousedown', () => { loaDrawerPointerDown = true; setTimeout(() => { loaDrawerPointerDown = false; }, 0); }, true);
 loaDrawer.addEventListener('focusout', e => {
-  const to = e.relatedTarget;
+  const to = /** @type {Element | null} */ (e.relatedTarget);
   if (!document.hasFocus() || (to && (loaDrawer.contains(to) || to.closest('[role="dialog"]')))) return;
+  if (!to && loaDrawerPointerDown) return;
   commitLoaDrawer();
 });
 document.getElementById('saveLoaBtn').addEventListener('click', async () => {
@@ -744,6 +763,7 @@ async function saveLoaDrawer({ quiet = false } = {}) {
 
   if (aimChanged) {
     await recordAuditLog({
+      kind: 'aim',
       category: 'aim_question',
       action: 'Updated Phase 1 Research Aim',
       detail: newV.aim || '(cleared)',
@@ -753,6 +773,7 @@ async function saveLoaDrawer({ quiet = false } = {}) {
   }
   if (loaChanged) {
     await recordAuditLog({
+      kind: 'line_of_argument',
       category: 'line_of_argument',
       action: `Updated Line of Argument Synthesis${newV.title ? ': "' + newV.title + '"' : ''}`,
       detail: `${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
@@ -766,6 +787,7 @@ async function saveLoaDrawer({ quiet = false } = {}) {
   for (const cat of Object.keys(byCat)) {
     const keys = byCat[cat];
     await recordAuditLog({
+      kind: keys.length === 1 ? ({ alternativeInterpretations: 'alternative_interpretations', modelContext: 'model_context' })[keys[0]] : undefined, targetLabel: keys.join(' / '),
       category: cat,
       action: `Updated ${keys.map(k => LOA_FIELD_LABELS[k]).join(' / ')}`,
       detail: keys.map(k => `${LOA_FIELD_LABELS[k]}: ${newV[k] || '(cleared)'}`).join('\n'),
@@ -775,6 +797,7 @@ async function saveLoaDrawer({ quiet = false } = {}) {
   }
   if (relChanged) {
     await recordAuditLog({
+      kind: 'relate_outcome',
       category: 'relating_studies',
       action: 'Updated Phase 4: Outcome of Relating Studies (eMERGe item 12)',
       detail: newV.relateOutcome ? 'Outcome: ' + newV.relateOutcome : '(cleared)',

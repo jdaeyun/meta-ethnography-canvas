@@ -45,7 +45,13 @@ optional dependencies, install with `npm ci --include=optional` (Tailwind 4 need
 Re-run `npm run css` after using a Tailwind class that appears nowhere else. Write class names in full
 (no string concatenation such as 'bg-' + color) so the Tailwind scanner can see them.
 `npm run serve` serves the folder at http://localhost:8080 for testing. node_modules/ is not committed.
-`npm test` runs the unit tests, then the smoke tests (`npm run test:unit` / `npm run test:smoke` run one of them):
+`npm test` runs the type check, the unit tests, then the smoke tests (`npm run typecheck` / `npm run test:unit` / `npm run test:smoke`
+run one of them):
+- `npm run typecheck` (TypeScript, `tsconfig.json`): `tsc --checkJs` over the app's scripts as one program, no output files. It catches
+  names that do not exist (a misspelt function or global), misspelt `state` fields (`AppState` typedef in core.js: a new `state` field
+  goes there too) and misspelt option names of `recordAuditLog` etc. DOM nodes accept any property (`tools/types/app-globals.d.ts`), so
+  reading `.value` from `getElementById()` needs no cast. Keep it at zero errors; fix a real error, or add a JSDoc type where the
+  inference is wrong (e.g. `/** @type {DbOp[]} */` for an ops list that mixes puts and deletes).
 - tools/test/unit.test.mjs (node:test, no browser) loads app/js/logic.js alone in a fresh context and tests its functions directly.
   Put a new piece of logic that needs no page there (taking what it needs as arguments), and test it there.
 - tools/test/smoke.mjs drives the ?demo project in Chromium (Playwright: audit logging, restore, lazy matrix rows, dialogs, file://);
@@ -54,6 +60,11 @@ Re-run `npm run css` after using a Tailwind class that appears nowhere else. Wri
   in flight (IndexedDB transactions, async handlers, timers up to 1 s, PDF rendering, pending debounced saves, a reason / choice
   dialog awaiting its automatic answer); when the test is about a condition, wait for that condition with `waitForFunction`.
   If settle times out, its error names what was still in flight. A timer the app sets for longer than 1 s is not waited for.
+  After going idle, `settle` also runs `checkInvariants()` (logic.js: the project's consistency rules, e.g. per-row fields only for
+  rows a construct is placed in, no empty-cell record where the study has a construct, a quote linked only to constructs of its
+  own study, map / within-study / companion links only to what exists). A violation is a page error, so the group's "no page
+  errors" check fails at the step that made it. A new rule goes there (with a unit test); a test that builds an inconsistent
+  state on purpose sets `p.skipInvariants` while it does. `checkInvariants(state)` also works in the browser console.
 
 ## Demo (?demo)
 
@@ -112,8 +123,13 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row. A placed card is judged 'reciprocal',
   'refutational' or 'other_aspect' (◇, Noblit & Hare's third relation; `aspectUsedInLoa[rowId]` marks those the line of
   argument draws on), or stays 'unjudged'.
-  A construct's per-row fields are `ANNOTATION_ROW_FIELDS` (core.js); whatever brings a construct back (Undo, split off a passage)
+  A construct's place in a row is changed only through `putIntoRow()` / `takeOutOfRow()` / `rowFieldsOf()` (core.js): membership and
+  every per-row field (`ANNOTATION_ROW_FIELDS`) together, so a new per-row field needs no change at the call sites. Study ids in a row
+  record from another file (backup merge, Compare) are turned into local ones by `remapRowDocIds()` (logic.js).
+  A construct's per-row fields are `ANNOTATION_ROW_FIELDS` (logic.js); whatever brings a construct back (Undo, split off a passage)
   passes it through `dropGoneLinks()`, so it never points to a row (or, for a quote, a construct) deleted in the meantime.
+  Whatever puts a construct into a row (placing, Compare import, Undo) writes `placementRowOps()` with it: a row whose base is
+  not set yet ('') takes the study's, and the study's empty-cell record in that row is dropped (`rowsTouchedByPlacement()`).
   Items imported in Compare before what they belong to is here keep the peer's links in `_peerParentIds` (a quote waiting for its
   2nd order construct) / `_peerRows` (a construct waiting for its row: per peer row id, the judgement, cell note, line-of-argument
   mark and the peer row's title, so a row of that title made here later takes it in): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.
@@ -123,18 +139,25 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   (`{ circle: { rowId: {x, y} }, flow: {...} }`, map units); a box without one keeps its computed place. Layout only: undoable, not logged.
   Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
   was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
+- A deletion (and Undo) first awaits `flushAllPendingSaves()`: a debounced save still waiting would otherwise write the deleted
+  record back after it.
 - Operations that change several records at once (merge / split / delete a row, delete a study, the order of studies or rows)
   write them in one transaction with `dbBatch(ops)` (core.js), so a failure part way leaves the project as it was.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
-- Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit
-  (save + `recordAuditLog`) then also runs on tab switch, matrix re-render and page leave, so a saved text never lacks its log entry.
+- A text field of a record uses `bindTextField(el, { get, set, save, commit })` (core.js): the one save path. While typing, the
+  record gets the text and a draft save after a short pause; when the box is left (or on tab switch, matrix re-render, page leave,
+  through `bindPendingCommit`) the draft is dropped, the trimmed text is saved once and `commit(prev, next)` writes the audit entry
+  if it changed. So a record is never saved by two paths for one edit, and a saved text never lacks its log entry. A box whose
+  commit is not one record's text (several fields saved together, e.g. the study dock) uses `bindPendingCommit(el, commitFn)` itself,
+  never a bare `onchange`.
   `flushAllPendingSaves()` returns a promise (null when nothing is pending): await it before reading the trail (backup, exports).
 - Dialogs: no `alert()`, `confirm()` or `prompt()` (a browser may suppress them, so confirm() silently returns false; smoke test
   "No browser dialogs"). Ask for a reason or a short entry with `askReason({ title, context, label, confirmLabel, cancelLabel, draftKey,
   value, singleLine })` (resolves to the text, '' = none, null = cancelled; `cancelLabel: null` when the decision is already made).
   Choose between actions with `askChoice({ title, body, choices: [{ value, label, hint, tone }] })`: every button names what it does,
-  and closing it (Cancel, ×, Esc) always means "change nothing". A message that must be read: `showNotice(title, body)`; short
+  and closing it (Cancel, ×, Esc) always means "change nothing". The dialog opened last is in front and gets Escape / Tab
+  (`modalAccessibility` in app.js orders them by opening, not by a fixed z-index). A message that must be read: `showNotice(title, body)`; short
   notices and input hints: `showSnackbar()`. A deletion that Ctrl+Z undoes does not ask first: push the undo action, then
   `showUndoSnackbar(message)`.
 - Where fields live: the Research Aim & Overall Model drawer (Tab 2) holds what is thought out during the analysis (aim, Item 12, alternative
@@ -170,12 +193,18 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   `eval` / `new Function`, no CDN or external fetch. A new resource type means updating the policy and the smoke test
   "Content-Security-Policy". PDF.js stays 3.11.174 (4.x+ ships only ES modules, which file:// cannot load) with
   `isEvalSupported: false` (CVE-2024-4367) on every `getDocument` call.
-- Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`, `getAppendixASpec()`);
-  change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
-  Appendix A shows the key decisions by default (`isKeyDecisionLog()`, repeated edits of one text folded by `APPENDIX_EDIT_SERIES`);
-  a new kind of audit entry that is routine bookkeeping belongs in `APPENDIX_ROUTINE`. The trail itself is never filtered.
-  The rules match the action text, so the smoke test "Appendix A rules still match" fails when a reworded action leaves a rule
-  matching nothing: update the rule together with the wording.
+- Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable1Spec()`, `getTable2Spec()`,
+  `getTable2bSpec()`, `getLoaBlockSpec()`, `getTable3Specs()`, `getAppendixASpec()` …); change the spec, not the three renderers
+  separately. Tables 1 / 2 / 2b use rich cells (lines of pieces `{ t, b, i, tone, small, title }`, `null` = blank on purpose)
+  rendered by `rtHtml` / `rtMd` / `rtWord` and `specTableHtml` / `specTableMd` / `specTableWord` (export.js); the smoke test
+  "Tables 1, 2, 2b and the line of argument show the same content" checks the three agree. eMERGe item numbers follow France et al. (2019).
+  Appendix A shows the key decisions by default (`isKeyDecisionLog()`, repeated edits of one text folded into one line). The trail
+  itself is never filtered. It goes by each entry's `kind` (`recordAuditLog({ kind, targetLabel, targetId })`, registry `LOG_KINDS`
+  in logic.js: series / routine / writeup / key …), not by the action's wording, so UI text can be reworded freely. A new kind of
+  entry gets a kind registered there (routine bookkeeping: `routine: true`). The patterns `APPENDIX_EDIT_SERIES` / `APPENDIX_ROUTINE`
+  / `APPENDIX_WRITEUP` only read entries written before kinds existed: never change them. `kind`, `targetLabel`, `targetId` are
+  optional fields (older versions ignore them; no PROJECT_FORMAT step). The smoke test "Audit entries carry their kind" fails when
+  a call those patterns would recognise has no kind, or a kind is written but not registered (or registered but never written).
 - UI text is English.
 - The app must fit laptop widths: no overlap in the header or the view toolbars from 1024 px up (smoke test "Layout at laptop widths").
   Toolbars wrap (`flex-wrap`, `gap-*`, not `space-x-*`); long labels shorten below `xl` / `2xl` and keep the full text in `title`.
