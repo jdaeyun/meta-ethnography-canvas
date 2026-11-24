@@ -111,8 +111,7 @@ async function performUndoStep() {
       const sec = state.annotations.find(a => a.id === secId && a.type === 'second_order'); // not one switched to a quote since
       if (sec) {
         normalizeAnnotation(sec);
-        if (!sec.clusterIds.includes(last.cluster.id)) sec.clusterIds.push(last.cluster.id);
-        Object.entries((last.perRow || {})[secId] || {}).forEach(([k, v]) => { sec[k] = { ...(sec[k] || {}), [last.cluster.id]: v }; });
+        putIntoRow(sec, last.cluster.id, (last.perRow || {})[secId] || {}); // with what it had there
         ops.push({ store: 'annotations', put: sec });
       }
     }
@@ -191,7 +190,7 @@ async function performUndoStep() {
     const kept = [];
     const ops = []; // written in one transaction at the end (as the merge / split was)
     const touched = []; // cards back in their rows: those rows lose an empty-cell note for the card's study (placementRowOps)
-    const PER_ROW = ANNOTATION_ROW_FIELDS;
+    const PER_ROW = ANNOTATION_ROW_FIELDS; // (each field is compared before / after on its own below)
     for (let i = 0; i < last.before.anns.length; i++) {
       const b = last.before.anns[i], af = last.after.anns[i];
       const a = state.annotations.find(x => x.id === b.id && x.type === 'second_order'); // not one switched to a quote since
@@ -274,10 +273,10 @@ async function performUndoStep() {
       if (nw && srcRow) {
         const nwTitle = clusterLabel(nw);
         for (const a of state.annotations.filter(x => x.type === 'second_order' && (x.clusterIds || []).includes(nw.id))) {
-          a.clusterIds = a.clusterIds.filter(x => x !== nw.id);
-          if (!a.clusterIds.includes(srcRow.id)) a.clusterIds.push(srcRow.id);
           const otherBase = rowBaseDocId(nw) !== rowBaseDocId(srcRow); // a judgement against the split-off row's base stays behind
-          PER_ROW.forEach(k => { if (a[k] && nw.id in a[k]) { a[k] = { ...a[k] }; if (!(srcRow.id in a[k]) && !(k === 'clusterRelations' && otherBase)) a[k][srcRow.id] = a[k][nw.id]; delete a[k][nw.id]; } });
+          const had = takeOutOfRow(a, nw.id);
+          if (otherBase) delete had.clusterRelations;
+          putIntoRow(a, srcRow.id, { ...had, ...rowFieldsOf(a, srcRow.id) }); // what it has in the original row already is kept
           ops.push({ store: 'annotations', put: a });
           touched.push(a);
           kept.push(`a card placed in "${nwTitle}" after the split (p.${a.page}), now in the original row`);
@@ -328,18 +327,7 @@ async function performUndoStep() {
       showSnackbar('That row no longer exists, so the card stays out of it.');
     } else if (sec) {
       normalizeAnnotation(sec);
-      if (!sec.clusterIds.includes(last.clusterId)) {
-        sec.clusterIds.push(last.clusterId);
-      }
-      if (last.prevRelation) {
-        if (!sec.clusterRelations) sec.clusterRelations = {};
-        sec.clusterRelations[last.clusterId] = last.prevRelation;
-      }
-      if (typeof last.prevComment === 'string' && last.prevComment) {
-        if (!sec.clusterComments) sec.clusterComments = {};
-        sec.clusterComments[last.clusterId] = last.prevComment;
-      }
-      if (last.prevAspectUsed) sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [last.clusterId]: true };
+      putIntoRow(sec, last.clusterId, last.fields || {}); // with its judgement, note and line-of-argument mark there
       await dbBatch([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]); // back in the row: no empty-cell note for its study there
       // The removal was logged (with the minor operations), so is its undoing
       await recordAuditLog({ clusterIds: [last.clusterId], category: 'matrix_mapping', action: `Undid: ${last.label}`, detail: 'The construct is back in the row with its judgement, note and line-of-argument mark.', isMinorOp: true });

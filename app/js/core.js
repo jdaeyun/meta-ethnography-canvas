@@ -546,6 +546,36 @@ function fileNamePart(s) {
 }
 // A 2nd Order construct's per-row fields (keyed by 3rd Order row id), besides its clusterIds
 const ANNOTATION_ROW_FIELDS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+// ---- A construct and a row: the one place that changes a construct's membership of a row ----
+// A construct's place in a row is clusterIds plus one value per row in each of ANNOTATION_ROW_FIELDS (judgement, cell note,
+// line-of-argument mark). Every code path that puts a construct into a row, takes it out, or records / restores what it had
+// there goes through these three, so no field is forgotten (the source of many earlier bugs).
+// What the construct has in the row: { clusterRelations?, clusterComments?, aspectUsedInLoa? } (only the fields it has)
+function rowFieldsOf(a, rowId) {
+  const out = {};
+  ANNOTATION_ROW_FIELDS.forEach(k => { if (a[k] && typeof a[k] === 'object' && rowId in a[k]) out[k] = a[k][rowId]; });
+  return out;
+}
+// Out of the row, with everything it had there. Returns what it had (rowFieldsOf), e.g. for Undo.
+function takeOutOfRow(a, rowId) {
+  const had = rowFieldsOf(a, rowId);
+  if (Array.isArray(a.clusterIds)) a.clusterIds = a.clusterIds.filter(id => id !== rowId);
+  ANNOTATION_ROW_FIELDS.forEach(k => { if (a[k] && typeof a[k] === 'object' && rowId in a[k]) { a[k] = { ...a[k] }; delete a[k][rowId]; } });
+  return had;
+}
+// Into the row, with exactly the given fields: anything left there from an earlier placement does not come back (a new
+// placement starts unjudged). What it changes in the row itself (base, empty-cell note): placementRowOps.
+function putIntoRow(a, rowId, fields = {}) {
+  if (!Array.isArray(a.clusterIds)) a.clusterIds = [];
+  if (!a.clusterIds.includes(rowId)) a.clusterIds.push(rowId);
+  ANNOTATION_ROW_FIELDS.forEach(k => {
+    const has = a[k] && typeof a[k] === 'object' && rowId in a[k];
+    if (k in fields && fields[k] !== undefined) a[k] = { ...(a[k] || {}), [rowId]: fields[k] };
+    else if (has) { a[k] = { ...a[k] }; delete a[k][rowId]; }
+  });
+  return a;
+}
+
 // A construct is in a row (placed, imported, or brought back by Undo): what that changes in the row, in one place.
 // A row whose base is not set yet ('') takes this study's; an empty-cell record for this study ("— not addressed" /
 // "◇ different aspect") no longer applies now that the study has a construct there. Returns the rows changed (to write).

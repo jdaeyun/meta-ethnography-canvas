@@ -118,6 +118,9 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   unjudged ◆ in the row (`secRelation()`); study #1 is not the base of every row. A placed card is judged 'reciprocal',
   'refutational' or 'other_aspect' (◇, Noblit & Hare's third relation; `aspectUsedInLoa[rowId]` marks those the line of
   argument draws on), or stays 'unjudged'.
+  A construct's place in a row is changed only through `putIntoRow()` / `takeOutOfRow()` / `rowFieldsOf()` (core.js): membership and
+  every per-row field (`ANNOTATION_ROW_FIELDS`) together, so a new per-row field needs no change at the call sites. Study ids in a row
+  record from another file (backup merge, Compare) are turned into local ones by `remapRowDocIds()` (logic.js).
   A construct's per-row fields are `ANNOTATION_ROW_FIELDS` (core.js); whatever brings a construct back (Undo, split off a passage)
   passes it through `dropGoneLinks()`, so it never points to a row (or, for a quote, a construct) deleted in the meantime.
   Whatever puts a construct into a row (placing, Compare import, Undo) writes `placementRowOps()` with it: a row whose base is

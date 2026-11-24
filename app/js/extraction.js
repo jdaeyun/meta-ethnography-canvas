@@ -521,12 +521,7 @@ async function absorbAsPassage(source, target) {
     absorbed: { snapshot: sourceSnapshot, addedClusterIds, movedQuoteIds, ownPassageIds: ownPassages.map(x => x.id) }
   }, ...ownPassages);
 
-  addedClusterIds.forEach(cid => {
-    target.clusterIds.push(cid);
-    ANNOTATION_ROW_FIELDS.forEach(k => {
-      if (source[k] && source[k][cid]) target[k] = { ...(target[k] || {}), [cid]: source[k][cid] };
-    });
-  });
+  addedClusterIds.forEach(cid => putIntoRow(target, cid, rowFieldsOf(source, cid))); // with the source's judgement, note and mark there
   // (Its within-study relationships (Appendix C) stay on the study under its id: hidden while it is a passage, back when split off)
   /** @type {DbOp[]} */
   const ops = children.map(f => { unlinkQuote(f, source.id); linkQuote(f, target.id); return { store: 'annotations', put: f }; });
@@ -559,10 +554,7 @@ async function splitOffPassage(sec, pid) {
     restored = normalizeAnnotation(JSON.parse(JSON.stringify(p.absorbed.snapshot)));
     if (state.annotations.some(a => a.id === restored.id)) restored.id = 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     // Give back the matrix rows it brought with it (only those the target did not have already)
-    (p.absorbed.addedClusterIds || []).forEach(cid => {
-      sec.clusterIds = sec.clusterIds.filter(x => x !== cid);
-      ANNOTATION_ROW_FIELDS.forEach(k => { if (sec[k] && cid in sec[k]) { sec[k] = { ...sec[k] }; delete sec[k][cid]; } });
-    });
+    (p.absorbed.addedClusterIds || []).forEach(cid => takeOutOfRow(sec, cid));
     dropGoneLinks(restored); // placements in rows deleted since it was absorbed do not come back
     // Its own further passages (absorbed with it) go back with it, if they are still there
     const own = new Set(p.absorbed.ownPassageIds || []);
@@ -1005,10 +997,9 @@ async function toggleAnnotationOrderType(annoId) {
       a.nuanceNote = `[Former 2nd Order label: ${a.note.trim()}]${a.nuanceNote ? '\n' + a.nuanceNote : ''}`;
     }
     a.note = '';
+    // Out of every row, with everything it had there (a quote has no place in rows)
     a.clusterIds = [];
-    a.clusterComments = {};
-    a.clusterRelations = {};
-    delete a.aspectUsedInLoa;
+    ANNOTATION_ROW_FIELDS.forEach(k => { delete a[k]; });
     delete a.notTranslatedNote;
     ops.push({ store: 'annotations', put: a });
     await dbBatch(ops); // the quote, its former quotes' links and its study's relationships in one transaction

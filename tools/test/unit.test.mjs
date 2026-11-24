@@ -14,7 +14,7 @@ const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'app/js/logic.js'), 'utf8'), ctx, { filename: 'app/js/logic.js' });
 const L = vm.runInContext(`({ LOG_ACTION, appendixSeries, isMemoLog, isKeyDecisionLog, sanitizeProjectData, isEmptyValue, mergeFillEmpty,
   mergeFillTexts, MERGE_FILL_TEXT, stableJson, sameRecord, computeTextSimilarity, isDirectedLink, linkPairOffsets, flowColumnRanks,
-  joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate })`, ctx);
+  joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds })`, ctx);
 // Objects made inside the context have that context's prototypes: compare them as plain JSON
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -79,6 +79,19 @@ test('flow columns: a chain of ⇄ / ⚡ relations takes the column of the const
   const links = [{ id: '1', from: 'A', to: 'B', type: 'leads' }, { id: '2', from: 'B', to: 'C', type: 'mutual' }, { id: '3', from: 'C', to: 'D', type: 'contradicts' }];
   const { rank } = L.flowColumnRanks(['A', 'B', 'C', 'D'], links);
   assert.deepEqual(plain(rank), { A: 0, B: 1, C: 1, D: 1 });
+});
+
+test('study ids from another file: every place a row names a study is turned into the local id', () => {
+  const map = { p1: 'l1', p2: 'l2' };
+  const toLocal = id => map[id];
+  const row = { id: 'r', baseDocId: 'p1', cellStatus: { p2: { status: 'absent' }, p9: { status: 'other_aspect' } }, baselineChange: { fromDocId: 'p1', toDocId: 'p2', at: 1 } };
+  const out = plain(L.remapRowDocIds(row, toLocal));
+  assert.equal(out.baseDocId, 'l1');
+  assert.deepEqual(Object.keys(out.cellStatus).sort(), ['l2', 'p9'], 'an id with no local counterpart stays');
+  assert.deepEqual([out.baselineChange.fromDocId, out.baselineChange.toDocId, out.baselineChange.at], ['l1', 'l2', 1]);
+  assert.equal(row.baseDocId, 'p1', 'the row given is not changed');
+  assert.equal(L.remapRowDocIds({ baseDocId: null }, toLocal).baseDocId, null, '"No single base" stays');
+  assert.equal(L.remapRowDocIds({ baseDocId: '' }, toLocal).baseDocId, '', 'a base not set yet stays');
 });
 
 test('Appendix A: key decisions, routine bookkeeping, edit series', () => {

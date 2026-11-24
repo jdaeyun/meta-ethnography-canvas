@@ -687,22 +687,15 @@ function renderComparisonTabContent() {
         `;
         row.querySelector('.imp-cl')?.addEventListener('click', async () => {
           await mergePeerAuditLogs();
-          // The peer's base study is one of their studies: point it to the matching local study (an unmatched one stays as is,
-          // so it applies if that study is added later with the same id)
-          const pBase = ('baseDocId' in pc) ? pc.baseDocId : null;
-          const toLocalDoc = id => cmp.docMapPeerToLocal[id] || id;
-          // Empty-cell records (absent / different aspect) are keyed by the peer's study ids: key them by the local ones
-          const cellStatus = {};
-          Object.keys(pc.cellStatus || {}).forEach(id => { cellStatus[toLocalDoc(id)] = pc.cellStatus[id]; });
+          // The peer's study ids become the local ones wherever the row names a study (remapRowDocIds: its base, empty-cell
+          // records, re-reading note); an unmatched one stays as is, so it applies if that study is added later with that id
+          const fromPeer = remapRowDocIds({ ...JSON.parse(JSON.stringify(pc)), baseDocId: ('baseDocId' in pc) ? pc.baseDocId : null }, id => cmp.docMapPeerToLocal[id]);
           // Its own id where that is safe and free (a foreign file may carry any characters); it goes below the rows here
           const safeId = pc.id && /^[\w.-]+$/.test(String(pc.id)) && !state.clusters.some(c => c.id === pc.id);
-          // Study and construct ids of the peer's file are turned into the local ones (the re-reading note after #1 changed,
-          // the construct a seeded row came from); one with no local counterpart is dropped rather than left pointing nowhere
-          const bc = pc.baselineChange && typeof pc.baselineChange === 'object'
-            ? { ...pc.baselineChange, fromDocId: toLocalDoc(pc.baselineChange.fromDocId), toDocId: toLocalDoc(pc.baselineChange.toDocId) } : undefined;
+          // The construct a seeded row came from, by its id here; dropped rather than left pointing nowhere
           const seededFrom = pc.seededFromId ? peerAnnoMap(cmp)[pc.seededFromId] : undefined;
-          const newCl = normalizeCluster({ ...JSON.parse(JSON.stringify(pc)), id: safeId ? pc.id : 'cl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-            cellStatus, by: cmp.peerReviewer, baseDocId: pBase ? toLocalDoc(pBase) : pBase, order: state.clusters.length, baselineChange: bc, seededFromId: seededFrom });
+          const newCl = normalizeCluster({ ...fromPeer, id: safeId ? pc.id : 'cl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+            by: cmp.peerReviewer, order: state.clusters.length, seededFromId: seededFrom });
           if (!newCl.baselineChange) delete newCl.baselineChange;
           if (!newCl.seededFromId) delete newCl.seededFromId;
           await dbPut('clusters', newCl);
@@ -765,7 +758,6 @@ function peerRowMap(cmp) {
 }
 
 // Per-row values a 2nd Order construct carries for each row it is placed in (same list as merge / split in matrix.js)
-const PEER_ROW_KEYS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
 // A peer row that is here now (imported after its constructs, or a local row with the same title): place the constructs
 // that were waiting for it, with their judgements. peerRowId = the row's id in the peer's file; localRowId = the row here.
 async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
@@ -773,8 +765,10 @@ async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
   for (const a of state.annotations) {
     const w = a.type === 'second_order' && a._peerRows && a._peerRows[peerRowId];
     if (!w) continue;
-    if (!a.clusterIds.includes(localRowId)) a.clusterIds.push(localRowId);
-    PEER_ROW_KEYS.forEach(k => { if (k in w && !(a[k] && localRowId in a[k])) a[k] = { ...(a[k] || {}), [localRowId]: w[k] }; });
+    // With the peer's judgement, note and mark there; what the construct already has in that row here is kept
+    const peerFields = {};
+    ANNOTATION_ROW_FIELDS.forEach(k => { if (k in w) peerFields[k] = w[k]; });
+    putIntoRow(a, localRowId, { ...peerFields, ...rowFieldsOf(a, localRowId) });
     delete a._peerRows[peerRowId];
     if (!Object.keys(a._peerRows).length) delete a._peerRows;
     ops.push({ store: 'annotations', put: a });
@@ -893,10 +887,10 @@ async function importPeerConstructNow(item, status, redraw) {
       if (rowMap[id] || !id) return;
       const pRow = (cmp.peerData.clusters || []).find(c => c.id === id);
       waitingRows[id] = pRow && pRow.thirdOrderTitle ? { _title: pRow.thirdOrderTitle } : {}; // the title lets a row made here later take them in
-      PEER_ROW_KEYS.forEach(k => { if (raw[k] && typeof raw[k] === 'object' && id in raw[k]) waitingRows[id][k] = raw[k][id]; });
+      ANNOTATION_ROW_FIELDS.forEach(k => { if (raw[k] && typeof raw[k] === 'object' && id in raw[k]) waitingRows[id][k] = raw[k][id]; });
     });
     raw.clusterIds = [...new Set(raw.clusterIds.map(id => rowMap[id]).filter(Boolean))];
-    PEER_ROW_KEYS.forEach(k => {
+    ANNOTATION_ROW_FIELDS.forEach(k => {
       if (!raw[k] || typeof raw[k] !== 'object') return;
       const out = {};
       Object.keys(raw[k]).forEach(id => { if (rowMap[id] && !(rowMap[id] in out)) out[rowMap[id]] = raw[k][id]; });

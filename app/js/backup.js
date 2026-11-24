@@ -253,16 +253,8 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         mergeReport.annotations++;
       }
       for (const rawC of (data.clusters || [])) {
-        if (rawC && rawC.baseDocId) rawC.baseDocId = toLocalDoc(rawC.baseDocId);
-        if (rawC && rawC.baselineChange && typeof rawC.baselineChange === 'object') {
-          rawC.baselineChange = { ...rawC.baselineChange, fromDocId: toLocalDoc(rawC.baselineChange.fromDocId), toDocId: toLocalDoc(rawC.baselineChange.toDocId) };
-        }
-        if (rawC && rawC.cellStatus && typeof rawC.cellStatus === 'object') {
-          const cs = {};
-          Object.keys(rawC.cellStatus).forEach(id => { cs[toLocalDoc(id)] = rawC.cellStatus[id]; });
-          rawC.cellStatus = cs;
-        }
-        const c = normalizeCluster(rawC);
+        if (!rawC) continue;
+        const c = normalizeCluster(remapRowDocIds(rawC, toLocalDoc)); // base, empty-cell records, re-reading note
         const local = state.clusters.find(x => x.id === c.id);
         if (local) {
           if (!sameRecord(local, c)) {

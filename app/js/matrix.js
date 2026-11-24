@@ -99,22 +99,15 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
 async function assignSecondOrderToCluster(sec, cluster) {
   normalizeAnnotation(sec);
   if (sec.clusterIds.includes(cluster.id)) return;
-  sec.clusterIds.push(cluster.id);
-  if (!sec.clusterRelations) sec.clusterRelations = {};
-  // No relation is assumed: the placement starts as "not yet judged" (see secRelation). A judgement, note or line-of-argument
-  // mark left from an earlier placement in this row (kept by older versions when a card was taken out) does not come back.
-  delete sec.clusterRelations[cluster.id];
-  if (sec.clusterComments) delete sec.clusterComments[cluster.id];
-  if (sec.aspectUsedInLoa && sec.aspectUsedInLoa[cluster.id]) { sec.aspectUsedInLoa = { ...sec.aspectUsedInLoa }; delete sec.aspectUsedInLoa[cluster.id]; }
+  // No relation is assumed: the placement starts as "not yet judged" (see secRelation); nothing left from an earlier
+  // placement in this row comes back (putIntoRow)
+  putIntoRow(sec, cluster.id);
   normalizeCluster(cluster);
-  let rowChanged = false;
-  // The first construct placed in a new row establishes it (◆); the reviewer can change this in the row header
-  if (cluster.baseDocId === '') { cluster.baseDocId = sec.docId; rowChanged = true; }
-  // The study now has a construct in this row, so an earlier "not addressed / different aspect" note no longer applies
+  // The first construct placed in a new row establishes it (◆; the reviewer can change this in the row header), and an
+  // earlier "not addressed / different aspect" note for this study no longer applies (placementRowOps). Read first, for the log.
   const prevStatus = emptyCellInfo(cluster, sec.docId);
-  if (prevStatus) { delete cluster.cellStatus[sec.docId]; rowChanged = true; }
   // The placement and what it changes in the row in one transaction
-  await dbBatch([{ store: 'annotations', put: sec }, ...(rowChanged ? [{ store: 'clusters', put: cluster }] : [])]);
+  await dbBatch([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]);
   if (prevStatus) {
     await recordAuditLog({
       clusterIds: [cluster.id], category: 'relating_studies',
@@ -141,15 +134,10 @@ async function removeSecondOrderFromCluster(sec, cluster) {
     label: `Unassign "${(sec.note || sec.text).slice(0, 28)}" from "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
     secId: sec.id,
     clusterId: cluster.id,
-    prevRelation: sec.clusterRelations ? sec.clusterRelations[cluster.id] : undefined,
-    prevComment: sec.clusterComments ? sec.clusterComments[cluster.id] : '',
-    prevAspectUsed: !!(sec.aspectUsedInLoa && sec.aspectUsedInLoa[cluster.id])
+    // Taken out of the row: its judgement, note and line-of-argument mark there go too; Ctrl+Z puts all of them back
+    fields: rowFieldsOf(sec, cluster.id)
   });
-  sec.clusterIds = sec.clusterIds.filter(id => id !== cluster.id);
-  // Taken out of the row: its judgement, note and line-of-argument mark there go too (Ctrl+Z brings all three back)
-  if (sec.clusterRelations) delete sec.clusterRelations[cluster.id];
-  if (sec.clusterComments) delete sec.clusterComments[cluster.id];
-  if (sec.aspectUsedInLoa && sec.aspectUsedInLoa[cluster.id]) { sec.aspectUsedInLoa = { ...sec.aspectUsedInLoa }; delete sec.aspectUsedInLoa[cluster.id]; }
+  takeOutOfRow(sec, cluster.id);
   await dbPut('annotations', sec);
 
   const doc = state.docs.find(d => d.id === sec.docId);
@@ -1450,9 +1438,8 @@ function renderMatrixTable() {
       const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
       // Nothing of the row is left behind (judgements, cell notes and line-of-argument marks in it, its concept-map relations);
       // Ctrl+Z puts all of it back
-      const PER_ROW = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
       const perRow = {};
-      assigned.forEach(a => { perRow[a.id] = {}; PER_ROW.forEach(k => { if (a[k] && cluster.id in a[k]) perRow[a.id][k] = a[k][cluster.id]; }); });
+      assigned.forEach(a => { perRow[a.id] = rowFieldsOf(a, cluster.id); });
       const removedLinks = (state.loa.links || []).filter(l => l.from === cluster.id || l.to === cluster.id);
       pushUndoAction({
         type: 'delete_cluster',
@@ -1463,8 +1450,7 @@ function renderMatrixTable() {
       });
       const ops = []; // unplacing the cards and deleting the row in one transaction (see dbBatch)
       for (let a of assigned) {
-        a.clusterIds = a.clusterIds.filter(id => id !== cluster.id);
-        PER_ROW.forEach(k => { if (a[k] && cluster.id in a[k]) { a[k] = { ...a[k] }; delete a[k][cluster.id]; } });
+        takeOutOfRow(a, cluster.id);
         ops.push({ store: 'annotations', put: a });
       }
       if (removedLinks.length) {
@@ -2029,8 +2015,7 @@ const carryText = (into, from, title) => from && from.trim() ? (into && into.tri
 // Fields of a row that a merge changes; an undo puts back only those still as the merge left them
 const MERGE_ROW_FIELDS = ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation', 'cellStatus', 'baseDocId', 'historyFrom', 'baselineChange'];
 const pickFields = (c, fields) => { const o = {}; fields.forEach(f => { o[f] = c[f] === undefined ? undefined : deepCopy(c[f]); }); return o; };
-const PER_ROW_KEYS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
-const annRowState = (a, ids) => ({ id: a.id, member: ids.map(id => (a.clusterIds || []).includes(id)), keys: PER_ROW_KEYS.map(k => ids.map(id => (a[k] || {})[id])) });
+const annRowState = (a, ids) => ({ id: a.id, member: ids.map(id => (a.clusterIds || []).includes(id)), keys: ANNOTATION_ROW_FIELDS.map(k => ids.map(id => (a[k] || {})[id])) });
 
 async function mergeRows(src, tgt, why) {
   const ops = []; // every write of the merge goes in one transaction (see dbBatch)
@@ -2052,37 +2037,33 @@ async function mergeRows(src, tgt, why) {
     normalizeAnnotation(s);
     s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
     if (!s.clusterIds.includes(tgt.id)) {
-      s.clusterIds.push(tgt.id); moved++;
-      // A judgement, note or mark for the target row left from an earlier placement (older versions kept them) does not come
-      // back: the card arrives with what it had in the source row only (as in assignSecondOrderToCluster)
-      delete s.clusterRelations[tgt.id]; delete s.clusterComments[tgt.id];
-      if (s.aspectUsedInLoa && s.aspectUsedInLoa[tgt.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[tgt.id]; }
+      moved++;
+      // What the card takes into the merged row; nothing left there from an earlier placement comes back (putIntoRow)
+      const from = rowFieldsOf(s, src.id);
       const rs = secRelation(s, src.id);
-      let carriesJudgement = false;
+      const judged = rs !== 'unjudged' && rs !== 'baseline';
+      const asNote = text => carryText(from.clusterComments || '', text, srcTitle);
+      let next;
       if (baseDiffers && s.docId === tgtBase) {
         // The study that established the target row: in the merged row this card is its base (◆), not judged; a judgement it
         // had in the source row is kept in its note
-        s.clusterComments[tgt.id] = rs !== 'unjudged' && rs !== 'baseline'
-          ? carryText(s.clusterComments[src.id] || '', `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; establishes the merged row`, srcTitle)
-          : (s.clusterComments[src.id] || '');
-        if (!s.clusterComments[tgt.id]) delete s.clusterComments[tgt.id];
+        next = { clusterComments: (judged ? asNote(`judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; establishes the merged row`) : from.clusterComments) || undefined };
       } else if (baseDiffers && rs === 'baseline') {
         // The study that established the source row: in the merged row it is judged like any other study. A judgement it may
         // still carry from before it became that row's base (kept by setRowBase) is not a reading against the new base.
         const d = state.docs.find(x => x.id === s.docId);
         rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
-        s.clusterComments[tgt.id] = carryText(s.clusterComments[src.id] || '', `established that row; to judge against ${baseName(tgtBase)}`, srcTitle);
+        next = { clusterComments: asNote(`established that row; to judge against ${baseName(tgtBase)}`) };
       } else if (baseDiffers && rs !== 'unjudged') {
         const d = state.docs.find(x => x.id === s.docId);
         rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
-        s.clusterComments[tgt.id] = carryText(s.clusterComments[src.id] || '', `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(tgtBase)}`, srcTitle);
+        next = { clusterComments: asNote(`judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(tgtBase)}`) };
       } else {
-        if (s.clusterRelations[src.id]) s.clusterRelations[tgt.id] = s.clusterRelations[src.id];
-        if (s.clusterComments[src.id]) s.clusterComments[tgt.id] = s.clusterComments[src.id];
-        carriesJudgement = true;
+        // Same base: the judgement, note and line-of-argument mark carry over. (A card that starts unjudged above starts
+        // without its mark: the mark goes with a ◇ judgement.)
+        next = from;
       }
-      // The line-of-argument mark goes with a ◇ judgement; a card that starts unjudged starts without it
-      if (carriesJudgement && s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [tgt.id]: true };
+      putIntoRow(s, tgt.id, next);
     } else {
       // Already in both rows: the target row's judgement stays; a different reading in the source row is kept as a note
       const rs = secRelation(s, src.id), rt = secRelation(s, tgt.id);
@@ -2092,11 +2073,9 @@ async function mergeRows(src, tgt, why) {
         const d = state.docs.find(x => x.id === s.docId);
         differing.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page}): ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} in "${srcTitle}", ${getCellRelationMeta(rt).label.replace(/^\S+\s/, '')} in "${tgtTitle}"`);
       }
-      if (carried) s.clusterComments[tgt.id] = carryText(s.clusterComments[tgt.id], carried, srcTitle);
+      if (carried) { const there = rowFieldsOf(s, tgt.id); putIntoRow(s, tgt.id, { ...there, clusterComments: carryText(there.clusterComments, carried, srcTitle) }); }
     }
-    s.clusterIds = s.clusterIds.filter(id => id !== src.id);
-    delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
-    if (s.aspectUsedInLoa) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[src.id]; }
+    takeOutOfRow(s, src.id); // the source row goes
     ops.push({ store: 'annotations', put: s });
   }
   normalizeCluster(tgt);
@@ -2168,25 +2147,21 @@ async function splitRow(src, secIds, title, why) {
     normalizeAnnotation(s);
     s.clusterRelations = s.clusterRelations || {}; s.clusterComments = s.clusterComments || {};
     const rs = secRelation(s, src.id); // read before the card leaves the row
-    s.clusterIds = s.clusterIds.filter(id => id !== src.id).concat(nw.id);
+    const from = takeOutOfRow(s, src.id); // what it had in the source row
+    const judged = rs !== 'unjudged' && rs !== 'baseline';
+    const asNote = text => carryText(from.clusterComments || '', text, srcTitle);
+    let next;
     if (baseChanges && rs !== 'unjudged' && s.docId !== newBase) {
       const d = state.docs.find(x => x.id === s.docId);
       rejudge.push(`${d ? getDisplayName(d) : 'Study'} (p.${s.page})`);
-      s.clusterComments[nw.id] = carryText(s.clusterComments[src.id] || '', rs === 'baseline' ? `established that row; to judge against ${baseName(newBase)}` : `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(newBase)}`, srcTitle);
+      next = { clusterComments: asNote(rs === 'baseline' ? `established that row; to judge against ${baseName(newBase)}` : `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; to judge again against ${baseName(newBase)}`) };
     } else if (baseChanges && s.docId === newBase) {
       // The card of the study that now establishes the new row is not judged in it; a judgement it had is kept in its note
-      s.clusterComments[nw.id] = rs !== 'unjudged' && rs !== 'baseline'
-        ? carryText(s.clusterComments[src.id] || '', `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; establishes the new row`, srcTitle)
-        : (s.clusterComments[src.id] || '');
-      if (!s.clusterComments[nw.id]) delete s.clusterComments[nw.id];
+      next = { clusterComments: (judged ? asNote(`judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; establishes the new row`) : from.clusterComments) || undefined };
     } else {
-      // Same base: the judgement and note carry over, and with a ◇ judgement its line-of-argument mark
-      if (s.clusterRelations[src.id]) s.clusterRelations[nw.id] = s.clusterRelations[src.id];
-      if (s.clusterComments[src.id]) s.clusterComments[nw.id] = s.clusterComments[src.id];
-      if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [nw.id]: true };
+      next = from; // same base: the judgement, note and (with a ◇ judgement) line-of-argument mark carry over
     }
-    if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[src.id]; }
-    delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
+    putIntoRow(s, nw.id, next);
     ops.push({ store: 'annotations', put: s });
   }
   // The new row sits right below the one it was split from; the new row, the moved cards and the order of every row are

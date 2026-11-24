@@ -89,6 +89,25 @@ function sanitizeProjectData(data) {
   return data;
 }
 
+// ======================= Study ids from another file (backup.js merge, compare.js) =======================
+// Another reviewer's file, or a backup, can call a study by another id. Every place a 3rd Order row names a study goes
+// through here, so none is forgotten: its base (◆), its empty-cell records (keyed by study) and the re-reading note after
+// study #1 changed. toLocal(id) gives this project's id (or the same id). Returns a new row object; an empty id stays as is.
+function remapRowDocIds(row, toLocal) {
+  const map = id => (id ? toLocal(id) || id : id);
+  const out = { ...row };
+  if ('baseDocId' in out) out.baseDocId = map(out.baseDocId);
+  if (out.cellStatus && typeof out.cellStatus === 'object') {
+    const cs = {};
+    Object.keys(out.cellStatus).forEach(id => { cs[map(id)] = out.cellStatus[id]; });
+    out.cellStatus = cs;
+  }
+  if (out.baselineChange && typeof out.baselineChange === 'object') {
+    out.baselineChange = { ...out.baselineChange, fromDocId: map(out.baselineChange.fromDocId), toDocId: map(out.baselineChange.toDocId) };
+  }
+  return out;
+}
+
 // ======================= Merge of a backup into the open project (backup.js) =======================
 // Empty at every depth: an object counts as empty when all of its values are (e.g. appraisalItems { CASP: {} }, which the app
 // creates as soon as a study's appraisal is looked at)
