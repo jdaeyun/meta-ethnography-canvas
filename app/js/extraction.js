@@ -308,6 +308,7 @@ function updateSidebar() {
     bindPendingCommit(w.querySelector('.sec-conc-note'), updateSecConcordance);
 
     w.querySelector('.del').onclick = async () => {
+      await flushAllPendingSaves(); // as for a quote: no save of it left to land after the deletion
       const unlinkedIds = linked.map(f => f.id);
       // Its within-study relationships (Appendix C) go with it; Ctrl+Z puts them back
       const ownDoc = state.docs.find(d => d.id === sec.docId);
@@ -315,7 +316,7 @@ function updateSidebar() {
       pushUndoAction({
         type: 'delete_annotation',
         label: `2nd Order Construct (${sec.note || sec.text.slice(0, 30)})`,
-        annotations: [{ ...sec }],
+        annotations: [JSON.parse(JSON.stringify(sec))], // a deep copy, as for a study or a row
         unlinkedChildrenIds: unlinkedIds,
         parentId: sec.id,
         removedConceptLinks, conceptLinksDocId: ownDoc ? ownDoc.id : null
@@ -757,7 +758,10 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
   }
 
   c.querySelector('.del').onclick = async () => {
-    pushUndoAction({ type: 'delete_annotation', label: `1st Order Quote (p.${f.page})`, annotations: [{ ...f }] });
+    // A save still waiting for this quote (a note typed a moment ago) is written first: written after the deletion, it would
+    // bring the quote back on the next load; and the undo copy then has that edit
+    await flushAllPendingSaves();
+    pushUndoAction({ type: 'delete_annotation', label: `1st Order Quote (p.${f.page})`, annotations: [JSON.parse(JSON.stringify(f))] });
     await dbDelete('annotations', f.id);
     state.annotations = state.annotations.filter(x => x.id !== f.id);
     updateSidebar();
@@ -900,7 +904,7 @@ async function submitManualAddForm() {
   });
   // Clear the form before the (async) save, so typing the next entry right away is never wiped; if the save fails (e.g. the
   // browser's storage is full), what was typed is put back into the form, so nothing typed by hand is lost
-  const typed = { text: textInput.value, note: document.getElementById('manualAddNoteInput').value, type: activeManualAddType };
+  const typed = { text: textInput.value, note: document.getElementById('manualAddNoteInput').value, page: pageInput.value, type: activeManualAddType };
   closeManualAddDrawer();
   try {
     await dbPut('annotations', a);
@@ -908,6 +912,7 @@ async function submitManualAddForm() {
     openManualAddDrawer(typed.type);
     textInput.value = typed.text;
     document.getElementById('manualAddNoteInput').value = typed.note;
+    pageInput.value = typed.page; // (opening the form again set it to the page on screen)
     showNotice('The entry was not saved', `${err && err.message ? err.message : err}\n\nWhat you typed is back in the form. Free some space (e.g. make a Backup and remove PDFs you no longer need), then add it again.`);
     return;
   }
@@ -987,6 +992,12 @@ async function toggleAnnotationOrderType(annoId) {
     a.type = 'first_order';
     clearQuoteLinks(a);
     delete a.passages;
+    // A reviewer-wrapped construct goes back to the quote it was made from ('[Concept derived from …]: "…"' -> the quote)
+    if (a.origin === 'wrapped_first_order') {
+      a.text = stripOuterQuotes(String(a.text || '').replace(/^\[Concept derived from 1st Order Quote[^\]]*\]:\s*/, ''));
+    }
+    // What only a 2nd Order construct has (Ctrl+Z restores them from the snapshot)
+    delete a.origin; delete a.noteSource; delete a.indexSeeded;
     // The 2nd Order label is a concept name, not a participant attribution: keep it as a memo
     if (a.note && a.note.trim()) {
       a.nuanceNote = `[Former 2nd Order label: ${a.note.trim()}]${a.nuanceNote ? '\n' + a.nuanceNote : ''}`;

@@ -2545,6 +2545,88 @@ await group('Review fixes 12: memos on rows that share a title, the last study d
   await p.context().close();
 });
 
+await group('Review fixes 13: no ghost after delete, undo clears empty-cell notes, merge bases, wrapped quotes, Reviewer ID cancel, dialog order, exports', async () => {
+  const p = await openDemo();
+  await tab(p, 'extract'); await settle(p);
+  // A quote's note typed, then the quote deleted at once: it stays deleted (no save lands after the deletion)
+  const ghost = await p.evaluate(async () => {
+    const card = document.querySelector('#annotationsList .f-note-input');
+    if (!card) return { skip: true };
+    const id = card.closest('[data-sidebar-anno]').dataset.sidebarAnno;
+    card.value = 'typed just before deleting'; card.dispatchEvent(new Event('input', { bubbles: true }));
+    card.closest('[data-sidebar-anno]').querySelector('.del').click();
+    return { id };
+  });
+  await settle(p);
+  if (!ghost.skip) check('a quote deleted right after typing in it stays deleted', await p.evaluate(async id => !(await dbGet('annotations', id)) && !state.annotations.some(a => a.id === id), ghost.id), JSON.stringify(ghost));
+  // Undo that brings a card back into a row clears the empty-cell note for its study there
+  const uc = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && liveClusterIds(a).length);
+    const row = state.clusters.find(c => c.id === liveClusterIds(sec)[0]);
+    await removeSecondOrderFromCluster(sec, row);
+    row.cellStatus = { ...(row.cellStatus || {}), [sec.docId]: { status: 'other_aspect', note: 'set after the card was taken out' } };
+    await dbPut('clusters', row);
+    await performUndo();
+    const stored = await dbGet('clusters', row.id);
+    return { back: sec.clusterIds.includes(row.id), cleared: !(stored.cellStatus || {})[sec.docId] };
+  });
+  check('Ctrl+Z putting a card back in a row clears the empty-cell note for its study there', uc.back && uc.cleared, JSON.stringify(uc));
+  await settle(p);
+  // Merge across bases: a card of the target row's base study becomes its base (not "to judge again against itself")
+  const mb = await p.evaluate(async () => {
+    const [src, tgt] = state.clusters;
+    const card = rowSecs(src).find(s => !s.clusterIds.includes(tgt.id));
+    if (!card) return { skip: true };
+    const was = [src.baseDocId, tgt.baseDocId];
+    const other = state.docs.find(d => d.id !== card.docId);
+    src.baseDocId = other.id; tgt.baseDocId = card.docId; await dbPut('clusters', src); await dbPut('clusters', tgt);
+    card.clusterRelations = { ...card.clusterRelations, [src.id]: 'reciprocal' };
+    card.aspectUsedInLoa = { [src.id]: true };
+    await mergeRows(src, tgt, '');
+    const r = { base: secRelation(card, tgt.id) === 'baseline', noSelf: !/to judge again against/.test((card.clusterComments || {})[tgt.id] || ''), noMark: !((card.aspectUsedInLoa || {})[tgt.id]) };
+    await performUndo();
+    src.baseDocId = was[0]; tgt.baseDocId = was[1]; await dbPut('clusters', src); await dbPut('clusters', tgt);
+    return r;
+  });
+  if (!mb.skip) check('merging: a card of the target row\'s base study becomes its base, without an old judgement or mark', mb.base && mb.noSelf && mb.noMark, JSON.stringify(mb));
+  await settle(p);
+  // A reviewer-wrapped construct switched to a quote goes back to the quote text, without its 2nd Order fields
+  const wq = await p.evaluate(async () => {
+    const f = state.annotations.find(a => a.type === 'first_order');
+    const w = await wrapFirstOrderInSecondOrder(f, '[Descriptive] Test wrap');
+    if (!w) return { skip: true };
+    await toggleAnnotationOrderType(w.id);
+    const a = state.annotations.find(x => x.id === w.id);
+    return { type: a.type, text: a.text === stripOuterQuotes(f.text), origin: a.origin === undefined };
+  });
+  if (!wq.skip) check('a wrapped construct switched to a quote is the quote again, without 2nd Order fields', wq.type === 'first_order' && wq.text && wq.origin, JSON.stringify(wq));
+  await settle(p);
+  // Reviewer ID change cancelled: nothing changes
+  p.autoReason = false;
+  const oldRev = await p.evaluate(() => state.reviewerId);
+  await p.fill('#reviewerIdInput', 'SomeoneElse'); await p.press('#reviewerIdInput', 'Enter');
+  await p.evaluate(() => document.getElementById('reviewerIdInput').dispatchEvent(new Event('change')));
+  await p.waitForFunction(() => !document.getElementById('choiceModal').classList.contains('hidden'));
+  await p.click('#choiceModalCancelBtn'); p.autoReason = true; await settle(p);
+  check('cancelling the Reviewer ID question keeps the old ID', await p.evaluate(o => state.reviewerId === o && lsGet('me_reviewer_id') === o && document.getElementById('reviewerIdInput').value === o, oldRev));
+  // A notice raised while a reason is asked comes in front, and Escape closes it first
+  p.autoReason = false;
+  await p.evaluate(() => { askReason({ title: 'Reason', label: 'Why' }); setTimeout(() => showNotice('A notice', 'In front'), 50); });
+  await p.waitForFunction(() => !document.getElementById('choiceModal').classList.contains('hidden') && !document.getElementById('reasonModal').classList.contains('hidden'));
+  const front = await p.evaluate(() => +getComputedStyle(document.getElementById('choiceModal')).zIndex > +getComputedStyle(document.getElementById('reasonModal')).zIndex);
+  await p.keyboard.press('Escape');
+  const order = await p.evaluate(() => ({ notice: document.getElementById('choiceModal').classList.contains('hidden'), reason: !document.getElementById('reasonModal').classList.contains('hidden') }));
+  await p.keyboard.press('Escape'); p.autoReason = true; await settle(p);
+  check('the dialog opened last is in front and Escape closes it first', front && order.notice && order.reason, JSON.stringify({ front, order }));
+  // Raw CSV: CRLF line ends; Table 2 Markdown has the cards' row notes
+  await tab(p, 'pub'); await settle(p);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#exportCsvBtn')]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  check('the synthesis CSV uses CRLF line ends', csv.includes('\r\n') && !/[^\r]\n/.test(csv.replace(/"[^"]*"/g, '')));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('No browser dialogs: alert(), confirm() and prompt() are not used', async () => {
   // A browser may suppress its own dialogs ("Don't allow this page to show more dialogs"): confirm() then returns false and
   // prompt() null without asking. The app asks in its own dialogs (askChoice, askReason, showNotice) and the snackbar.

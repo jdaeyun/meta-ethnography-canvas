@@ -456,7 +456,9 @@ function getAppendixASpec(mode = getAppendixMode()) {
     if (!r.n || r.n < 2) return;
     r.when = `${fmt(r.firstT)} – ${fmt(r.lastT)}`;
     r.reviewer = r.reviewers.join(', ');
-    r.action = `${r.seriesLabel} (${r.n} edits)${r.action.match(/ for "(.*)"$/) ? ': "' + r.action.match(/ for "(.*)"$/)[1] + '"' : ''}`;
+    // The row it concerns, named at the end of the action in any of its forms: … for "Row", … on "Row", … ("Row")
+    const rowName = (r.action.match(/(?: for | on | \()"(.*)"\)?$/) || [])[1];
+    r.action = `${r.seriesLabel} (${r.n} edits)${rowName !== undefined ? ': "' + rowName + '"' : ''}`;
     // The latest notes (e.g. the CERQual explanations) stay; Before ➔ After spans the first and the last edit
     r.detail = `${r.lastDetail ? r.lastDetail + '\n' : ''}(Before ➔ After: from the first to the last of these edits; each edit is in the full audit trail.)`;
   });
@@ -1043,7 +1045,8 @@ document.getElementById('copyMarkdownBtn').addEventListener('click', async () =>
       const docs = [...new Set(mappedSecs.map(s => getDisplayName(state.docs.find(d => d.id === s.docId))))];
       const secStr = mappedSecs.map(s => {
         const dName = getDisplayName(state.docs.find(d => d.id === s.docId));
-        return `${relTag(s, c.id)}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): ${s.note ? `**${s.note}**${secLabelTag(s)} - ` : ''}"${secEvidenceText(s)}"`;
+        // the card's note in this row, as in the preview and the Word table
+        return `${relTag(s, c.id)}${s.origin === 'wrapped_first_order' ? '[reviewer-wrapped 1st-order quote] ' : ''}${dName} (p.${secPagesLabel(s)}): ${s.note ? `**${s.note}**${secLabelTag(s)} - ` : ''}"${secEvidenceText(s)}"${s.clusterComments && s.clusterComments[c.id] ? ` [${s.clusterComments[c.id]}]` : ''}`;
       }).concat(cellStatusLines(c)).join('; ');
       const quotes = [];
       const seenQ = new Set();
@@ -1480,6 +1483,16 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
             spacing: { before: 220, after: 140 }
           })
         ] : []),
+        // Item 15, as in the preview and the Markdown
+        ...(state.loa.synthStudies ? [
+          new Paragraph({
+            children: [
+              new TextRun({ text: "Studies synthesized (Item 15): ", bold: true, font: "Times New Roman", size: 22 }),
+              new TextRun({ text: state.loa.synthStudies, font: "Times New Roman", size: 22 })
+            ],
+            spacing: { after: 140 }
+          })
+        ] : []),
         ...(getLoaLinks().length ? [
           new Paragraph({
             children: [
@@ -1586,7 +1599,8 @@ document.getElementById('exportCsvBtn').addEventListener('click', async () => {
     const docIdx = state.docs.findIndex(d => d.id === sec.docId);
     const doc = state.docs[docIdx] ? normalizeDoc(state.docs[docIdx]) : null;
     const firsts = quotesOf(sec.id);
-    const targetClusterIds = sec.clusterIds.length > 0 ? sec.clusterIds : [null];
+    const live = liveClusterIds(sec); // rows that exist (a stale id would read as "(Unassigned)" without its not-translated note)
+    const targetClusterIds = live.length > 0 ? live : [null];
 
     targetClusterIds.forEach(cid => {
       const cluster = state.clusters.find(c => c.id === cid);
@@ -1626,7 +1640,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', async () => {
     });
   });
 
-  const csvContent = '\uFEFF' + rows.map(r => r.map(csvCell).join(',')).join('\n');
+  const csvContent = '\uFEFF' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'); // CRLF, as the full-trail CSV (Excel)
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

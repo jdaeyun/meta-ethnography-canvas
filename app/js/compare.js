@@ -122,7 +122,7 @@ function computePeerAnnotationMatches(cmp) {
     }
   });
   cmp.localOnlyAnnos = state.annotations.filter(a => !localTaken.has(a.id));
-  cmp.peerToLocalAnnoId = null; // rebuilt from the new pairs on the next import
+  cmp.peerToLocalAnnoId = null; // rebuilt from the new pairs (and the imports so far) on the next use: peerAnnoMap
   // Constructs set aside in an earlier comparison with this reviewer do not come back as new; they are listed apart
   cmp.setAsideAnnos = cmp.peerOnlyAnnos.filter(item => peerSetAsideRecord(cmp, item.peerAnno));
   cmp.peerOnlyAnnos = cmp.peerOnlyAnnos.filter(item => !peerSetAsideRecord(cmp, item.peerAnno));
@@ -695,8 +695,15 @@ function renderComparisonTabContent() {
           Object.keys(pc.cellStatus || {}).forEach(id => { cellStatus[toLocalDoc(id)] = pc.cellStatus[id]; });
           // Its own id where that is safe and free (a foreign file may carry any characters); it goes below the rows here
           const safeId = pc.id && /^[\w.-]+$/.test(String(pc.id)) && !state.clusters.some(c => c.id === pc.id);
+          // Study and construct ids of the peer's file are turned into the local ones (the re-reading note after #1 changed,
+          // the construct a seeded row came from); one with no local counterpart is dropped rather than left pointing nowhere
+          const bc = pc.baselineChange && typeof pc.baselineChange === 'object'
+            ? { ...pc.baselineChange, fromDocId: toLocalDoc(pc.baselineChange.fromDocId), toDocId: toLocalDoc(pc.baselineChange.toDocId) } : undefined;
+          const seededFrom = pc.seededFromId ? peerAnnoMap(cmp)[pc.seededFromId] : undefined;
           const newCl = normalizeCluster({ ...JSON.parse(JSON.stringify(pc)), id: safeId ? pc.id : 'cl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-            cellStatus, by: cmp.peerReviewer, baseDocId: pBase ? toLocalDoc(pBase) : pBase, order: state.clusters.length });
+            cellStatus, by: cmp.peerReviewer, baseDocId: pBase ? toLocalDoc(pBase) : pBase, order: state.clusters.length, baselineChange: bc, seededFromId: seededFrom });
+          if (!newCl.baselineChange) delete newCl.baselineChange;
+          if (!newCl.seededFromId) delete newCl.seededFromId;
           await dbPut('clusters', newCl);
           state.clusters.push(newCl);
           const placed = await reattachPeerRowPlacements(pc.id, newCl.id);
@@ -761,9 +768,7 @@ const PEER_ROW_KEYS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa']
 // A peer row that is here now (imported after its constructs, or a local row with the same title): place the constructs
 // that were waiting for it, with their judgements. peerRowId = the row's id in the peer's file; localRowId = the row here.
 async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
-  const row = state.clusters.find(c => c.id === localRowId);
-  const ops = [];
-  let rowChanged = false;
+  const ops = [], placed = [];
   for (const a of state.annotations) {
     const w = a.type === 'second_order' && a._peerRows && a._peerRows[peerRowId];
     if (!w) continue;
@@ -772,16 +777,11 @@ async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
     delete a._peerRows[peerRowId];
     if (!Object.keys(a._peerRows).length) delete a._peerRows;
     ops.push({ store: 'annotations', put: a });
-    // As a placement made here (assignSecondOrderToCluster): a row without its base yet takes this study's, and an empty-cell
-    // note for this study ("not addressed" / "different aspect") no longer applies now that it has a construct there
-    if (row) {
-      normalizeCluster(row);
-      if (row.baseDocId === '') { row.baseDocId = a.docId; rowChanged = true; }
-      if (row.cellStatus && row.cellStatus[a.docId]) { row.cellStatus = { ...row.cellStatus }; delete row.cellStatus[a.docId]; rowChanged = true; }
-    }
+    placed.push(a);
   }
-  if (rowChanged) ops.push({ store: 'clusters', put: row });
-  await dbBatch(ops); // the constructs and what they change in the row, together
+  // As a placement made here: the row's base if not set yet, and no empty-cell note for this study (rowsTouchedByPlacement)
+  ops.push(...placementRowOps(placed));
+  await dbBatch(ops); // the constructs and what they change in the rows, together
   return ops.filter(o => o.store === 'annotations').length;
 }
 
@@ -821,6 +821,16 @@ async function reattachWaitingForRow(cluster) {
   return total;
 }
 
+// Peer construct id -> local id: the matched pairs, and every construct imported in this comparison (an import may have been
+// given a new id; matching studies by hand works the pairs out again, and an import must not lose its place in the map)
+function peerAnnoMap(cmp) {
+  if (!cmp.peerToLocalAnnoId) {
+    cmp.peerToLocalAnnoId = {};
+    cmp.matchedPairs.forEach(pr => { cmp.peerToLocalAnnoId[pr.peerAnno.id] = pr.localAnno.id; });
+    Object.entries(cmp.importedPeerIds || {}).forEach(([p, l]) => { if (state.annotations.some(a => a.id === l)) cmp.peerToLocalAnnoId[p] = l; });
+  }
+  return cmp.peerToLocalAnnoId;
+}
 async function importPeerConstruct(item, status, { redraw = true } = {}) {
   const cmp = state.peerComparison;
   // Taken off the list at once, before any wait: a second click (or Import All running) finds it gone and adds nothing twice
@@ -853,10 +863,7 @@ async function importPeerConstructNow(item, status, redraw) {
   if (!targetDocId) return;
 
   // Peer annotation id -> local annotation id (matched pairs + items already imported in this session)
-  if (!cmp.peerToLocalAnnoId) {
-    cmp.peerToLocalAnnoId = {};
-    cmp.matchedPairs.forEach(pr => { cmp.peerToLocalAnnoId[pr.peerAnno.id] = pr.localAnno.id; });
-  }
+  peerAnnoMap(cmp);
   const raw = JSON.parse(JSON.stringify(item.peerAnno));
   const peerId = raw.id;
   // Avoid id collisions with local items (and unsafe characters from foreign files)
@@ -907,6 +914,7 @@ async function importPeerConstructNow(item, status, redraw) {
     concordanceNote: `Imported from @${cmp.peerReviewer} via JSON Diff/Merge.` + (String(item.peerAnno.concordanceNote || '').trim() ? `\n@${cmp.peerReviewer}'s note: ${String(item.peerAnno.concordanceNote).trim()}` : '')
   });
   cmp.peerToLocalAnnoId[peerId] = imported.id;
+  (cmp.importedPeerIds = cmp.importedPeerIds || {})[peerId] = imported.id; // kept when the pairs are worked out again
   // If this is a 2nd Order construct, re-attach any previously imported peer quotes that were waiting for it
   if (imported.type === 'second_order') {
     for (const a of state.annotations) {
@@ -920,7 +928,8 @@ async function importPeerConstructNow(item, status, redraw) {
     }
   }
 
-  await dbPut('annotations', imported);
+  // The construct and what its placements change in those rows (base not set yet, an empty-cell note), together
+  await dbBatch([{ store: 'annotations', put: imported }, ...placementRowOps([imported])]);
   state.annotations.push(imported);
 
   const doc = state.docs.find(d => d.id === targetDocId);

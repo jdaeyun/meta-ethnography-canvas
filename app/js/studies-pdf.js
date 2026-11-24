@@ -22,6 +22,7 @@ async function attachPdfFileToDoc(doc, file, { buffer = null, sha = '' } = {}) {
   // backup) never stands for it. The DOI stays: it describes the study (and may have been entered by hand), not the file.
   if (!sameFile) { doc.fpDone = false; doc.sha256 = ''; }
   await dbBatch([{ store: 'pdf_binaries', put: { id: doc.id, data } }, { store: 'docs', put: doc }]); // the PDF and its study together
+  if (pdfSearchState.docId === doc.id) Object.assign(pdfSearchState, { docId: null, pageTexts: [] }); // its text index was the old file's
   ensureDocFingerprints(); // only studies not yet fingerprinted are read (e.g. one whose DOI was never looked for)
 }
 
@@ -395,6 +396,7 @@ function renderStudyList() {
         confirmLabel: 'Remove study', draftKey: 'remove-study-' + doc.id
       });
       if (why !== null) {
+        await flushAllPendingSaves(); // nothing of the study still waiting to be saved lands after the deletion
         const wasIndex = idx === 0;
         const binRec = await dbGet('pdf_binaries', doc.id);
         const toDel = state.annotations.filter(a => a.docId === doc.id);
@@ -417,7 +419,6 @@ function renderStudyList() {
         await dbBatch([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refOps]);
         state.docs = state.docs.filter(d => d.id !== doc.id);
         state.annotations = state.annotations.filter(a => a.docId !== doc.id);
-        await persistDocOrder();
         await recordAuditLog({
           category: 'study_order',
           rationale: why,
@@ -426,6 +427,7 @@ function renderStudyList() {
           fromVal: `${state.docs.length + 1} studies`,
           toVal: `${state.docs.length} studies`
         });
+        await persistDocOrder(); // after the removal's entry: a change of #1 it causes is logged after it
         if (state.activeDocId === doc.id) state.activeDocId = state.docs[0]?.id || null;
         showUndoSnackbar(`Removed ${getDisplayName(doc)}`);
         renderStudyList();
@@ -753,7 +755,12 @@ async function saveCurrentMeta() {
   doc.etAl = document.getElementById('metaEtAl').checked;
   doc.year = document.getElementById('metaYear').value.trim();
   doc.title = document.getElementById('metaTitle').value.trim();
-  doc.doi = normalizeDoi(document.getElementById('metaDoi').value) || '';
+  const doiEl = document.getElementById('metaDoi'), doiRaw = doiEl.value.trim();
+  doc.doi = normalizeDoi(doiRaw) || '';
+  // The box shows what is stored (e.g. "https://doi.org/10.1/x" is kept as 10.1/x); text that is not a DOI is said so, not
+  // silently kept on screen while nothing is stored
+  if (doiRaw && !doc.doi) showSnackbar('That is not a DOI (it starts with 10.…): it was not saved.');
+  if (document.activeElement !== doiEl) doiEl.value = doc.doi;
   doc.setting = document.getElementById('metaSetting').value.trim();
   doc.participants = document.getElementById('metaParticipants').value.trim();
   const prevGroup = doc.group || '';
@@ -1134,6 +1141,9 @@ document.addEventListener('mouseup', (e) => {
   if (!sel || sel.isCollapsed || !state.activeDocId) return tt.classList.add('hidden');
 
   const range = sel.getRangeAt(0);
+  // Both ends in the PDF: a drag that runs on into the sidebar would take its button labels along as "quote" text
+  const inPdf = n => { const el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('#pdfPagesWrapper')); };
+  if (!inPdf(range.startContainer) || !inPdf(range.endContainer)) return tt.classList.add('hidden');
   const txt = selectionTextWithSpaces(range).normalize('NFC').trim();
   if (!txt) return tt.classList.add('hidden');
 
@@ -1723,7 +1733,9 @@ async function autoExtractCitationFromPdf() {
           const allCaps = !!core && /^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'’-]+$/.test(core);
           if (parsed.surname && (allCaps || /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ-]+/.test(core))) {
             detectedAuthor = allCaps ? parsed.surname.toLowerCase().replace(/(^|[-'’\s])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : parsed.surname;
-            detectedEtAl = /,|;|\band\b|&/i.test(rawAuthorLine);
+            // On a title page commas separate authors ("Ann Lee, Bo Kim"); affiliation marks ("Ann Lee1,2*") are taken out first,
+            // so one author with two affiliations is not read as several
+            detectedEtAl = /,|;|\band\b|&/i.test(rawAuthorLine.replace(/[\d*†‡§¶✉]+(?:\s*,\s*[\d*†‡§¶✉]+)*/g, ''));
           }
         }
       }
@@ -1748,7 +1760,7 @@ async function autoExtractCitationFromPdf() {
   }
 
   if (detectedAuthor) document.getElementById('metaAuthor').value = detectedAuthor;
-  document.getElementById('metaEtAl').checked = detectedEtAl;
+  if (detectedAuthor) document.getElementById('metaEtAl').checked = detectedEtAl; // "et al." is only judged with an author found
   if (detectedYear) document.getElementById('metaYear').value = detectedYear;
   if (detectedTitle) document.getElementById('metaTitle').value = detectedTitle;
 

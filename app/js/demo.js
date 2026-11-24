@@ -37,7 +37,10 @@ async function seedDemoIfEmpty() {
     const existing = await dbGetAll('docs');
     const outdated = existing.length > 0 && lsGet('me_demo_build') !== demo.build;
     if (existing.length > 0 && !outdated) return; // keep the visitor's own edits to the demo
-    if (outdated) { await clearDemoStores(); showSnackbar('The demo was updated to its latest version.'); }
+    // Always from empty stores: after every study was deleted, rows and trail entries made in the demo may still be there,
+    // and would otherwise be mixed into the fresh demo
+    await clearDemoStores();
+    if (outdated) showSnackbar('The demo was updated to its latest version.');
     const data = demo.project;
     // One quiet transaction: loading the demo is not an edit, so no "not backed up" mark
     const ops = [];
@@ -51,6 +54,7 @@ async function seedDemoIfEmpty() {
     data.logs.forEach(l => ops.push({ store: 'logs', put: l }));
     ops.push({ store: 'meta', put: { ...data.loa, id: 'loa_main' } });
     await dbBatch(ops, { quiet: true });
+    lsRemove('unbackedSince'); updateBackupReminder(); // a fresh demo has nothing to back up
     lsSet('me_reviewer_id', data.reviewerId);
     lsSet('me_project_code', data.projectCode);
     lsRemove('me_hidden_studies');
@@ -66,6 +70,6 @@ document.getElementById('demoResetBtn')?.addEventListener('click', async () => {
   if (!ok) return;
   await flushAllPendingSaves(); // a save still waiting must not land in the fresh demo afterwards
   await clearDemoStores();
-  ['me_reviewer_id', 'me_project_code', 'me_hidden_studies', 'me_demo_build'].forEach(lsRemove);
+  ['me_reviewer_id', 'me_project_code', 'me_hidden_studies', 'me_demo_build', 'unbackedSince'].forEach(lsRemove);
   location.reload();
 });

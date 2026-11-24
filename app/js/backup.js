@@ -221,7 +221,9 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);
         if (d.companionOf) d.companionOf = toLocalDoc(d.companionOf);
-        const existing = findLocalDoc(d);
+        // The study the map points to (not a new search: a second study of the same name in the backup would otherwise be
+        // matched with the first one just added, while its constructs still point to its own id)
+        const existing = state.docs.find(x => x.id === mergeDocIdMap[rawD.id]);
         if (existing) {
           const r = mergeFillEmpty(existing, d, ['id', 'hasBinary', 'order', 'fpDone']); // fpDone: bookkeeping, not content
           if (r.conflicts.length) mergeReport.conflicts.push(`Study ${getDisplayName(existing)}: ${r.conflicts.join(', ')}`);
@@ -252,6 +254,9 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       }
       for (const rawC of (data.clusters || [])) {
         if (rawC && rawC.baseDocId) rawC.baseDocId = toLocalDoc(rawC.baseDocId);
+        if (rawC && rawC.baselineChange && typeof rawC.baselineChange === 'object') {
+          rawC.baselineChange = { ...rawC.baselineChange, fromDocId: toLocalDoc(rawC.baselineChange.fromDocId), toDocId: toLocalDoc(rawC.baselineChange.toDocId) };
+        }
         if (rawC && rawC.cellStatus && typeof rawC.cellStatus === 'object') {
           const cs = {};
           Object.keys(rawC.cellStatus).forEach(id => { cs[toLocalDoc(id)] = rawC.cellStatus[id]; });
@@ -300,7 +305,8 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     if (data.loa && !replaceCleanly) {
       // MERGE: the aim, model and narrative are only filled where they are empty here
       if (data.loa.baselineDocId) data.loa.baselineDocId = mergeDocIdMap[data.loa.baselineDocId] || data.loa.baselineDocId;
-      const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt']);
+      // (where the map's boxes were dragged to is layout, not a reading: it is neither merged nor a conflict)
+      const r = mergeFillEmpty(state.loa, data.loa, ['id', 'projectCode', 'updatedAt', 'mapPositions', 'mapLayout']);
       if (r.conflicts.length) mergeReport.conflicts.push(`Research Aim & Overall Model: ${r.conflicts.join(', ')}`);
       const droppedLinks = dropGoneMapLinks(); // concept-map relations taken from the backup between rows not in this project
       if (r.filled.length || droppedLinks) { state.loa.id = 'loa_main'; await dbPut('meta', state.loa); }

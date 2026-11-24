@@ -1446,6 +1446,7 @@ function renderMatrixTable() {
     };
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
     tdMeta.querySelector('.del-cluster').onclick = async () => {
+      await flushAllPendingSaves(); // a save of the row still waiting must not write it back after the deletion
       const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
       // Nothing of the row is left behind (judgements, cell notes and line-of-argument marks in it, its concept-map relations);
       // Ctrl+Z puts all of it back
@@ -2057,7 +2058,15 @@ async function mergeRows(src, tgt, why) {
       delete s.clusterRelations[tgt.id]; delete s.clusterComments[tgt.id];
       if (s.aspectUsedInLoa && s.aspectUsedInLoa[tgt.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[tgt.id]; }
       const rs = secRelation(s, src.id);
-      if (baseDiffers && rs === 'baseline') {
+      let carriesJudgement = false;
+      if (baseDiffers && s.docId === tgtBase) {
+        // The study that established the target row: in the merged row this card is its base (◆), not judged; a judgement it
+        // had in the source row is kept in its note
+        s.clusterComments[tgt.id] = rs !== 'unjudged' && rs !== 'baseline'
+          ? carryText(s.clusterComments[src.id] || '', `judged ${getCellRelationMeta(rs).label.replace(/^\S+\s/, '')} against ${baseName(srcBase)} there; establishes the merged row`, srcTitle)
+          : (s.clusterComments[src.id] || '');
+        if (!s.clusterComments[tgt.id]) delete s.clusterComments[tgt.id];
+      } else if (baseDiffers && rs === 'baseline') {
         // The study that established the source row: in the merged row it is judged like any other study. A judgement it may
         // still carry from before it became that row's base (kept by setRowBase) is not a reading against the new base.
         const d = state.docs.find(x => x.id === s.docId);
@@ -2070,8 +2079,10 @@ async function mergeRows(src, tgt, why) {
       } else {
         if (s.clusterRelations[src.id]) s.clusterRelations[tgt.id] = s.clusterRelations[src.id];
         if (s.clusterComments[src.id]) s.clusterComments[tgt.id] = s.clusterComments[src.id];
+        carriesJudgement = true;
       }
-      if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [tgt.id]: true };
+      // The line-of-argument mark goes with a ◇ judgement; a card that starts unjudged starts without it
+      if (carriesJudgement && s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [tgt.id]: true };
     } else {
       // Already in both rows: the target row's judgement stays; a different reading in the source row is kept as a note
       const rs = secRelation(s, src.id), rt = secRelation(s, tgt.id);
@@ -2169,11 +2180,12 @@ async function splitRow(src, secIds, title, why) {
         : (s.clusterComments[src.id] || '');
       if (!s.clusterComments[nw.id]) delete s.clusterComments[nw.id];
     } else {
-      // Same base: the judgement and note carry over
+      // Same base: the judgement and note carry over, and with a ◇ judgement its line-of-argument mark
       if (s.clusterRelations[src.id]) s.clusterRelations[nw.id] = s.clusterRelations[src.id];
       if (s.clusterComments[src.id]) s.clusterComments[nw.id] = s.clusterComments[src.id];
+      if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [nw.id]: true };
     }
-    if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa, [nw.id]: true }; delete s.aspectUsedInLoa[src.id]; }
+    if (s.aspectUsedInLoa && s.aspectUsedInLoa[src.id]) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[src.id]; }
     delete s.clusterRelations[src.id]; delete s.clusterComments[src.id];
     ops.push({ store: 'annotations', put: s });
   }

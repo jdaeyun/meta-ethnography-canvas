@@ -114,6 +114,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   argument draws on), or stays 'unjudged'.
   A construct's per-row fields are `ANNOTATION_ROW_FIELDS` (core.js); whatever brings a construct back (Undo, split off a passage)
   passes it through `dropGoneLinks()`, so it never points to a row (or, for a quote, a construct) deleted in the meantime.
+  Whatever puts a construct into a row (placing, Compare import, Undo) writes `placementRowOps()` with it: a row whose base is
+  not set yet ('') takes the study's, and the study's empty-cell record in that row is dropped (`rowsTouchedByPlacement()`).
   Items imported in Compare before what they belong to is here keep the peer's links in `_peerParentIds` (a quote waiting for its
   2nd order construct) / `_peerRows` (a construct waiting for its row: per peer row id, the judgement, cell note, line-of-argument
   mark and the peer row's title, so a row of that title made here later takes it in): optional working fields, ignored where absent, so they need no PROJECT_FORMAT step; emptied when the construct / row arrives.
@@ -123,6 +125,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   (`{ circle: { rowId: {x, y} }, flow: {...} }`, map units); a box without one keeps its computed place. Layout only: undoable, not logged.
   Rows can be merged and split (matrix.js `mergeRows()` / `splitRow()`, logged, undoable); a row lists the rows it absorbed or
   was split from in `historyFrom`, and its history (`logIsForRow()`) includes theirs.
+- A deletion (and Undo) first awaits `flushAllPendingSaves()`: a debounced save still waiting would otherwise write the deleted
+  record back after it.
 - Operations that change several records at once (merge / split / delete a row, delete a study, the order of studies or rows)
   write them in one transaction with `dbBatch(ops)` (core.js), so a failure part way leaves the project as it was.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
@@ -134,7 +138,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   "No browser dialogs"). Ask for a reason or a short entry with `askReason({ title, context, label, confirmLabel, cancelLabel, draftKey,
   value, singleLine })` (resolves to the text, '' = none, null = cancelled; `cancelLabel: null` when the decision is already made).
   Choose between actions with `askChoice({ title, body, choices: [{ value, label, hint, tone }] })`: every button names what it does,
-  and closing it (Cancel, ×, Esc) always means "change nothing". A message that must be read: `showNotice(title, body)`; short
+  and closing it (Cancel, ×, Esc) always means "change nothing". The dialog opened last is in front and gets Escape / Tab
+  (`modalAccessibility` in app.js orders them by opening, not by a fixed z-index). A message that must be read: `showNotice(title, body)`; short
   notices and input hints: `showSnackbar()`. A deletion that Ctrl+Z undoes does not ask first: push the undo action, then
   `showUndoSnackbar(message)`.
 - Where fields live: the Research Aim & Overall Model drawer (Tab 2) holds what is thought out during the analysis (aim, Item 12, alternative

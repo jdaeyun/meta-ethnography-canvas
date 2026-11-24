@@ -131,7 +131,14 @@ function renderAuditTimeline() {
   if (typing) {
     if (!auditRedrawWaiting) {
       auditRedrawWaiting = true;
-      document.activeElement.addEventListener('blur', () => { auditRedrawWaiting = false; setTimeout(renderAuditTimeline, 0); }, { once: true });
+      // Left for real (not just the window losing focus, which keeps the text uncommitted): the commit runs on that blur, then
+      // the timeline is drawn again
+      const box = document.activeElement;
+      const onLeave = () => {
+        if (!document.hasFocus()) { box.addEventListener('blur', onLeave, { once: true }); return; }
+        auditRedrawWaiting = false; setTimeout(renderAuditTimeline, 0);
+      };
+      box.addEventListener('blur', onLeave, { once: true });
     }
     return;
   }
@@ -196,7 +203,7 @@ function renderAuditTimeline() {
       ${log.detail ? `<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(log.detail)}</div>` : ''}
       ${diffHtml}
       <div class="pt-1">
-        <textarea rows="${Math.min(6, (log.rationale || '').split('\n').length)}" class="lazy-grow rationale-input w-full text-[13px] border border-dashed border-slate-300 rounded px-2 py-1 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-none text-slate-700 resize-none" placeholder="+ Add reason for this decision...">${escapeHtml(log.rationale || '')}</textarea>
+        <textarea rows="${Math.min(6, (log.rationale || '').split('\n').length)}" class="${log.rationale ? '' : 'lazy-grow '}rationale-input w-full text-[13px] border border-dashed border-slate-300 rounded px-2 py-1 bg-slate-50/50 focus:bg-white focus:border-indigo-500 focus:outline-none text-slate-700 resize-none" placeholder="+ Add reason for this decision...">${escapeHtml(log.rationale || '')}</textarea>
         <div class="rationale-stamp text-[11px] text-slate-400 ${rationaleStampText(log) ? '' : 'hidden'}">${escapeHtml(rationaleStampText(log))}</div>
       </div>
     `;
@@ -238,7 +245,8 @@ function renderAuditTimeline() {
         action: `Deleted an audit trail entry: ${log.action}`,
         detail: `Original entry (${new Date(log.timestamp).toLocaleString()}, @${log.reviewer || 'Unknown'}, ${getCategoryMeta(log.category).label})${log.detail ? ':\n' + log.detail : ''}`,
         fromVal: log.fromVal || '',
-        toVal: log.toVal || ''
+        toVal: log.toVal || '',
+        clusterIds: log.clusterIds || null // so a row's history shows that one of its entries was deleted
       });
       updateAuditBadge();
       renderAuditTimeline();

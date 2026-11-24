@@ -41,7 +41,8 @@ let undoBusy = false;
 async function performUndo() {
   if (undoBusy || state.undoStack.length === 0) return;
   undoBusy = true;
-  try { await performUndoStep(); } finally { undoBusy = false; }
+  // Saves still waiting are written first, so none of them lands on top of what the undo puts back
+  try { await flushAllPendingSaves(); await performUndoStep(); } finally { undoBusy = false; }
 }
 async function performUndoStep() {
   const last = state.undoStack.pop();
@@ -57,10 +58,11 @@ async function performUndoStep() {
     if (last.unlinkedChildrenIds && last.parentId) {
       for (const cid of last.unlinkedChildrenIds) {
         const child = state.annotations.find(x => x.id === cid);
-        if (child) { linkQuote(child, last.parentId); ops.push({ store: 'annotations', put: child }); }
+        if (child && child.type === 'first_order') { linkQuote(child, last.parentId); ops.push({ store: 'annotations', put: child }); } // not one switched to a construct since
       }
     }
     restoreConceptLinksOps(last, ops);
+    ops.push(...placementRowOps(back)); // a card back in a row: no "not addressed / different aspect" note for its study there
     await dbBatch(ops);
     back.forEach(a => {
       const idx = state.annotations.findIndex(x => x.id === a.id);
@@ -90,7 +92,7 @@ async function performUndoStep() {
     const copies = last.snapshots.map(snap => dropGoneLinks(normalizeAnnotation(JSON.parse(JSON.stringify(snap))), snapSecIds));
     const snapIds = new Set(last.snapshots.map(x => x.id));
     const gone = (last.createdIds || []).filter(id => !snapIds.has(id));
-    await dbBatch([...copies.map(c => ({ store: 'annotations', put: c })), ...gone.map(id => ({ store: 'annotations', del: id }))]);
+    await dbBatch([...copies.map(c => ({ store: 'annotations', put: c })), ...gone.map(id => ({ store: 'annotations', del: id })), ...placementRowOps(copies)]);
     copies.forEach(copy => {
       const idx = state.annotations.findIndex(a => a.id === copy.id);
       if (idx >= 0) state.annotations[idx] = copy; else state.annotations.push(copy);
@@ -158,12 +160,12 @@ async function performUndoStep() {
       state.docs.splice(pos, 0, d);
     }
     restored.forEach(a => { if (!state.annotations.find(x => x.id === a.id)) state.annotations.push(a); });
-    if (isNew) await persistDocOrder();
     await recordAuditLog({
       category: 'study_order',
       action: `Restored Study (Undo): ${getDisplayName(d)}`,
       detail: `${(last.annotations || []).length} construct(s)/quote(s) restored.`
     });
+    if (isNew) await persistDocOrder(); // after the entry: a change of #1 it causes is logged after it
     renderStudyList();
     await switchStudy(d.id);
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
@@ -176,7 +178,8 @@ async function performUndoStep() {
     await recordAuditLog({
       category: 'audit_edit',
       action: `Restored a deleted audit trail entry (Undo): ${last.log.action}`,
-      detail: ''
+      detail: '',
+      clusterIds: last.log.clusterIds || null
     });
     updateAuditBadge();
     if (!divAudit.classList.contains('hidden')) renderAuditTimeline();
@@ -187,10 +190,11 @@ async function performUndoStep() {
     const ids = [last.srcId, opId];
     const kept = [];
     const ops = []; // written in one transaction at the end (as the merge / split was)
+    const touched = []; // cards back in their rows: those rows lose an empty-cell note for the card's study (placementRowOps)
     const PER_ROW = ANNOTATION_ROW_FIELDS;
     for (let i = 0; i < last.before.anns.length; i++) {
       const b = last.before.anns[i], af = last.after.anns[i];
-      const a = state.annotations.find(x => x.id === b.id);
+      const a = state.annotations.find(x => x.id === b.id && x.type === 'second_order'); // not one switched to a quote since
       if (!a) continue;
       // membership in the two rows
       ids.forEach((rid, j) => {
@@ -198,20 +202,39 @@ async function performUndoStep() {
         if (nowIn === af.member[j] && nowIn !== b.member[j]) a.clusterIds = b.member[j] ? [...a.clusterIds, rid] : a.clusterIds.filter(x => x !== rid);
       });
       const what = k => k === 'clusterRelations' ? 'a judgement' : k === 'clusterComments' ? 'a cell note' : 'a line-of-argument mark';
+      // (split: a judgement is a reading against the row's base; one made in the split-off row against another base does not
+      // carry into the original row)
+      const splitBasesDiffer = last.type === 'row_split' && (() => {
+        const n = state.clusters.find(c => c.id === last.newId), o = state.clusters.find(c => c.id === last.srcId);
+        return !!(n && o && rowBaseDocId(n) !== rowBaseDocId(o));
+      })();
       PER_ROW.forEach((k, ki) => ids.forEach((rid, j) => {
         const cur = (a[k] || {})[rid];
         if (same(cur, af.keys[ki][j])) {
           if (b.keys[ki][j] === undefined) { if (a[k] && rid in a[k]) { a[k] = { ...a[k] }; delete a[k][rid]; } }
           else a[k] = { ...(a[k] || {}), [rid]: b.keys[ki][j] };
         } else if (last.type === 'row_split' && rid === last.newId) {
-          // Changed in the split-off row after the split: that row goes, so the newer reading moves to the original row
+          // Changed in the split-off row after the split: that row goes. The newer reading moves to the original row, unless
+          // the original row has a reading of its own made since (kept; a note is added to it), or the two rows have different
+          // bases (a judgement against another base is not carried)
           a[k] = { ...(a[k] || {}) };
-          if (cur === undefined) delete a[k][last.srcId]; else a[k][last.srcId] = cur;
+          const srcIsAsBefore = same(a[k][last.srcId], b.keys[ki][0]);
+          if (k === 'clusterRelations' && splitBasesDiffer) {
+            kept.push(`a judgement on p.${a.page} made in the split-off row against another base, not carried: judge it again in the original row`);
+          } else if (srcIsAsBefore) {
+            if (cur === undefined) delete a[k][last.srcId]; else a[k][last.srcId] = cur;
+            kept.push(`${what(k)} on p.${a.page} made in the split-off row, now in the original row`);
+          } else if (k === 'clusterComments' && cur) {
+            a[k][last.srcId] = `${a[k][last.srcId] ? a[k][last.srcId] + '\n\n' : ''}[From the split-off row] ${cur}`;
+            kept.push(`a cell note on p.${a.page} made in the split-off row, added to the one in the original row`);
+          } else {
+            kept.push(`${what(k)} on p.${a.page} made in the split-off row, not carried: the original row has its own`);
+          }
           delete a[k][rid];
-          kept.push(`${what(k)} on p.${a.page} made in the split-off row, now in the original row`);
         } else if (!same(cur, b.keys[ki][j])) kept.push(`${what(k)} on p.${a.page}`);
       }));
       ops.push({ store: 'annotations', put: normalizeAnnotation(a) });
+      touched.push(a);
     }
     if (last.type === 'row_merge') {
       const tgt = state.clusters.find(c => c.id === last.tgtId);
@@ -239,6 +262,7 @@ async function performUndoStep() {
       state.loa = { ...state.loa, links: [...last.before.links.filter(l => !removedSince.has(l.id)), ...added].filter(l => rowsNow.has(l.from) && rowsNow.has(l.to)) };
       ops.push({ store: 'meta', put: state.loa });
       // The restored row takes its old place; every row is numbered again, so rows moved since the merge never share a place
+      ops.push(...placementRowOps(touched));
       state.clusters.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
       await dbBatch(ops);
     } else {
@@ -252,8 +276,10 @@ async function performUndoStep() {
         for (const a of state.annotations.filter(x => x.type === 'second_order' && (x.clusterIds || []).includes(nw.id))) {
           a.clusterIds = a.clusterIds.filter(x => x !== nw.id);
           if (!a.clusterIds.includes(srcRow.id)) a.clusterIds.push(srcRow.id);
-          PER_ROW.forEach(k => { if (a[k] && nw.id in a[k]) { a[k] = { ...a[k] }; if (!(srcRow.id in a[k])) a[k][srcRow.id] = a[k][nw.id]; delete a[k][nw.id]; } });
+          const otherBase = rowBaseDocId(nw) !== rowBaseDocId(srcRow); // a judgement against the split-off row's base stays behind
+          PER_ROW.forEach(k => { if (a[k] && nw.id in a[k]) { a[k] = { ...a[k] }; if (!(srcRow.id in a[k]) && !(k === 'clusterRelations' && otherBase)) a[k][srcRow.id] = a[k][nw.id]; delete a[k][nw.id]; } });
           ops.push({ store: 'annotations', put: a });
+          touched.push(a);
           kept.push(`a card placed in "${nwTitle}" after the split (p.${a.page}), now in the original row`);
         }
         const carry = (into, from) => from && from.trim() ? (into && into.trim() ? into.trim() + '\n\n' : '') + `[From row "${nwTitle}"] ` + from.trim() : (into || '');
@@ -261,7 +287,16 @@ async function performUndoStep() {
         ['translationSummary', 'synthesisNote', 'reflexiveNote', 'concordanceNote', 'cerqualExplanation'].forEach(f => {
           if ((nw[f] || '').trim()) { srcRow[f] = carry(srcRow[f], nw[f]); carried = true; }
         });
-        if (carried) { ops.push({ store: 'clusters', put: srcRow }); kept.push(`the texts written in "${nwTitle}", added to the original row`); }
+        // Empty-cell notes made in the split-off row go to the original row where it has none for that study
+        let cellsCarried = 0;
+        Object.entries(nw.cellStatus || {}).forEach(([docId, v]) => {
+          if (srcRow.cellStatus && srcRow.cellStatus[docId]) return;
+          if (state.annotations.some(x => x.type === 'second_order' && x.docId === docId && (x.clusterIds || []).includes(srcRow.id))) return; // the study has a card there
+          srcRow.cellStatus = { ...(srcRow.cellStatus || {}), [docId]: v }; cellsCarried++;
+        });
+        if (cellsCarried) kept.push(`${cellsCarried} empty-cell note(s) of "${nwTitle}", now in the original row`);
+        if (carried || cellsCarried) ops.push({ store: 'clusters', put: srcRow });
+        if (carried) kept.push(`the texts written in "${nwTitle}", added to the original row`);
         if ((state.loa.links || []).some(l => l.from === nw.id || l.to === nw.id)) {
           const seen = new Set(), out = [];
           state.loa.links.forEach(l => {
@@ -278,6 +313,7 @@ async function performUndoStep() {
       // The new row goes and the order is renumbered in the same transaction
       ops.push({ store: 'clusters', del: last.newId });
       state.clusters = state.clusters.filter(c => c.id !== last.newId);
+      ops.push(...placementRowOps(touched));
       state.clusters.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
       await dbBatch(ops);
     }
@@ -304,7 +340,7 @@ async function performUndoStep() {
         sec.clusterComments[last.clusterId] = last.prevComment;
       }
       if (last.prevAspectUsed) sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [last.clusterId]: true };
-      await dbPut('annotations', sec);
+      await dbBatch([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]); // back in the row: no empty-cell note for its study there
       // The removal was logged (with the minor operations), so is its undoing
       await recordAuditLog({ clusterIds: [last.clusterId], category: 'matrix_mapping', action: `Undid: ${last.label}`, detail: 'The construct is back in the row with its judgement, note and line-of-argument mark.', isMinorOp: true });
     }
@@ -325,10 +361,10 @@ async function performUndoStep() {
     if (Array.isArray(last.unlinkedChildrenIds) && last.unlinkedChildrenIds.length > 0) {
       for (const cid of last.unlinkedChildrenIds) {
         const child = state.annotations.find(x => x.id === cid);
-        if (child) { linkQuote(child, last.snapshot.id); ops.push({ store: 'annotations', put: child }); }
+        if (child && child.type === 'first_order') { linkQuote(child, last.snapshot.id); ops.push({ store: 'annotations', put: child }); }
       }
     }
-    if (restored) restoreConceptLinksOps(last, ops);
+    if (restored) { restoreConceptLinksOps(last, ops); ops.push(...placementRowOps([restored])); }
     await dbBatch(ops);
     if (restored) state.annotations[idx] = restored;
     const rows = restored ? liveClusterIds(restored) : [];

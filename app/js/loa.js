@@ -112,7 +112,9 @@ function buildConceptMapSvg(prefix, width, height, layout = getLoaMapLayout()) {
   });
   const edge = (a, b) => {
     let dx = b.x - a.x, dy = b.y - a.y;
-    const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) return { x1: a.x, y1: a.y, x2: b.x, y2: b.y }; // two boxes dragged onto one place: no direction, no NaN
+    dx /= len; dy /= len;
     const t = (n) => Math.min(Math.abs(dx) < 1e-6 ? Infinity : (n.w / 2 + 3) / Math.abs(dx), Math.abs(dy) < 1e-6 ? Infinity : (n.h / 2 + 3) / Math.abs(dy));
     return { x1: a.x + dx * t(a), y1: a.y + dy * t(a), x2: b.x - dx * t(b), y2: b.y - dy * t(b) };
   };
@@ -257,6 +259,8 @@ function downloadConceptMapSvg() {
   svg = svg.replace(/viewBox="0 0 [\d.]+ [\d.]+" width="100%" style="[^"]*"/, `viewBox="0 0 ${W} ${H + legendH}" width="${W}" height="${H + legendH}"`);
   const legend = `<g font-family="Georgia, serif" font-size="10" fill="#334155"><text x="8" y="${H + 15}">${escapeHtml(state.loa.title || 'Line of argument')} — ${[...new Set(getLoaLinks().map(l => l.type))].map(t => (LINK_TYPES[t] || LINK_TYPES.leads)).map(m => m.sym + ' ' + m.label).join(' · ')}</text></g>`;
   svg = svg.replace('</svg>', legend + '</svg>');
+  // A white ground under the whole file (both layouts, legend included), so it stays readable on a dark slide
+  svg = svg.replace(/(<svg[^>]*>)/, `$1<rect x="0" y="0" width="${W}" height="${H + legendH}" fill="#ffffff"/>`);
   const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -472,6 +476,7 @@ function mapNodeCenter(g) {
   });
 })();
 async function resetLoaMapLayout() {
+  await flushAllPendingSaves(); // an arrow-key move still waiting is saved (and undoable) before the reset, not after it
   const layout = getLoaMapLayout();
   const before = mapPositionsCopy(layout);
   if (!before) return;
@@ -691,13 +696,12 @@ WRITEUP_FIELDS.forEach(([key, id, category]) => {
 });
 
 function populateLoaInputs() {
-  document.getElementById('loaAimInput').value = state.loa.aim || '';
-  document.getElementById('loaTitleInput').value = state.loa.title || '';
-  document.getElementById('loaFlowInput').value = state.loa.flow || '';
-  document.getElementById('loaNarrativeInput').value = state.loa.narrative || '';
-  document.getElementById('loaRelateOutcomeInput').value = state.loa.relateOutcome || '';
-  // A field being typed in keeps its text (its commit is still to come)
-  [...LOA_EXTRA_FIELDS, ...WRITEUP_FIELDS].forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement) el.value = state.loa[k] || ''; });
+  // A field being typed in keeps its text (its commit is still to come); so do the drawer's fields while the drawer has
+  // edits not saved yet (they are saved together: commitLoaDrawer)
+  const drawerDirty = loaDrawerDirty; // (declared below; this runs only after the script has loaded)
+  const drawer = [['aim', 'loaAimInput'], ['title', 'loaTitleInput'], ['flow', 'loaFlowInput'], ['narrative', 'loaNarrativeInput'], ['relateOutcome', 'loaRelateOutcomeInput'], ...LOA_EXTRA_FIELDS];
+  drawer.forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement && !drawerDirty) el.value = state.loa[k] || ''; });
+  WRITEUP_FIELDS.forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement) el.value = state.loa[k] || ''; });
   const ordSel = document.getElementById('orderStrategySelect');
   if (ordSel) ordSel.value = getOrderStrategy();
   if (state.loa.updatedAt) {

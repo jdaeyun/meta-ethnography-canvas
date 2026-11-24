@@ -100,6 +100,11 @@ function isEmptyValue(v) {
 const isPlainObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
 // Lists of separate records (relations, team models, within-study links, set-aside items) are merged as a union: what is only
 // in the backup is added, a record in both (same key) keeps the local version. Key per list field:
+function unionItemContent(k, x) {
+  if (k !== 'links' && k !== 'conceptLinks') return stableJson(x);
+  const { id, from, to, ...rest } = x; // (id, from and to are in the key)
+  return stableJson(rest);
+}
 function relationKey(x) {
   if (!x.from || !x.to) return 'id:' + x.id; // not a complete relation: only its id can tell it apart
   const pair = isDirectedLink(x.type) ? `${x.from}|${x.to}` : [x.from, x.to].sort().join('|');
@@ -122,11 +127,14 @@ function mergeFillEmpty(local, incoming, skip = []) {
     if (UNSAFE_KEYS.has(k) || skip.includes(k) || isEmptyValue(incoming[k])) return;
     if (MERGE_UNION_KEYS[k] && Array.isArray(incoming[k]) && Array.isArray(local[k])) {
       const keyOf = MERGE_UNION_KEYS[k], have = new Map(local[k].filter(Boolean).map(x => [keyOf(x), x]));
-      const add = incoming[k].filter(x => x && !have.has(keyOf(x)));
+      // Each new item once, even if the file lists it twice
+      const add = [], seen = new Set();
+      incoming[k].forEach(x => { if (x && !have.has(keyOf(x)) && !seen.has(keyOf(x))) { seen.add(keyOf(x)); add.push(x); } });
       if (add.length) { local[k] = [...local[k], ...add]; filled.push(k); }
       // The same item on both sides with other content (e.g. a relation's note edited elsewhere): the local one stays, and it is
-      // listed as a conflict, so the difference is seen
-      if (incoming[k].some(x => x && have.has(keyOf(x)) && stableJson(have.get(keyOf(x))) !== stableJson(x))) conflicts.push(k);
+      // listed as a conflict, so the difference is seen. What the key already says (a relation's ends, and the id each side
+      // gave it) is not a difference.
+      if (incoming[k].some(x => x && have.has(keyOf(x)) && unionItemContent(k, have.get(keyOf(x))) !== unionItemContent(k, x))) conflicts.push(k);
       return;
     }
     if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
@@ -301,7 +309,9 @@ function extractSurnameFromAuthorString(rawAuthor) {
   if (firstChunk.includes(',')) {
     // "Surname, GivenName" format
     const surname = firstChunk.split(',')[0].trim().replace(/\s+[A-Z]{1,3}\.?$/, ''); // "Hernandez M" -> "Hernandez"
-    return { surname, hasEtAl: multiAuthors || cleaned.split(',').length > 2 };
+    // "Smith, John" is one author (its comma separates surname and given name): another author shows as ; / and / &, or a
+    // further comma ("Smith, J, Lee, K")
+    return { surname, hasEtAl: /;|\band\b|&/i.test(cleaned) || cleaned.split(',').length > 2 };
   }
   const parts = firstChunk.split(/\s+/).filter(Boolean);
   // Vancouver style ("Hamdan A", "De la Cruz M"): trailing initials -> the surname is everything before them

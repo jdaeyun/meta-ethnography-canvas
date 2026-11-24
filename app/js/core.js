@@ -508,6 +508,28 @@ function fileNamePart(s) {
 }
 // A 2nd Order construct's per-row fields (keyed by 3rd Order row id), besides its clusterIds
 const ANNOTATION_ROW_FIELDS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+// A construct is in a row (placed, imported, or brought back by Undo): what that changes in the row, in one place.
+// A row whose base is not set yet ('') takes this study's; an empty-cell record for this study ("— not addressed" /
+// "◇ different aspect") no longer applies now that the study has a construct there. Returns the rows changed (to write).
+function rowsTouchedByPlacement(a) {
+  if (!a || a.type !== 'second_order') return [];
+  const changed = [];
+  (a.clusterIds || []).forEach(id => {
+    const row = state.clusters.find(c => c.id === id);
+    if (!row) return;
+    let ch = false;
+    if (row.baseDocId === '') { row.baseDocId = a.docId; ch = true; }
+    if (row.cellStatus && row.cellStatus[a.docId]) { row.cellStatus = { ...row.cellStatus }; delete row.cellStatus[a.docId]; ch = true; }
+    if (ch) changed.push(row);
+  });
+  return changed;
+}
+// The same for several constructs, as dbBatch ops (each row once)
+function placementRowOps(annos) {
+  const rows = new Map();
+  annos.forEach(a => rowsTouchedByPlacement(a).forEach(r => rows.set(r.id, r)));
+  return [...rows.values()].map(r => ({ store: 'clusters', put: r }));
+}
 // Drop links to what no longer exists, for an annotation brought back (Undo, split off a passage, a restored file): a construct's
 // placements in deleted rows (its clusterIds and every per-row field), a quote's links to deleted 2nd Order constructs.
 // alsoSecIds: constructs being brought back together with it (not in state.annotations yet). Returns the annotation.

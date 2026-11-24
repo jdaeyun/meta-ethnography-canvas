@@ -214,11 +214,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     revInput.value = nextRev;
     if (nextRev === oldRev) return;
 
-    state.reviewerId = nextRev;
-    lsSet('me_reviewer_id', nextRev);
-
     const existingCount = state.annotations.filter(a => a.by === oldRev).length +
                           state.clusters.filter(c => c.by === oldRev).length;
+    // The new ID takes effect only once it is decided: closing the question (Cancel, ×, Esc) changes nothing
+    const useNext = () => { state.reviewerId = nextRev; lsSet('me_reviewer_id', nextRev); };
+    if (!existingCount) useNext();
     if (existingCount > 0) {
       const how = await askChoice({
         title: `Reviewer ID changed from @${oldRev} to @${nextRev}`,
@@ -228,6 +228,8 @@ window.addEventListener('DOMContentLoaded', async () => {
           { value: 'all', tone: 'plain', label: `Attribute all @${oldRev} items to @${nextRev}`, hint: 'For a change of name only (the same person): constructs, rows and audit trail entries. Recorded in the Audit Trail.' }
         ]
       });
+      if (!how) { revInput.value = oldRev; return; }
+      useNext();
       if (how === 'all') {
         // Every record in one transaction: all of them carry the new ID, or (on a failure) none
         const ops = [];
@@ -447,7 +449,14 @@ window.ondrop = async e => {
   if (e.dataTransfer.types.includes('Files') && e.dataTransfer.files.length) {
     e.preventDefault();
     ov.classList.remove('active');
-    const pdfs = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+    const files = Array.from(e.dataTransfer.files);
+    const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+    // Anything else is said, not silently ignored (a project file has its own way in)
+    const others = files.filter(f => !f.name.toLowerCase().endsWith('.pdf'));
+    if (others.length) {
+      const json = others.some(f => f.name.toLowerCase().endsWith('.json'));
+      showSnackbar(json ? 'A .json project file is opened with Restore Project (settings menu), or with Compare for a co-reviewer\'s file.' : `Only PDF files can be dropped here (${others.length} other file(s) left out).`);
+    }
     if (pdfs.length > 0) await handleFiles(pdfs);
   }
 };
@@ -484,6 +493,9 @@ window.ondrop = async e => {
   const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   const returnTo = {};
   const visible = id => { const m = document.getElementById(id); return m && !m.classList.contains('hidden') ? m : null; };
+  // The dialog opened last is in front, and Escape / Tab act on it (e.g. a notice raised while a reason is being asked):
+  // the order of opening decides, not a fixed z-index
+  const openOrder = [];
   MODALS.forEach(id => {
     const m = document.getElementById(id);
     if (!m) return;
@@ -492,18 +504,23 @@ window.ondrop = async e => {
       const open = !m.classList.contains('hidden');
       if (open && !wasOpen) {
         returnTo[id] = document.activeElement;
+        if (openOrder.includes(id)) openOrder.splice(openOrder.indexOf(id), 1);
+        openOrder.push(id);
+        m.style.zIndex = String(200 + openOrder.length);
         // A dialog can name the element to start on (data-focus-id); otherwise its first visible control
         const named = m.dataset.focusId && document.getElementById(m.dataset.focusId);
         const first = named && m.contains(named) ? named : Array.from(m.querySelectorAll(FOCUSABLE)).find(el => el.offsetParent !== null);
         if (first) setTimeout(() => first.focus(), 0);
-      } else if (!open && wasOpen && returnTo[id] && document.contains(returnTo[id])) {
-        try { returnTo[id].focus(); } catch (err) { /* element gone */ }
+      } else if (!open && wasOpen) {
+        if (openOrder.includes(id)) openOrder.splice(openOrder.indexOf(id), 1);
+        m.style.zIndex = '';
+        if (returnTo[id] && document.contains(returnTo[id])) { try { returnTo[id].focus(); } catch (err) { /* element gone */ } }
       }
       wasOpen = open;
     }).observe(m, { attributes: true, attributeFilter: ['class'] });
   });
   document.addEventListener('keydown', e => {
-    const openId = MODALS.slice().reverse().find(visible);
+    const openId = openOrder.slice().reverse().find(visible) || MODALS.slice().reverse().find(visible);
     if (!openId) return;
     // Only where the dialog offers a close button (the project setup has one when edited, none at first start)
     const closeBtn = CLOSE_BTN[openId] && document.getElementById(CLOSE_BTN[openId]);
@@ -560,15 +577,18 @@ const SKIP_OBSERVED = new Set(['SPAN', 'BR', 'CANVAS', 'I', 'B', 'svg', 'path'])
     fresh.forEach(el => { el._minH = el.offsetHeight; });                              // read
     fresh.forEach(el => { el.style.minHeight = el._minH + 'px'; el.classList.add('auto-grow'); }); // write
     live.forEach(el => { el.style.height = 'auto'; });                                   // write
-    const sizes = live.map(el => el.scrollHeight + el.offsetHeight - el.clientHeight);   // read
-    live.forEach((el, i) => { el.style.height = sizes[i] + 'px'; });                     // write
+    // A box the reviewer made taller by hand (resize-y) stays at least that tall: the next key press does not shrink it
+    const sizes = live.map(el => Math.max(el.scrollHeight + el.offsetHeight - el.clientHeight, el._userH || 0)); // read
+    live.forEach((el, i) => { el.style.height = sizes[i] + 'px'; el._setH = sizes[i]; }); // write
   };
   const flush = () => { scheduled = false; const els = Array.from(queue); queue.clear(); growMany(els); };
   const schedule = el => { queue.add(el); if (!scheduled) { scheduled = true; requestAnimationFrame(flush); } };
   const visibility = new IntersectionObserver(entries => entries.forEach(e => { if (e.isIntersecting) schedule(e.target); }));
   const widths = new ResizeObserver(entries => entries.forEach(e => { // only a change of width re-wraps the text
-    const w = Math.round(e.contentRect.width);
-    if (e.target._lastW !== w) { e.target._lastW = w; schedule(e.target); }
+    const el = e.target, w = Math.round(e.contentRect.width);
+    if (el._lastW !== w) { el._lastW = w; schedule(el); return; }
+    // Same width, another height than the one set here: the reviewer dragged the resize handle
+    if (el._setH !== undefined && Math.abs(el.offsetHeight - el._setH) > 2) { el._userH = el.offsetHeight; el._setH = el.offsetHeight; }
   }));
   const init = el => {
     if (el._autoGrow) return;
@@ -586,7 +606,13 @@ const SKIP_OBSERVED = new Set(['SPAN', 'BR', 'CANVAS', 'I', 'B', 'svg', 'path'])
   document.addEventListener('input', e => { if (e.target.tagName === 'TEXTAREA') { init(e.target); schedule(e.target); } });
   document.addEventListener('focusin', e => { if (e.target.tagName === 'TEXTAREA') { init(e.target); schedule(e.target); } });
   initIn(document.body);
-  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(initIn))).observe(document.body, { childList: true, subtree: true });
+  // Boxes taken out of the page (a redrawn sidebar or matrix) are no longer watched, so they can be freed
+  const forget = root => {
+    if (root.nodeType !== 1 || SKIP_OBSERVED.has(root.tagName) || root.isConnected) return;
+    const boxes = root.tagName === 'TEXTAREA' ? [root] : (root.querySelectorAll ? [...root.querySelectorAll('textarea')] : []);
+    boxes.forEach(el => { if (el._autoGrow) { visibility.unobserve(el); widths.unobserve(el); el._autoGrow = false; } });
+  };
+  new MutationObserver(muts => muts.forEach(m => { m.addedNodes.forEach(initIn); m.removedNodes.forEach(forget); })).observe(document.body, { childList: true, subtree: true });
   // Called by the matrix right after it builds rows, so row heights are final before the scroll position is fixed
   window.growTextareasNow = root => growMany(Array.from(root.querySelectorAll('textarea:not(.lazy-grow)')));
 })();

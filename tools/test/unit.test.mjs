@@ -56,6 +56,10 @@ test('merge: emptiness at every depth, union of records, nested answers, conflic
   const lv = { links: [{ id: 'mine', from: 'a', to: 'b', type: 'leads' }, { id: 'm2', from: 'a', to: 'b', type: 'mutual' }] };
   L.mergeFillEmpty(lv, { links: [{ id: 'theirs', from: 'a', to: 'b', type: 'leads' }, { id: 't2', from: 'b', to: 'a', type: 'mutual' }, { id: 't3', from: 'b', to: 'a', type: 'leads' }] });
   assert.deepEqual(plain(lv.links.map(l => l.id)), ['mine', 'm2', 't3'], 'the same relation drawn on both sides (another id) is not added twice; B ➔ A is another relation');
+  const lw = { links: [{ id: 'x', from: 'a', to: 'b', type: 'mutual', note: '' }] };
+  const rw = L.mergeFillEmpty(lw, { links: [{ id: 'y', from: 'b', to: 'a', type: 'mutual', note: '' }, { id: 'z', from: 'c', to: 'd', type: 'leads' }, { id: 'z2', from: 'c', to: 'd', type: 'leads' }] });
+  assert.deepEqual(plain(rw.conflicts), [], 'the same relation with another id or drawn the other way round is no conflict');
+  assert.equal(lw.links.length, 2, 'a relation listed twice in the file is added once');
 });
 
 test('project files are sanitised: prototype keys at every depth, records without an id', () => {
@@ -122,6 +126,8 @@ test('PDF text and citations: CJK joins, author surnames, years', () => {
   assert.deepEqual(S('Juan de la Cruz'), { surname: 'de la Cruz', hasEtAl: false }, 'lower-case particles belong to the surname');
   assert.deepEqual(S('Ludwig van Beethoven'), { surname: 'van Beethoven', hasEtAl: false });
   assert.deepEqual(S('Smith'), { surname: 'Smith', hasEtAl: false });
+  assert.deepEqual(S('Smith, John'), { surname: 'Smith', hasEtAl: false }, 'one author written surname first');
+  assert.deepEqual(S('Smith, J, Lee, K'), { surname: 'Smith', hasEtAl: true });
   assert.deepEqual(S('山田 太郎、佐藤 花子'), { surname: '山田', hasEtAl: true });
   assert.deepEqual(S(''), { surname: '', hasEtAl: true });
   const year = s => (String(s).match(L.YEAR_RE) || [])[1] || '';
