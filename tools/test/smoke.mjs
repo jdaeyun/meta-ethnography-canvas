@@ -2697,6 +2697,45 @@ await group('One save path for text boxes (bindTextField): a draft while typing,
   await p.context().close();
 });
 
+await group('Tables 1, 2, 2b and the line of argument show the same content in the preview, the Markdown and the Word file', async () => {
+  const p = await openDemo();
+  // Markers in each kind of content these tables show
+  const mk = await p.evaluate(async () => {
+    const c = state.clusters[0];
+    const sec = state.annotations.find(a => a.type === 'second_order' && (a.clusterIds || []).includes(c.id));
+    sec.clusterComments = { ...(sec.clusterComments || {}), [c.id]: 'MK-cell-note' }; await dbPut('annotations', sec);
+    state.loa = { ...state.loa, aim: 'MK-aim', synthStudies: 'MK-item15', relateProcess: 'MK-process', modelContext: 'MK-item16' }; await dbPut('meta', state.loa);
+    state.docs[0].contextNote = 'MK-limits'; await dbPut('docs', state.docs[0]);
+    window.copyPlainText = async t => { window.__md = (window.__md || '') + t; return true; }; // the Markdown copy, caught
+    return { title: c.thirdOrderTitle, type: clusterTranslationLabel(c) };
+  });
+  const markers = ['MK-cell-note', 'MK-aim', 'MK-item15', 'MK-process', 'MK-item16', 'MK-limits', mk.title, 'Concept relationships:'];
+  await tab(p, 'pub'); await settle(p);
+  let html = '';
+  for (const t of ['table1', 'table2', 'table2_grid']) {
+    await p.locator(`[data-pub=${t}]`).click(); await settle(p);
+    html += await p.locator('#pubPreviewContainer').innerText();
+    await p.click('#copyMarkdownBtn'); await settle(p);
+  }
+  const md = await p.evaluate(() => window.__md);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
+  const word = readZipEntry(fs.readFileSync(await dl.path()), 'word/document.xml').replace(/<[^>]+>/g, '');
+  const missing = [];
+  markers.forEach(m => [['preview', html], ['Markdown', md], ['Word', word]].forEach(([n, t]) => { if (!t.includes(m)) missing.push(`${n}: ${m}`); }));
+  check('every marker is in all three (aim, Item 15, Item 16, process, a row note, a study note, a row title, the map relations)', missing.length === 0, missing.join('; '));
+  // Table 2 has the same six columns in all three; Table 2b names each row's translation type everywhere
+  const mdT2 = md.split('### Table 2. ')[1] || '';
+  check('the Markdown Table 2 has the six columns of the preview and the Word table', /^[^\n]*\n\n\*[^\n]*\*\n\n\| 3rd Order Construct & Translation Type \| Translation \(A\)/.test(mdT2), mdT2.slice(0, 300));
+  const t2b = s => (s.split('Table 2b. ')[1] || '');
+  check('Table 2b names the rows\' translation type in all three', [t2b(html), t2b(md), t2b(word)].every(t => t.includes(mk.type)), mk.type);
+  // Table 2b: a cell not yet checked is blank (its legend says so), not "-"
+  await p.locator('[data-pub=table2_grid]').click(); await settle(p);
+  const dashCells = await p.evaluate(() => [...document.querySelectorAll('#pubPreviewContainer tbody td')].filter(td => td.textContent.trim() === '-').length);
+  check('Table 2b leaves a cell not yet checked blank', dashCells === 0, String(dashCells));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('No browser dialogs: alert(), confirm() and prompt() are not used', async () => {
   // A browser may suppress its own dialogs ("Don't allow this page to show more dialogs"): confirm() then returns false and
   // prompt() null without asking. The app asks in its own dialogs (askChoice, askReason, showNotice) and the snackbar.

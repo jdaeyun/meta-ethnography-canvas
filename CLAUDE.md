@@ -193,8 +193,11 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   `eval` / `new Function`, no CDN or external fetch. A new resource type means updating the policy and the smoke test
   "Content-Security-Policy". PDF.js stays 3.11.174 (4.x+ ships only ES modules, which file:// cannot load) with
   `isEvalSupported: false` (CVE-2024-4367) on every `getDocument` call.
-- Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable3Specs()`, `getAppendixASpec()`);
-  change the spec, not the three renderers separately. eMERGe item numbers follow France et al. (2019).
+- Exports are built from shared specs (`getMethodSections()`, `getEmergeChecklist()`, `getTable1Spec()`, `getTable2Spec()`,
+  `getTable2bSpec()`, `getLoaBlockSpec()`, `getTable3Specs()`, `getAppendixASpec()` …); change the spec, not the three renderers
+  separately. Tables 1 / 2 / 2b use rich cells (lines of pieces `{ t, b, i, tone, small, title }`, `null` = blank on purpose)
+  rendered by `rtHtml` / `rtMd` / `rtWord` and `specTableHtml` / `specTableMd` / `specTableWord` (export.js); the smoke test
+  "Tables 1, 2, 2b and the line of argument show the same content" checks the three agree. eMERGe item numbers follow France et al. (2019).
   Appendix A shows the key decisions by default (`isKeyDecisionLog()`, repeated edits of one text folded into one line). The trail
   itself is never filtered. It goes by each entry's `kind` (`recordAuditLog({ kind, targetLabel, targetId })`, registry `LOG_KINDS`
   in logic.js: series / routine / writeup / key …), not by the action's wording, so UI text can be reworded freely. A new kind of
