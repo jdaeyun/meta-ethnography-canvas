@@ -107,7 +107,7 @@ async function assignSecondOrderToCluster(sec, cluster) {
   // earlier "not addressed / different aspect" note for this study no longer applies (placementRowOps). Read first, for the log.
   const prevStatus = emptyCellInfo(cluster, sec.docId);
   // The placement and what it changes in the row in one transaction
-  await dbBatch([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]);
+  await commitOps([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]);
   if (prevStatus) {
     await recordAuditLog({
       clusterIds: [cluster.id], category: 'relating_studies',
@@ -268,8 +268,13 @@ async function seedIndexPaperRows() {
 
     // Study #1 has changed since rows were seeded (seeded rows come from another study): making rows from the new #1's
     // constructs is a new decision about method, so ask; "leave them" marks them, so the question is not asked again
-    const seededFromOther = state.clusters.some(c => c.autoSeeded && c.seededFromId &&
-      (state.annotations.find(a => a.id === c.seededFromId) || {}).docId !== indexDoc.id);
+    // (a row's seed construct may have been deleted since: the row's base then tells which study it was started from, so
+    // deleting one construct of study #1 does not make its rows look as if they came from an earlier study #1)
+    const seededFromOther = state.clusters.some(c => {
+      if (!c.autoSeeded || !c.seededFromId) return false;
+      const seed = state.annotations.find(a => a.id === c.seededFromId);
+      return (seed ? seed.docId : c.baseDocId) !== indexDoc.id;
+    });
     const unplaced = fresh.filter(sec => liveClusterIds(sec).length === 0);
     if (seededFromOther && unplaced.length) {
       const how = await askChoice({
@@ -1397,31 +1402,17 @@ function renderMatrixTable() {
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
     tdMeta.querySelector('.del-cluster').onclick = async () => {
       await flushAllPendingSaves(); // a save of the row still waiting must not write it back after the deletion
-      const assigned = state.annotations.filter(a => a.type === 'second_order' && a.clusterIds?.includes(cluster.id));
-      // Nothing of the row is left behind (judgements, cell notes and line-of-argument marks in it, its concept-map relations);
-      // Ctrl+Z puts all of it back
-      const perRow = {};
-      assigned.forEach(a => { perRow[a.id] = rowFieldsOf(a, cluster.id); });
-      const removedLinks = (state.loa.links || []).filter(l => l.from === cluster.id || l.to === cluster.id);
+      // Nothing of the row is left behind (judgements, cell notes and line-of-argument marks in it, its concept-map relations:
+      // purgeClusterRefs, logic.js); Ctrl+Z puts all of it back
+      const { ops, assignedSecIds, perRow, removedLinks } = purgeClusterRefs(state, cluster.id);
       pushUndoAction({
         type: 'delete_cluster',
         label: `3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`,
         cluster: deepCopy(cluster), // nested fields (cellStatus, historyFrom…) as they were
-        assignedSecIds: assigned.map(a => a.id),
-        perRow, removedLinks
+        assignedSecIds, perRow, removedLinks
       });
-      const ops = []; // unplacing the cards and deleting the row in one transaction (see dbBatch)
-      for (let a of assigned) {
-        takeOutOfRow(a, cluster.id);
-        ops.push({ store: 'annotations', put: a });
-      }
-      if (removedLinks.length) {
-        state.loa = { ...state.loa, links: state.loa.links.filter(l => !removedLinks.includes(l)) };
-        ops.push({ store: 'meta', put: state.loa });
-      }
       ops.push({ store: 'clusters', del: cluster.id });
-      state.clusters = state.clusters.filter(c => c.id !== cluster.id);
-      await dbBatch(ops);
+      await commitOps(ops); // unplacing the cards and deleting the row in one transaction; the rows in memory change once it is stored
       await recordAuditLog({
         clusterIds: [cluster.id],
         category: 'third_order',
@@ -1727,7 +1718,7 @@ function renderMatrixTable() {
 // --- C. 3rd Order Row Reordering (▲ / ▼) ---
 async function persistClusterOrder() {
   // The whole order in one transaction (see dbBatch)
-  await dbBatch(state.clusters.map((c, i) => { c.order = i; return { store: 'clusters', put: c }; }));
+  await commitOps(state.clusters.map((c, i) => { c.order = i; return { store: 'clusters', put: c }; }));
 }
 
 // Rows shown in the matrix (all, or only those with a ⚡ card while "Contradictions Only" is on)
@@ -2028,19 +2019,10 @@ async function mergeRows(src, tgt, why) {
   ops.push({ store: 'clusters', put: tgt });
   // Concept-map relations follow the row; a relation of the two rows to each other, or a duplicate, is dropped
   // (for a symmetric relation, A–C and C–A are the same relation)
-  if (Array.isArray(state.loa.links)) {
-    const seen = new Set(); const out = [];
-    state.loa.links.forEach(l => {
-      const n = { ...l, from: l.from === src.id ? tgt.id : l.from, to: l.to === src.id ? tgt.id : l.to };
-      const pair = isDirectedLink(n.type) ? n.from + '|' + n.to : [n.from, n.to].sort().join('|');
-      const key = pair + '|' + n.type;
-      if (n.from !== n.to && !seen.has(key)) { seen.add(key); out.push(n); }
-    });
-    state.loa = { ...state.loa, links: out }; ops.push({ store: 'meta', put: state.loa });
-  }
+  // (moveRowLinks, logic.js)
+  if (Array.isArray(state.loa.links)) ops.push({ store: 'meta', put: { ...state.loa, links: moveRowLinks(state.loa.links, src.id, tgt.id) } });
   ops.push({ store: 'clusters', del: src.id });
-  state.clusters = state.clusters.filter(c => c.id !== src.id);
-  await dbBatch(ops);
+  await commitOps(ops); // the source row leaves the rows in memory once all of it is stored
   pushUndoAction({ type: 'row_merge', label: `Merge "${srcTitle.slice(0, 24)}" into "${tgtTitle.slice(0, 24)}"`, srcId: src.id, tgtId: tgt.id, before,
     after: { tgt: pickFields(tgt, MERGE_ROW_FIELDS), anns: secs.map(a => annRowState(a, ids)), links: deepCopy(state.loa.links || []) } });
   await recordAuditLog({
@@ -2103,7 +2085,7 @@ async function splitRow(src, secIds, title, why) {
   const order = state.clusters.filter(c => c.id !== nw.id);
   order.splice(order.findIndex(c => c.id === src.id) + 1, 0, nw);
   order.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
-  await dbBatch(ops);
+  await commitOps(ops);
   state.clusters = order;
   pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${srcTitle.slice(0, 24)}"`, srcId: src.id, newId: nw.id,
     before: { anns: beforeAnns }, after: { anns: secs.map(a => annRowState(a, ids)) } });

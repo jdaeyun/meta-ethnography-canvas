@@ -2771,6 +2771,40 @@ await group('Shared global scope: no top-level name is declared twice across the
   check(`no top-level name declared twice (${seen.size} names)`, dups.length === 0, dups.join('; '));
 });
 
+await group('One write path: memory changes after the database, records keep their identity, references go with what they name', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await settle(p);
+  const r = await p.evaluate(async () => {
+    const out = {};
+    // A write the browser refuses: nothing is removed from memory alone (the row is still there, as in the database)
+    const row = state.clusters[state.clusters.length - 1];
+    const orig = window.dbBatch; window.dbBatch = async () => { throw new Error('simulated failure'); };
+    try { await commitOps([{ store: 'clusters', del: row.id }]); out.threw = false; } catch (e) { out.threw = true; } finally { window.dbBatch = orig; }
+    out.rowKept = state.clusters.includes(row) && !!(await dbGet('clusters', row.id));
+    // A new version of a record replaces the content of the one in memory: a view holding it sees the change
+    const a = state.annotations.find(x => x.type === 'second_order');
+    const before = a.nuanceNote;
+    await commitOps([{ store: 'annotations', put: { ...a, nuanceNote: 'written through commitOps' } }]);
+    out.sameObject = state.annotations.find(x => x.id === a.id) === a && a.nuanceNote === 'written through commitOps';
+    await commitOps([{ store: 'annotations', put: { ...a, nuanceNote: before } }]);
+    if (before === undefined) { delete a.nuanceNote; await dbPut('annotations', a); }
+    // The row-deletion path (purgeClusterRefs + commitOps) leaves nothing pointing at the row
+    const rid = state.clusters.find(c => state.annotations.some(x => (x.clusterIds || []).includes(c.id))).id;
+    const { ops } = purgeClusterRefs(state, rid);
+    await commitOps([...ops, { store: 'clusters', del: rid }]);
+    out.rowGone = !state.clusters.some(c => c.id === rid) && !state.annotations.some(x => (x.clusterIds || []).includes(rid) ||
+      ANNOTATION_ROW_FIELDS.some(k => x[k] && rid in x[k])) && !(state.loa.links || []).some(l => l.from === rid || l.to === rid);
+    out.invariants = checkInvariants(state).length === 0;
+    return out;
+  });
+  check('a refused write leaves the records in memory as they are in the database', r.threw && r.rowKept, JSON.stringify(r));
+  check('a record written again keeps its object in memory (views holding it see the change)', r.sameObject, JSON.stringify(r));
+  check('deleting a row leaves no placement, per-row field or map relation pointing at it', r.rowGone && r.invariants, JSON.stringify(r));
+  await settle(p);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('Content-Security-Policy: the app works under it, and no request can leave the site (http and file://)', async () => {
   for (const url of [BASE + '?demo', 'file://' + path.join(ROOT, 'me_canvas.html') + '?demo']) {
     const where = url.startsWith('file') ? 'file://' : 'http';

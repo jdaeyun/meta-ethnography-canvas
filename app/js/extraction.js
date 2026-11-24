@@ -322,8 +322,7 @@ function updateSidebar() {
       const ops = linked.map(f => { unlinkQuote(f, sec.id); return { store: 'annotations', put: f }; });
       if (removedConceptLinks.length) { ownDoc.conceptLinks = ownDoc.conceptLinks.filter(l => !removedConceptLinks.includes(l)); ops.push({ store: 'docs', put: ownDoc }); }
       ops.push({ store: 'annotations', del: sec.id });
-      await dbBatch(ops); // the construct, its quotes' links and its within-study relationships in one transaction
-      state.annotations = state.annotations.filter(x => x.id !== sec.id);
+      await commitOps(ops); // the construct, its quotes' links and its within-study relationships in one transaction
       updateSidebar();
       renderHighlights();
       // Deleting a construct is part of the reading (and of the matrix, if it was placed): the trail records it, like its undoing
@@ -526,8 +525,7 @@ async function absorbAsPassage(source, target) {
   /** @type {DbOp[]} */
   const ops = children.map(f => { unlinkQuote(f, source.id); linkQuote(f, target.id); return { store: 'annotations', put: f }; });
   ops.push({ store: 'annotations', put: target }, { store: 'annotations', del: source.id });
-  await dbBatch(ops); // its quotes and both constructs in one transaction
-  state.annotations = state.annotations.filter(a => a.id !== source.id);
+  await commitOps(ops); // its quotes and both constructs in one transaction
 
   await recordAuditLog({
     kind: 'passage_absorb',
@@ -577,8 +575,7 @@ async function splitOffPassage(sec, pid) {
   const top = state.undoStack[state.undoStack.length - 1];
   if (top && top.type === 'annotation_snapshots') top.createdIds = [restored.id];
   // Both constructs and the quotes that go back with it in one transaction
-  await dbBatch([sec, restored, ...affectedQuotes].map(a => ({ store: 'annotations', put: a })));
-  state.annotations.push(restored);
+  await commitOps([sec, restored, ...affectedQuotes].map(a => ({ store: 'annotations', put: a })));
   await recordAuditLog({
     kind: 'passage_split',
     category: 'reading_extraction',
@@ -1009,7 +1006,7 @@ async function toggleAnnotationOrderType(annoId) {
     ANNOTATION_ROW_FIELDS.forEach(k => { delete a[k]; });
     delete a.notTranslatedNote;
     ops.push({ store: 'annotations', put: a });
-    await dbBatch(ops); // the quote, its former quotes' links and its study's relationships in one transaction
+    await commitOps(ops); // the quote, its former quotes' links and its study's relationships in one transaction
     await recordAuditLog({
       kind: 'order_switch',
       category: 'linking',

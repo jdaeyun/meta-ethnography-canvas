@@ -193,24 +193,157 @@ function checkInvariants({ docs = [], annotations = [], clusters = [], loa = {} 
   return out;
 }
 
-// ======================= Study ids from another file (backup.js merge, compare.js) =======================
-// Another reviewer's file, or a backup, can call a study by another id. Every place a 3rd Order row names a study goes
-// through here, so none is forgotten: its base (◆), its empty-cell records (keyed by study) and the re-reading note after
-// study #1 changed. toLocal(id) gives this project's id (or the same id). Returns a new row object; an empty id stays as is.
+// ======================= The reference graph: every field that names another record =======================
+// The fields that point at a study, a 3rd Order row or a construct, in one place. A path that renames ids (backup merge,
+// Compare) or removes a record (delete a study / a row, merge rows) goes through the functions below, so a new reference
+// field is added here once and every such path follows it:
+//   names a study:     annotation.docId; doc.companionOf; row.baseDocId, the keys of row.cellStatus,
+//                      row.baselineChange.fromDocId / toDocId; loa.baselineDocId
+//   names a row:       a construct's clusterIds and the keys of each of its ANNOTATION_ROW_FIELDS; loa.links from / to
+//   names a construct: a quote's parentIds (dropGoneLinks, core.js); doc.conceptLinks from / to; row.seededFromId
+// Kept on purpose when what they name is removed (history, or what Undo brings back): a row's baseDocId and baselineChange
+// (which rows a removed study #1 established), row.historyFrom, row.seededFromId, a log entry's clusterIds, and
+// loa.mapPositions (a deleted row's box goes back to where it was dragged when Undo brings the row back).
+const mapRefId = (id, toLocal) => (id ? toLocal(id) || id : id);
+
+// ---- Study ids from another file (backup.js merge, compare.js) ----
+// Another reviewer's file, or a backup, can call a study by another id. toLocal(id) gives this project's id (or nothing: the
+// id stays as it is). Each function returns a new record; an empty id stays as is.
+// A row: its base (◆), its empty-cell records (keyed by study) and the re-reading note after study #1 changed
 function remapRowDocIds(row, toLocal) {
-  const map = id => (id ? toLocal(id) || id : id);
   const out = { ...row };
-  if ('baseDocId' in out) out.baseDocId = map(out.baseDocId);
-  if (out.cellStatus && typeof out.cellStatus === 'object') {
+  if ('baseDocId' in out) out.baseDocId = mapRefId(out.baseDocId, toLocal);
+  if (isPlainObject(out.cellStatus)) {
     const cs = {};
-    Object.keys(out.cellStatus).forEach(id => { cs[map(id)] = out.cellStatus[id]; });
+    Object.keys(out.cellStatus).forEach(id => { cs[mapRefId(id, toLocal)] = out.cellStatus[id]; });
     out.cellStatus = cs;
   }
-  if (out.baselineChange && typeof out.baselineChange === 'object') {
-    out.baselineChange = { ...out.baselineChange, fromDocId: map(out.baselineChange.fromDocId), toDocId: map(out.baselineChange.toDocId) };
+  if (isPlainObject(out.baselineChange)) {
+    out.baselineChange = { ...out.baselineChange, fromDocId: mapRefId(out.baselineChange.fromDocId, toLocal), toDocId: mapRefId(out.baselineChange.toDocId, toLocal) };
   }
   return out;
 }
+// A study: the study it reports the same primary study as
+function remapDocRecord(doc, toLocal) {
+  const out = { ...doc };
+  if (out.companionOf) out.companionOf = mapRefId(out.companionOf, toLocal);
+  return out;
+}
+// Every study id in a project-shaped object ({ docs, annotations, clusters, loa }; absent parts stay absent)
+/** @param {{ docs?: any[], annotations?: any[], clusters?: any[], loa?: any }} project @param {(id: string) => any} toLocal */
+function remapDocIds(project, toLocal) {
+  const each = (list, f) => (Array.isArray(list) ? list.map(r => (isPlainObject(r) ? f(r) : r)) : list);
+  const out = { ...project };
+  if ('docs' in project) out.docs = each(project.docs, d => remapDocRecord(d, toLocal));
+  if ('annotations' in project) out.annotations = each(project.annotations, a => ({ ...a, docId: mapRefId(a.docId, toLocal) }));
+  if ('clusters' in project) out.clusters = each(project.clusters, c => remapRowDocIds(c, toLocal));
+  if (isPlainObject(project.loa) && 'baselineDocId' in project.loa) out.loa = { ...project.loa, baselineDocId: mapRefId(project.loa.baselineDocId, toLocal) };
+  return out;
+}
+
+// ---- A study is removed (studies-pdf.js) ----
+// What else names it, as new records to write ([{ store, put }]), and what they had there (for Undo): its empty-cell records in
+// rows and "same primary study as" of other studies. (Its own constructs and quotes go with it; a row's ◆ base is kept, see
+// above; study #1 is worked out again by checkBaselineChange.)
+/** @param {{ docs?: any[], clusters?: any[] }} project @param {string} docId */
+function purgeDocRefs({ docs = [], clusters = [] }, docId) {
+  /** @type {DbOp[]} */ const ops = [];
+  const cellStatus = [], companions = [];
+  clusters.forEach(c => {
+    if (!isPlainObject(c.cellStatus) || !(docId in c.cellStatus)) return;
+    cellStatus.push({ id: c.id, v: c.cellStatus[docId] });
+    const cs = { ...c.cellStatus };
+    delete cs[docId];
+    ops.push({ store: 'clusters', put: { ...c, cellStatus: cs } });
+  });
+  docs.forEach(d => {
+    if (d.id === docId || d.companionOf !== docId) return;
+    companions.push(d.id);
+    ops.push({ store: 'docs', put: { ...d, companionOf: '' } });
+  });
+  return { ops, cellStatus, companions };
+}
+// A study's links that name what is not here (a study added from another file): "same primary study as" a study that is not
+// in the project, or itself. Returns a new record.
+/** @param {any} doc @param {Set<string>} docIds */
+function dropGoneDocRefs(doc, docIds) {
+  const out = { ...doc };
+  if (out.companionOf && (out.companionOf === out.id || !docIds.has(out.companionOf))) out.companionOf = '';
+  return out;
+}
+
+// ---- A 3rd Order row is removed (matrix.js) or merged into another ----
+// Every construct placed in it (or still carrying a per-row field of it) is taken out with all it had there, and its
+// concept-map relations go. Returns new records to write ([{ store, put }]) and what Undo needs to put it back:
+// assignedSecIds (the constructs placed in it), perRow (what each had there), removedLinks. loa: the model after it.
+/** @param {{ annotations?: any[], loa?: any }} project @param {string} rowId */
+function purgeClusterRefs({ annotations = [], loa = {} }, rowId) {
+  /** @type {DbOp[]} */ const ops = [];
+  const assignedSecIds = [], perRow = {};
+  annotations.forEach(a => {
+    if (!a || a.type !== 'second_order') return;
+    const placed = Array.isArray(a.clusterIds) && a.clusterIds.includes(rowId);
+    if (!placed && !ANNOTATION_ROW_FIELDS.some(k => isPlainObject(a[k]) && rowId in a[k])) return;
+    const copy = { ...a };
+    perRow[a.id] = takeOutOfRow(copy, rowId); // (copies the fields it changes: the record in memory is not touched)
+    if (placed) assignedSecIds.push(a.id);
+    ops.push({ store: 'annotations', put: copy });
+  });
+  const links = Array.isArray(loa.links) ? loa.links : [];
+  const removedLinks = links.filter(l => l && (l.from === rowId || l.to === rowId));
+  const nextLoa = removedLinks.length ? { ...loa, links: links.filter(l => !removedLinks.includes(l)) } : loa;
+  if (removedLinks.length) ops.push({ store: 'meta', put: nextLoa });
+  return { ops, assignedSecIds, perRow, removedLinks, loa: nextLoa };
+}
+// Concept-map relations when row srcId is merged into tgtId: they follow the row; a relation of the two rows to each other, or
+// one that becomes a duplicate, is dropped (for a relation without direction, A–C and C–A are the same relation)
+/** @param {any[]} links @param {string} srcId @param {string} tgtId */
+function moveRowLinks(links, srcId, tgtId) {
+  const seen = new Set(), out = [];
+  (Array.isArray(links) ? links : []).forEach(l => {
+    const n = { ...l, from: l.from === srcId ? tgtId : l.from, to: l.to === srcId ? tgtId : l.to };
+    const pair = isDirectedLink(n.type) ? n.from + '|' + n.to : [n.from, n.to].sort().join('|');
+    const key = pair + '|' + n.type;
+    if (n.from !== n.to && !seen.has(key)) { seen.add(key); out.push(n); }
+  });
+  return out;
+}
+// Concept-map relations between rows that are all here (e.g. taken from a backup whose rows were not all merged)
+/** @param {any[]} links @param {Set<string>} rowIds */
+function liveRowLinks(links, rowIds) {
+  return (Array.isArray(links) ? links : []).filter(l => l && rowIds.has(l.from) && rowIds.has(l.to));
+}
+
+// ---- A construct and a row: the one place that changes a construct's membership of a row ----
+// A construct's place in a row is clusterIds plus one value per row in each of ANNOTATION_ROW_FIELDS (judgement, cell note,
+// line-of-argument mark). Every code path that puts a construct into a row, takes it out, or records / restores what it had
+// there goes through these three, so no field is forgotten (the source of many earlier bugs).
+// What the construct has in the row: { clusterRelations?, clusterComments?, aspectUsedInLoa? } (only the fields it has)
+function rowFieldsOf(a, rowId) {
+  const out = {};
+  ANNOTATION_ROW_FIELDS.forEach(k => { if (a[k] && typeof a[k] === 'object' && rowId in a[k]) out[k] = a[k][rowId]; });
+  return out;
+}
+// Out of the row, with everything it had there. Returns what it had (rowFieldsOf), e.g. for Undo.
+function takeOutOfRow(a, rowId) {
+  const had = rowFieldsOf(a, rowId);
+  if (Array.isArray(a.clusterIds)) a.clusterIds = a.clusterIds.filter(id => id !== rowId);
+  ANNOTATION_ROW_FIELDS.forEach(k => { if (a[k] && typeof a[k] === 'object' && rowId in a[k]) { a[k] = { ...a[k] }; delete a[k][rowId]; } });
+  return had;
+}
+// Into the row, with exactly the given fields: anything left there from an earlier placement does not come back (a new
+// placement starts unjudged). What it changes in the row itself (base, empty-cell note): placementRowOps.
+function putIntoRow(a, rowId, fields = {}) {
+  if (!Array.isArray(a.clusterIds)) a.clusterIds = [];
+  if (!a.clusterIds.includes(rowId)) a.clusterIds.push(rowId);
+  ANNOTATION_ROW_FIELDS.forEach(k => {
+    const has = a[k] && typeof a[k] === 'object' && rowId in a[k];
+    if (k in fields && fields[k] !== undefined) a[k] = { ...(a[k] || {}), [rowId]: fields[k] };
+    else if (has) { a[k] = { ...a[k] }; delete a[k][rowId]; }
+  });
+  return a;
+}
+
 
 // ======================= Merge of a backup into the open project (backup.js) =======================
 // Empty at every depth: an object counts as empty when all of its values are (e.g. appraisalItems { CASP: {} }, which the app

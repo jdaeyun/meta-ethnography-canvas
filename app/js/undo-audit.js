@@ -63,11 +63,7 @@ async function performUndoStep() {
     }
     restoreConceptLinksOps(last, ops);
     ops.push(...placementRowOps(back)); // a card back in a row: no "not addressed / different aspect" note for its study there
-    await dbBatch(ops);
-    back.forEach(a => {
-      const idx = state.annotations.findIndex(x => x.id === a.id);
-      if (idx >= 0) state.annotations[idx] = a; else state.annotations.push(a);
-    });
+    await commitOps(ops); // (puts them back into state.annotations)
     // The deletion was logged, so is its undoing; a construct placed in rows concerns those rows (a key decision, as its
     // deletion was)
     for (const a of last.annotations) {
@@ -93,12 +89,7 @@ async function performUndoStep() {
     copies.forEach(c => dropGoneLinks(c, copies));
     const snapIds = new Set(last.snapshots.map(x => x.id));
     const gone = (last.createdIds || []).filter(id => !snapIds.has(id));
-    await dbBatch([...copies.map(c => ({ store: 'annotations', put: c })), ...gone.map(id => ({ store: 'annotations', del: id })), ...placementRowOps(copies)]);
-    copies.forEach(copy => {
-      const idx = state.annotations.findIndex(a => a.id === copy.id);
-      if (idx >= 0) state.annotations[idx] = copy; else state.annotations.push(copy);
-    });
-    if (gone.length) state.annotations = state.annotations.filter(a => !gone.includes(a.id));
+    await commitOps([...copies.map(c => ({ store: 'annotations', put: c })), ...gone.map(id => ({ store: 'annotations', del: id })), ...placementRowOps(copies)]);
     // Passages and constructs placed in rows: the undoing belongs to those rows' history
     const rowIds = [...new Set((last.snapshots || []).flatMap(a => (a.type === 'second_order' && a.clusterIds) || []))].filter(id => state.clusters.some(c => c.id === id));
     await recordAuditLog({ kind: 'undo_extraction', category: 'reading_extraction', action: `Undid: ${last.label}`, detail: '', clusterIds: rowIds.length ? rowIds : null });
@@ -122,11 +113,8 @@ async function performUndoStep() {
       state.loa = { ...state.loa, links: [...(state.loa.links || []), ...last.removedLinks.filter(l => !have.has(l.id) && rows.has(l.from) && rows.has(l.to))] };
       ops.push({ store: 'meta', put: state.loa });
     }
-    await dbBatch(ops);
-    if (!state.clusters.find(c => c.id === last.cluster.id)) {
-      state.clusters.push(last.cluster);
-      state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
-    }
+    await commitOps(ops); // (the row is added to state.clusters: back to its place by its order)
+    state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
     // The deletion is in the trail, so its undoing is too (else Appendix A says "deleted" while Table 2 shows the row)
     await recordAuditLog({
       clusterIds: [last.cluster.id],
@@ -154,12 +142,13 @@ async function performUndoStep() {
     restored.forEach(a => ops.push({ store: 'annotations', put: a }));
     (last.cellStatus || []).forEach(({ id, v }) => { const c = state.clusters.find(x => x.id === id); if (c) { c.cellStatus = { ...(c.cellStatus || {}), [d.id]: v }; ops.push({ store: 'clusters', put: c }); } });
     (last.companions || []).forEach(id => { const o = state.docs.find(x => x.id === id); if (o && !o.companionOf) { o.companionOf = d.id; ops.push({ store: 'docs', put: o }); } });
-    await dbBatch(ops);
+    await commitOps(ops); // (the study is added at the end of state.docs: moved to where it was)
     if (isNew) {
+      const at = state.docs.findIndex(x => x.id === d.id);
+      if (at >= 0) state.docs.splice(at, 1);
       const pos = Math.max(0, Math.min(state.docs.length, last.position ?? state.docs.length));
       state.docs.splice(pos, 0, d);
     }
-    restored.forEach(a => { if (!state.annotations.find(x => x.id === a.id)) state.annotations.push(a); });
     await recordAuditLog({
       category: 'study_order',
       action: `Restored Study (Undo): ${getDisplayName(d)}`,
@@ -170,11 +159,7 @@ async function performUndoStep() {
     await switchStudy(d.id);
     if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   } else if (last.type === 'delete_log') {
-    await dbPut('logs', last.log);
-    if (!state.logs.find(x => x.id === last.log.id)) {
-      state.logs.push(last.log);
-      state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    }
+    await commitOps([{ store: 'logs', put: last.log }]); // (back in the trail, newest first)
     await recordAuditLog({
       kind: 'trail_restore', targetId: last.log.id,
       category: 'audit_edit',
@@ -265,7 +250,7 @@ async function performUndoStep() {
       // The restored row takes its old place; every row is numbered again, so rows moved since the merge never share a place
       ops.push(...placementRowOps(touched));
       state.clusters.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
-      await dbBatch(ops);
+      await commitOps(ops);
     } else {
       // Only the row the split created goes; every other row (including rows added since) stays in its place. What was put
       // into that row after the split is not lost: cards go to the original row, its texts are added there marked with
@@ -299,24 +284,15 @@ async function performUndoStep() {
         if (carried || cellsCarried) ops.push({ store: 'clusters', put: srcRow });
         if (carried) kept.push(`the texts written in "${nwTitle}", added to the original row`);
         if ((state.loa.links || []).some(l => l.from === nw.id || l.to === nw.id)) {
-          const seen = new Set(), out = [];
-          state.loa.links.forEach(l => {
-            const n = { ...l, from: l.from === nw.id ? srcRow.id : l.from, to: l.to === nw.id ? srcRow.id : l.to };
-            // For a relation without direction (⇄, ⚡), A–B and B–A are the same relation (as in mergeRows)
-            const key = isDirectedLink(n.type) ? [n.from, n.to, n.type].join('|') : [[n.from, n.to].sort().join('~'), n.type].join('|');
-            if (n.from === n.to || seen.has(key)) return;
-            seen.add(key); out.push(n);
-          });
-          state.loa = { ...state.loa, links: out }; ops.push({ store: 'meta', put: state.loa });
+          ops.push({ store: 'meta', put: { ...state.loa, links: moveRowLinks(state.loa.links, nw.id, srcRow.id) } }); // (as in mergeRows)
           kept.push(`concept-map relations of "${nwTitle}", moved to the original row`);
         }
       }
       // The new row goes and the order is renumbered in the same transaction
-      ops.push({ store: 'clusters', del: last.newId });
-      state.clusters = state.clusters.filter(c => c.id !== last.newId);
       ops.push(...placementRowOps(touched));
-      state.clusters.forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
-      await dbBatch(ops);
+      state.clusters.filter(c => c.id !== last.newId).forEach((c, i) => { c.order = i; ops.push({ store: 'clusters', put: c }); });
+      ops.push({ store: 'clusters', del: last.newId }); // (leaves state.clusters once all of it is stored)
+      await commitOps(ops);
     }
     await recordAuditLog({ category: 'third_order', action: `Undid: ${last.label}`, clusterIds: ids,
       detail: kept.length ? `Kept what was changed after it: ${[...new Set(kept)].join('; ')}.` : '' });
@@ -330,7 +306,7 @@ async function performUndoStep() {
     } else if (sec) {
       normalizeAnnotation(sec);
       putIntoRow(sec, last.clusterId, last.fields || {}); // with its judgement, note and line-of-argument mark there
-      await dbBatch([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]); // back in the row: no empty-cell note for its study there
+      await commitOps([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]); // back in the row: no empty-cell note for its study there
       // The removal was logged (with the minor operations), so is its undoing
       await recordAuditLog({ clusterIds: [last.clusterId], category: 'matrix_mapping', action: `Undid: ${last.label}`, detail: 'The construct is back in the row with its judgement, note and line-of-argument mark.', isMinorOp: true });
     }
@@ -355,8 +331,7 @@ async function performUndoStep() {
       }
     }
     if (restored) { restoreConceptLinksOps(last, ops); ops.push(...placementRowOps([restored])); }
-    await dbBatch(ops);
-    if (restored) state.annotations[idx] = restored;
+    await commitOps(ops); // (the restored record replaces the one in state.annotations)
     const rows = restored ? liveClusterIds(restored) : [];
     await recordAuditLog({ category: 'linking', action: `Undid: ${last.label}`, detail: 'Back to its type before the switch, with its links and row placements.', clusterIds: rows.length ? rows : null, isMinorOp: true });
     renderHighlights();

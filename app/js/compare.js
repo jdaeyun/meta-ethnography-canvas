@@ -734,12 +734,10 @@ async function mergePeerAuditLogs() {
     have.add(pl.id);
     entries.push({ ...pl, reviewer: pl.reviewer || cmp.peerReviewer });
   }
-  await dbBatch(entries.map(e => ({ store: 'logs', put: e }))); // all of them in one transaction
-  entries.forEach(e => state.logs.push(e));
+  await commitOps(entries.map(e => ({ store: 'logs', put: e }))); // all of them in one transaction (and in the trail, newest first)
   added = entries.length;
   cmp.logsMerged = true;
   if (added) {
-    state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     await recordAuditLog({ kind: 'peer_logs', category: 'concordance', action: `Merged ${added} audit trail entries from @${cmp.peerReviewer}`, detail: 'Both reviewers\' decisions now appear in one trail.', isMinorOp: false });
     updateAuditBadge();
   }
@@ -777,7 +775,7 @@ async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
   }
   // As a placement made here: the row's base if not set yet, and no empty-cell note for this study (rowsTouchedByPlacement)
   ops.push(...placementRowOps(placed));
-  await dbBatch(ops); // the constructs and what they change in the rows, together
+  await commitOps(ops); // the constructs and what they change in the rows, together
   return ops.filter(o => o.store === 'annotations').length;
 }
 
@@ -846,9 +844,10 @@ async function importPeerConstructNow(item, status, redraw) {
   // A study connected earlier in this session (by hand, or as a stub for an earlier import) is reused, never added twice
   let targetDocId = item.localDocId || (item.peerDoc && cmp.docMapPeerToLocal[item.peerDoc.id]) || null;
   if (!targetDocId && item.peerDoc) {
-    const stub = normalizeDoc({ ...item.peerDoc, hasBinary: false, fpDone: !!item.peerDoc.sha256, order: state.docs.length });
-    await dbPut('docs', stub);
-    state.docs.push(stub);
+    // The study ids it names become the local ones; "same primary study as" a study not here is dropped (reference graph, logic.js)
+    const named = remapDocRecord({ ...item.peerDoc, hasBinary: false, fpDone: !!item.peerDoc.sha256, order: state.docs.length }, id => cmp.docMapPeerToLocal[id]);
+    const stub = normalizeDoc(dropGoneDocRefs(named, new Set(state.docs.map(d => d.id))));
+    await commitOps([{ store: 'docs', put: stub }]); // (adds it to state.docs)
     targetDocId = stub.id;
     cmp.docMapPeerToLocal[item.peerDoc.id] = stub.id;
     cmp.unmatchedPeerDocs = cmp.unmatchedPeerDocs.filter(x => x.id !== item.peerDoc.id);
@@ -925,8 +924,7 @@ async function importPeerConstructNow(item, status, redraw) {
   }
 
   // The construct and what its placements change in those rows (base not set yet, an empty-cell note), together
-  await dbBatch([{ store: 'annotations', put: imported }, ...placementRowOps([imported])]);
-  state.annotations.push(imported);
+  await commitOps([{ store: 'annotations', put: imported }, ...placementRowOps([imported])]); // (adds it to state.annotations)
 
   const doc = state.docs.find(d => d.id === targetDocId);
   await recordAuditLog({
