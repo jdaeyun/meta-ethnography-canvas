@@ -140,8 +140,12 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   write them in one transaction with `dbBatch(ops)` (core.js), so a failure part way leaves the project as it was.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
-- Text fields that write an audit entry must use `bindPendingCommit(el, commitFn)` (core.js), not a bare `onchange`: the commit
-  (save + `recordAuditLog`) then also runs on tab switch, matrix re-render and page leave, so a saved text never lacks its log entry.
+- A text field of a record uses `bindTextField(el, { get, set, save, commit })` (core.js): the one save path. While typing, the
+  record gets the text and a draft save after a short pause; when the box is left (or on tab switch, matrix re-render, page leave,
+  through `bindPendingCommit`) the draft is dropped, the trimmed text is saved once and `commit(prev, next)` writes the audit entry
+  if it changed. So a record is never saved by two paths for one edit, and a saved text never lacks its log entry. A box whose
+  commit is not one record's text (several fields saved together, e.g. the study dock) uses `bindPendingCommit(el, commitFn)` itself,
+  never a bare `onchange`.
   `flushAllPendingSaves()` returns a promise (null when nothing is pending): await it before reading the trail (backup, exports).
 - Dialogs: no `alert()`, `confirm()` or `prompt()` (a browser may suppress them, so confirm() silently returns false; smoke test
   "No browser dialogs"). Ask for a reason or a short entry with `askReason({ title, context, label, confirmLabel, cancelLabel, draftKey,

@@ -1172,36 +1172,22 @@ function renderMatrixTable() {
       if (rowSel) { rowSel.value = cluster.id; renderAuditTimeline(); }
     };
 
-    let initialClusterTitle = cluster.thirdOrderTitle || '';
+    // The row's texts: saved while typed and logged when left (bindTextField, one path for each box)
+    const saveRow = () => dbPut('clusters', cluster);
     // Only the row title appears in the line-of-argument drawer (chips, map labels): redraw it when the title changed
     let chipsTitle = cluster.thirdOrderTitle;
-    const debouncedSaveCluster = createDebouncedSaver(async () => {
-      await dbPut('clusters', cluster);
-      if (cluster.thirdOrderTitle !== chipsTitle) { chipsTitle = cluster.thirdOrderTitle; renderLoaClusterChips(); }
-    }, 350);
-
-    tdMeta.querySelector('.cluster-title').addEventListener('input', e => {
-      cluster.thirdOrderTitle = e.target.value.trim();
-      const stripTitle = tdMeta.querySelector('.theme-strip-title');
-      if (stripTitle) stripTitle.textContent = cluster.thirdOrderTitle || 'Untitled row';
-      debouncedSaveCluster();
-    });
-
-    bindPendingCommit(tdMeta.querySelector('.cluster-title'), async () => {
-      const e = { target: tdMeta.querySelector('.cluster-title') };
-      const oldTitle = initialClusterTitle || '(Untitled)';
-      const newTitle = e.target.value.trim();
-      if (initialClusterTitle !== newTitle) {
-        initialClusterTitle = newTitle;
-        cluster.thirdOrderTitle = newTitle;
-        await dbPut('clusters', cluster);
-        renderLoaClusterChips();
+    bindTextField(tdMeta.querySelector('.cluster-title'), {
+      get: () => cluster.thirdOrderTitle,
+      set: v => { cluster.thirdOrderTitle = v.trim(); },
+      onInput: () => { const strip = tdMeta.querySelector('.theme-strip-title'); if (strip) strip.textContent = cluster.thirdOrderTitle || 'Untitled row'; },
+      save: async () => { await saveRow(); if (cluster.thirdOrderTitle !== chipsTitle) { chipsTitle = cluster.thirdOrderTitle; renderLoaClusterChips(); } },
+      commit: async (oldTitle, newTitle) => {
         if (await reattachWaitingForRow(cluster)) { renderSecondOrderPool(); renderMatrixTable(); } // the pool's "waits for the row" badges too
         await recordAuditLog({
           clusterIds: [cluster.id],
           category: 'third_order',
           action: LOG_ACTION.rowTitle,
-          fromVal: oldTitle,
+          fromVal: oldTitle || '(Untitled)',
           toVal: newTitle || '(Untitled)'
         });
       }
@@ -1212,72 +1198,37 @@ function renderMatrixTable() {
       if (stepBWarn) stepBWarn.classList.toggle('hidden', !((cluster.synthesisNote || '').trim() && !(cluster.translationSummary || '').trim()));
     };
 
-    let initialTransSummary = cluster.translationSummary || '';
-    tdMeta.querySelector('.cluster-trans').addEventListener('input', e => {
-      cluster.translationSummary = e.target.value;
-      refreshStepBWarn();
-      debouncedSaveCluster();
-    });
-    bindPendingCommit(tdMeta.querySelector('.cluster-trans'), async () => {
-      const e = { target: tdMeta.querySelector('.cluster-trans') };
-      const oldVal = initialTransSummary;
-      const newVal = e.target.value.trim();
-      if (oldVal !== newVal) {
-        initialTransSummary = newVal;
-        cluster.translationSummary = newVal;
-        await dbPut('clusters', cluster);
-        await recordAuditLog({
-          clusterIds: [cluster.id],
-          category: 'translation_process',
-          action: `Updated Step A Translation Summary for "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-          fromVal: oldVal || '(Empty)',
-          toVal: newVal || '(Empty)'
-        });
-      }
+    bindTextField(tdMeta.querySelector('.cluster-trans'), {
+      get: () => cluster.translationSummary, set: v => { cluster.translationSummary = v; }, onInput: refreshStepBWarn, save: saveRow,
+      commit: (oldVal, newVal) => recordAuditLog({
+        clusterIds: [cluster.id],
+        category: 'translation_process',
+        action: `Updated Step A Translation Summary for "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+        fromVal: oldVal || '(Empty)',
+        toVal: newVal || '(Empty)'
+      })
     });
 
-    let initialClusterNote = cluster.synthesisNote || '';
-    tdMeta.querySelector('.cluster-note').addEventListener('input', e => {
-      cluster.synthesisNote = e.target.value;
-      refreshStepBWarn();
-      debouncedSaveCluster();
+    bindTextField(tdMeta.querySelector('.cluster-note'), {
+      get: () => cluster.synthesisNote, set: v => { cluster.synthesisNote = v; }, onInput: refreshStepBWarn, save: saveRow,
+      commit: (oldNote, newNote) => recordAuditLog({
+        clusterIds: [cluster.id],
+        category: 'third_order',
+        action: `Updated Step B 3rd Order Definition & Interpretation for "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
+        fromVal: oldNote || '(Empty)',
+        toVal: newNote
+      })
     });
 
-    bindPendingCommit(tdMeta.querySelector('.cluster-note'), async () => {
-      const e = { target: tdMeta.querySelector('.cluster-note') };
-      const oldNote = initialClusterNote;
-      const newNote = e.target.value.trim();
-      if (oldNote !== newNote) {
-        initialClusterNote = newNote;
-        cluster.synthesisNote = newNote;
-        await dbPut('clusters', cluster);
-        await recordAuditLog({
-          clusterIds: [cluster.id],
-          category: 'third_order',
-          action: `Updated Step B 3rd Order Definition & Interpretation for "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-          fromVal: oldNote || '(Empty)',
-          toVal: newNote
-        });
-      }
-    });
-
-    let initialReflex = cluster.reflexiveNote || '';
-    const reflexEl = tdMeta.querySelector('.cluster-reflex');
-    reflexEl.addEventListener('input', e => { cluster.reflexiveNote = e.target.value; debouncedSaveCluster(); });
-    bindPendingCommit(reflexEl, async () => {
-      const oldVal = initialReflex;
-      const newVal = reflexEl.value.trim();
-      if (oldVal === newVal) return;
-      initialReflex = newVal;
-      cluster.reflexiveNote = newVal;
-      await dbPut('clusters', cluster);
-      await recordAuditLog({
+    bindTextField(tdMeta.querySelector('.cluster-reflex'), {
+      get: () => cluster.reflexiveNote, set: v => { cluster.reflexiveNote = v; }, save: saveRow,
+      commit: (oldVal, newVal) => recordAuditLog({
         clusterIds: [cluster.id],
         category: 'reflexive_memo',
         action: `Reflexive note on "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
         fromVal: oldVal || '(Empty)',
         toVal: newVal || '(Empty)'
-      });
+      })
     });
 
     const updateClusterConcordance = async () => {
@@ -1634,38 +1585,21 @@ function renderMatrixTable() {
             promptReassignItemReviewer(sec, 'annotations', renderMatrixView);
           };
 
-          let initialSecLabel = sec.note || '';
-          const debouncedSaveCellSec = createDebouncedSaver(async () => {
-            await dbPut('annotations', sec);
-          }, 350);
-
-          card.querySelector('.sec-label-input').addEventListener('input', e => {
-            sec.note = e.target.value;
-            debouncedSaveCellSec();
+          const saveSec = () => dbPut('annotations', sec);
+          bindTextField(card.querySelector('.sec-label-input'), {
+            get: () => sec.note, set: v => { sec.note = v; }, save: saveSec,
+            commit: (oldLabel, newLabel) => recordAuditLog({
+              clusterIds: liveClusterIds(sec),
+              category: 'matrix_mapping',
+              action: `Updated 2nd Order Summary Label (${getDisplayName(doc)})`,
+              fromVal: oldLabel || '(None)',
+              toVal: newLabel
+            })
           });
 
-          bindPendingCommit(card.querySelector('.sec-label-input'), async () => {
-            const e = { target: card.querySelector('.sec-label-input') };
-            const oldLabel = initialSecLabel;
-            const newLabel = e.target.value.trim();
-            sec.note = newLabel;
-            await dbPut('annotations', sec);
-            if (oldLabel !== newLabel) {
-              initialSecLabel = newLabel;
-              await recordAuditLog({
-                clusterIds: liveClusterIds(sec),
-                category: 'matrix_mapping',
-                action: `Updated 2nd Order Summary Label (${getDisplayName(doc)})`,
-                fromVal: oldLabel || '(None)',
-                toVal: newLabel
-              });
-            }
-          });
-
-          // "Note on how this concept fits": 3-line preview, click to edit (full text), logged to the Audit Trail on blur
+          // "Note on how this concept fits": 3-line preview, click to edit (full text), saved and logged like every text box
           const cmtView = card.querySelector('.sec-comment-view');
           const cmtInput = card.querySelector('.sec-comment-input');
-          let initialCellComment = cellComment;
           const refreshCmtView = () => {
             const v = (sec.clusterComments && sec.clusterComments[cluster.id]) || '';
             cmtView.textContent = v || (cmtInput.placeholder || '');
@@ -1678,40 +1612,25 @@ function renderMatrixTable() {
             cmtInput.classList.remove('hidden');
             cmtInput.focus();
           };
-          // Commit = save + audit-log. Registered as a pending flush while dirty, so a tab switch / re-render
-          // (flushAllPendingSaves) logs it even if the textarea never receives a blur event.
-          const commitCellComment = async () => {
-            pendingSaveCleanups.delete(commitCellComment);
-            const newVal = cmtInput.value.trim();
-            if (!sec.clusterComments) sec.clusterComments = {};
-            sec.clusterComments[cluster.id] = newVal;
-            if (newVal === initialCellComment) return;
-            const oldVal = initialCellComment;
-            initialCellComment = newVal;
-            await dbPut('annotations', sec);
-            await recordAuditLog({
+          bindTextField(cmtInput, {
+            get: () => (sec.clusterComments || {})[cluster.id],
+            set: v => { sec.clusterComments = { ...(sec.clusterComments || {}), [cluster.id]: v.trim() }; },
+            save: saveSec,
+            commit: (oldVal, newVal) => recordAuditLog({
               clusterIds: [cluster.id],
               category: 'third_order',
               action: `Updated note on how a concept fits "${cluster.thirdOrderTitle || 'Untitled Row'}" (${getDisplayName(doc)}, p.${sec.page})`,
               fromVal: oldVal || '(Empty)',
               toVal: newVal || '(Empty)'
-            });
-          };
-          commitCellComment.isCommit = true;
-          cmtInput.addEventListener('input', e => {
-            if (!sec.clusterComments) sec.clusterComments = {};
-            sec.clusterComments[cluster.id] = e.target.value.trim();
-            pendingSaveCleanups.add(commitCellComment);
-            debouncedSaveCellSec();
+            })
           });
-          cmtInput.addEventListener('blur', async () => {
-            // The window losing focus (a look at the PDF elsewhere) is not leaving the note: it stays open and uncommitted, as with
-            // bindPendingCommit; a tab switch, re-render or page leave still commits it
+          // Leaving the box shows the preview again (the commit above runs on the same blur). The window losing focus (a look at
+          // the PDF elsewhere) is not leaving it: it stays open and uncommitted; a tab switch, re-render or page leave commits it.
+          cmtInput.addEventListener('blur', () => {
             if (!document.hasFocus()) return;
             cmtInput.classList.add('hidden');
             cmtView.classList.remove('hidden');
             refreshCmtView();
-            await commitCellComment();
           });
 
           card.querySelector('.unassign-btn').onclick = async () => {

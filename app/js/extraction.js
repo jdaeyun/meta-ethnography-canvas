@@ -247,23 +247,15 @@ function updateSidebar() {
       toggleSecEditor(false);
     };
 
-    const debouncedSaveSec = createDebouncedSaver(async () => { await dbPut('annotations', sec); }, 350);
-    w.querySelector('.sec-note-input').addEventListener('input', e => { sec.note = e.target.value; debouncedSaveSec(); });
-    let initialSecNote = sec.note || '';
-    bindPendingCommit(w.querySelector('.sec-note-input'), async () => {
-      const newNote = (sec.note || '').trim();
-      if (newNote === initialSecNote.trim()) return;
-      const oldNote = initialSecNote;
-      initialSecNote = newNote;
-      sec.note = newNote;
-      await dbPut('annotations', sec);
-      await recordAuditLog({
+    bindTextField(w.querySelector('.sec-note-input'), {
+      get: () => sec.note, set: v => { sec.note = v; }, save: () => dbPut('annotations', sec),
+      commit: (oldNote, newNote) => recordAuditLog({
         clusterIds: liveClusterIds(sec), // rows that still exist; none for an unplaced construct
         category: 'matrix_mapping',
         action: `Updated 2nd Order Summary Label (${getDisplayName(state.docs.find(d => d.id === sec.docId))})`,
         fromVal: oldNote || '(None)',
         toVal: newNote
-      });
+      })
     });
     const noteSrcSel = w.querySelector('.sec-notesrc');
     if (noteSrcSel) noteSrcSel.onchange = async e => {
@@ -277,7 +269,8 @@ function updateSidebar() {
         fromVal: prev, toVal: sec.noteSource
       });
     };
-    w.querySelector('.sec-nuance-input').addEventListener('input', e => { sec.nuanceNote = e.target.value; debouncedSaveSec(); });
+    // The construct's private memo: saved while typed and when left (a working note, no audit entry)
+    bindTextField(w.querySelector('.sec-nuance-input'), { get: () => sec.nuanceNote, set: v => { sec.nuanceNote = v; }, save: () => dbPut('annotations', sec) });
 
     const updateSecConcordance = async () => {
       const oldStatus = sec.concordanceStatus;
@@ -728,9 +721,9 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
     toggleFirstEditor(false);
   };
 
-  const debouncedSaveFirst = createDebouncedSaver(async () => { await dbPut('annotations', f); }, 350);
-  c.querySelector('.f-note-input').addEventListener('input', e => { f.note = e.target.value; debouncedSaveFirst(); });
-  c.querySelector('.f-nuance-input').addEventListener('input', e => { f.nuanceNote = e.target.value; debouncedSaveFirst(); });
+  // Attribution and memo of a quote: saved while typed and when left (no audit entry: they are working notes)
+  bindTextField(c.querySelector('.f-note-input'), { get: () => f.note, set: v => { f.note = v; }, save: () => dbPut('annotations', f) });
+  bindTextField(c.querySelector('.f-nuance-input'), { get: () => f.nuanceNote, set: v => { f.nuanceNote = v; }, save: () => dbPut('annotations', f) });
 
   const quickLinkSel = c.querySelector('.quick-link-sec-sel');
   if (quickLinkSel) {

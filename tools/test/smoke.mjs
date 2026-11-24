@@ -2627,6 +2627,42 @@ await group('Review fixes 13: no ghost after delete, undo clears empty-cell note
   await p.context().close();
 });
 
+await group('One save path for text boxes (bindTextField): a draft while typing, one save and one entry when left', async () => {
+  const p = await openDemo();
+  await tab(p, 'matrix'); await settle(p);
+  // Typing: the record gets the text and a draft save after the pause (settle waits for it)
+  await p.evaluate(() => {
+    const tr = document.querySelector('#matrixTable tr[data-cluster-id]');
+    const c = state.clusters.find(x => x.id === tr.dataset.clusterId);
+    const box = tr.querySelector('.cluster-trans');
+    window.__sp = { id: c.id, before: state.logs.length, puts: [], orig: window.dbPut };
+    window.dbPut = function (st, item) { if (st === 'clusters' && item && item.id === c.id) window.__sp.puts.push(item.translationSummary); return window.__sp.orig.apply(this, arguments); };
+    box.value = (c.translationSummary || '') + ' read again  ';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await settle(p);
+  // More typing, then the box is left before the next pause: one save (the waiting draft is dropped) and one entry
+  const draftSaved = await p.evaluate(async () => {
+    const n = window.__sp.puts.length;
+    const box = document.querySelector(`#matrixTable tr[data-cluster-id="${CSS.escape(window.__sp.id)}"] .cluster-trans`);
+    box.value += 'and once more  ';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    await flushAllPendingSaves();
+    return n === 1;
+  });
+  await settle(p);
+  const r = await p.evaluate(async () => {
+    const sp = window.__sp; window.dbPut = sp.orig;
+    const stored = (await dbGet('clusters', sp.id)).translationSummary;
+    return { draftSaved: true, putsAfterDraft: sp.puts.length - 1, trimmed: stored === stored.trim() && /and once more$/.test(stored), entries: state.logs.length - sp.before };
+  });
+  r.draftSaved = draftSaved;
+  check('typing saves a draft after a pause', r.draftSaved, JSON.stringify(r));
+  check('leaving the box saves once (the waiting draft is dropped), trimmed, with one audit entry', r.putsAfterDraft === 1 && r.trimmed && r.entries === 1, JSON.stringify(r));
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
 await group('No browser dialogs: alert(), confirm() and prompt() are not used', async () => {
   // A browser may suppress its own dialogs ("Don't allow this page to show more dialogs"): confirm() then returns false and
   // prompt() null without asking. The app asks in its own dialogs (askChoice, askReason, showNotice) and the snackbar.

@@ -96,37 +96,6 @@ function flushAllPendingSaves() {
   return Promise.all(running);
 }
 
-function createDebouncedSaver(fn, delay = 350) {
-  let timer = null;
-  let latestArgs = null;
-  const flush = () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-      pendingSaveCleanups.delete(flush);
-      const argsToRun = latestArgs || [];
-      latestArgs = null;
-      return fn(...argsToRun);
-    }
-  };
-  const debounced = (...args) => {
-    latestArgs = args;
-    flashSaveStatus('saving');
-    if (timer) clearTimeout(timer);
-    pendingSaveCleanups.add(flush);
-    timer = setTimeout(() => {
-      timer = null;
-      pendingSaveCleanups.delete(flush);
-      const argsToRun = latestArgs || [];
-      latestArgs = null;
-      // A refused write is already shown to the reviewer (save badge, notice); it is not left as an unhandled rejection
-      Promise.resolve().then(() => fn(...argsToRun)).catch(e => console.error('Save error:', e));
-    }, delay);
-  };
-  debounced.flush = flush;
-  return debounced;
-}
-
 // Text field whose "commit" (save + audit-log entry) must never be skipped.
 // The commit runs once after typing, on whichever comes first: change, blur, a tab switch / re-render
 // (flushAllPendingSaves) or leaving the page. Use it instead of a bare `onchange` for every logged text field.
@@ -146,6 +115,36 @@ function bindPendingCommit(el, commitFn) {
   el.addEventListener('change', onLeave);
   el.addEventListener('blur', onLeave);
   return run;
+}
+
+// A text field of a record (a row's Step A, a construct's label…): the ONE way such a box saves and logs.
+//  - While typing, the text goes into the record (set) and the record is saved after a short pause (a draft, so nothing is
+//    lost if the browser closes while the box is still being written in).
+//  - When the box is left (or on a tab switch, a re-render, the page closing: bindPendingCommit), a draft still waiting is
+//    dropped and the commit runs once: the trimmed text is set and saved, and commit(prev, next) is called only if it changed
+//    since the last commit (it writes the audit entry and anything else that follows from the change).
+// So a record is never saved by two paths for one edit, and a saved text never lacks its audit entry.
+// get(): the text as stored; set(v): put it into the record; save(): write the record; onInput(v): e.g. a live preview.
+/** @param {any} el @param {{ get: () => any, set: (v: string) => void, save: () => any, commit?: (prev: string, next: string) => any, onInput?: (v: string) => void, delay?: number }} o */
+function bindTextField(el, { get, set, save, commit, onInput, delay = 350 }) {
+  let committed = String(get() || '').trim();
+  let timer = null;
+  el.addEventListener('input', () => {
+    set(el.value);
+    if (onInput) onInput(el.value);
+    flashSaveStatus('saving');
+    clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; Promise.resolve().then(save).catch(e => console.error('Save error:', e)); }, delay);
+  });
+  return bindPendingCommit(el, async () => {
+    clearTimeout(timer); timer = null; // the commit writes the record itself
+    const next = el.value.trim();
+    set(next);
+    const prev = committed;
+    committed = next;
+    await save();
+    if (next !== prev && commit) await commit(prev, next);
+  });
 }
 
 // The browser does not wait for asynchronous work while a page closes. If a text commit (save + audit entry) is still
