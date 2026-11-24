@@ -58,6 +58,7 @@ function matchPeerDocs(peerData) {
   const docMapPeerToLocal = {}, matchedStudies = [], unmatchedPeerDocs = [];
   const used = new Set();
   const peerDocs = peerData.docs.slice();
+  /** @type {[string, (l: any, p: any) => boolean][]} */
   const rules = [
     ['id', (l, p) => l.id === p.id],
     ['sha256', (l, p) => !!(l.sha256 && p.sha256 && l.sha256 === p.sha256)],

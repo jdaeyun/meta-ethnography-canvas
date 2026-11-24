@@ -321,6 +321,7 @@ function updateSidebar() {
         parentId: sec.id,
         removedConceptLinks, conceptLinksDocId: ownDoc ? ownDoc.id : null
       });
+      /** @type {DbOp[]} */
       const ops = linked.map(f => { unlinkQuote(f, sec.id); return { store: 'annotations', put: f }; });
       if (removedConceptLinks.length) { ownDoc.conceptLinks = ownDoc.conceptLinks.filter(l => !removedConceptLinks.includes(l)); ops.push({ store: 'docs', put: ownDoc }); }
       ops.push({ store: 'annotations', del: sec.id });
@@ -527,6 +528,7 @@ async function absorbAsPassage(source, target) {
     });
   });
   // (Its within-study relationships (Appendix C) stay on the study under its id: hidden while it is a passage, back when split off)
+  /** @type {DbOp[]} */
   const ops = children.map(f => { unlinkQuote(f, source.id); linkQuote(f, target.id); return { store: 'annotations', put: f }; });
   ops.push({ store: 'annotations', put: target }, { store: 'annotations', del: source.id });
   await dbBatch(ops); // its quotes and both constructs in one transaction

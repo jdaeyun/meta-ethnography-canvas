@@ -122,7 +122,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       state.clusters = [];
       state.logs = [];
       clearUndoStack();
-      state.loa = { id: 'loa_main', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null };
+      state.loa = { id: 'loa_main', projectCode: incomingProjCode || '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null };
 
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);

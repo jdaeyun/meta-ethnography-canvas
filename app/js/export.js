@@ -406,6 +406,7 @@ function getAppendixMode() { const m = lsGet('me_appendix_mode'); return APPENDI
 function getAppendixASpec(mode = getAppendixMode()) {
   const all = [...state.logs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
   const fmt = t => new Date(t).toLocaleString();
+  /** @returns {Record<string, any>} a row of the table, with any extra fields (an edit series: n, firstT, lastT…) */
   const rowOf = (l, extra = {}) => ({
     when: fmt(l.timestamp), reviewer: l.reviewer || 'Unknown', cat: l.category, category: getCategoryMeta(l.category).label,
     action: l.action || '', detail: l.detail || '', fromVal: l.fromVal || '', toVal: l.toVal || '', rationale: rationaleExportText(l), ...extra
@@ -578,7 +579,7 @@ function cqExplainText(c) {
 function getEmergeChecklist() {
   const nDocs = state.docs.length;
   const nCl = state.clusters.length;
-  const loa = state.loa || {};
+  const loa = state.loa;
   const hasAim = !!(loa.aim && loa.aim.trim());
   const hasLoa = !!(loa.title || loa.flow || loa.narrative);
   const hasRelProc = !!(loa.relateProcess && loa.relateProcess.trim());
@@ -644,9 +645,10 @@ function getEmergeChecklist() {
       ['Ext. 3', 'GRADE-CERQual confidence in review findings', 'Confidence in each finding, with all four components incl. methodological limitations, in a Summary of Qualitative Findings table (guidance for applying CERQual to a line of argument / theory is still to be developed)', nCl === 0 ? A('No 3rd order constructs yet') : (assessed === nCl ? R('Table 3') : (assessed > 0 ? P('Table 3 (some findings are still unrated)') : A('No finding assessed yet')))] ] }
   ];
   const rows = [];
-  phases.forEach(ph => ph.items.forEach((it, i) => rows.push({
-    phase: i === 0 ? ph.name : '', no: it[0], title: it[1], desc: it[2], level: it[3].level, text: it[3].text
-  })));
+  phases.forEach(ph => ph.items.forEach((it, i) => {
+    const st = /** @type {{ level: string, text: string }} */ (it[3]);
+    rows.push({ phase: i === 0 ? ph.name : '', no: it[0], title: it[1], desc: it[2], level: st.level, text: st.text });
+  }));
   return rows;
 }
 

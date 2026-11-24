@@ -220,6 +220,8 @@ async function dbPut(store, item, { quiet = false } = {}) {
 // Several writes across stores in ONE transaction: all of them are stored, or none (a crash, a full disk or an error part way
 // leaves the project as it was). For operations that change several records at once: merging / splitting / deleting rows and
 // deleting a study. ops: [{ store, put: item } | { store, del: key }]. quiet: as for dbPut (writes the user did not make)
+/** @typedef {{ store: string, put?: any, del?: any }} DbOp */
+/** @param {DbOp[]} ops */
 async function dbBatch(ops, { quiet = false } = {}) {
   if (!ops.length) return;
   const stores = [...new Set(ops.map(o => o.store))];
@@ -295,6 +297,41 @@ async function dbClear(store) {
 // ========================================================
 // STATE & NORMALIZATION
 // ========================================================
+// The page's state. Typed for `npm run typecheck`, so a misspelt field (state.annotaions) is an error: a new field is added
+// here and in the typedef below.
+/**
+ * @typedef {Object} AppState
+ * @property {string} reviewerId
+ * @property {string} projectCode
+ * @property {boolean} teamMode
+ * @property {boolean} logMinorOps
+ * @property {Set<string>} hiddenStudyIds
+ * @property {any[]} docs
+ * @property {any[]} annotations
+ * @property {any[]} clusters
+ * @property {any[]} logs
+ * @property {Record<string, any>} loa
+ * @property {string | null} activeDocId
+ * @property {any} activePdfDoc
+ * @property {number} scale
+ * @property {any} pendingSelection
+ * @property {boolean} isEditMetaMode
+ * @property {boolean} showContextRow
+ * @property {boolean} isLoaOpen
+ * @property {Record<string, string>} clusterActiveTabs
+ * @property {Set<string>} rowToolsOpen
+ * @property {string} activePubTable
+ * @property {any} peerComparison
+ * @property {string} activeCompareTab
+ * @property {string} poolSearchQuery
+ * @property {string} poolStudyFilter
+ * @property {boolean} poolRefutationalOnly
+ * @property {boolean} matrixRefutationalOnly
+ * @property {boolean} matrixCompactMode
+ * @property {boolean} matrixThemeFolded
+ * @property {any[]} undoStack
+ */
+/** @type {AppState} */
 const state = {
   reviewerId: lsGet('me_reviewer_id') || '',
   projectCode: lsGet('me_project_code') || '',
@@ -305,7 +342,8 @@ const state = {
   annotations: [],
   clusters: [],
   logs: [],
-  loa: { id: 'loa_main', projectCode: '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null },
+  // The project-wide record (meta store, 'loa_main'): these fields and many optional ones (write-up fields, map, team models…)
+  loa: /** @type {Record<string, any>} */ ({ id: 'loa_main', projectCode: '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null }),
   activeDocId: null,
   activePdfDoc: null,
   scale: 1.3,
@@ -533,6 +571,7 @@ function placementRowOps(annos) {
 // Drop links to what no longer exists, for an annotation brought back (Undo, split off a passage, a restored file): a construct's
 // placements in deleted rows (its clusterIds and every per-row field), a quote's links to deleted 2nd Order constructs.
 // alsoSecIds: constructs being brought back together with it (not in state.annotations yet). Returns the annotation.
+/** @param {any} a @param {Iterable<string>} [alsoSecIds] */
 function dropGoneLinks(a, alsoSecIds = []) {
   if (!a) return a;
   if (a.type === 'first_order') {

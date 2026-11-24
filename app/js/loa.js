@@ -730,7 +730,7 @@ LOA_DRAWER_FIELD_IDS().forEach(id => document.getElementById(id)?.addEventListen
 let loaDrawerPointerDown = false;
 loaDrawer.addEventListener('mousedown', () => { loaDrawerPointerDown = true; setTimeout(() => { loaDrawerPointerDown = false; }, 0); }, true);
 loaDrawer.addEventListener('focusout', e => {
-  const to = e.relatedTarget;
+  const to = /** @type {Element | null} */ (e.relatedTarget);
   if (!document.hasFocus() || (to && (loaDrawer.contains(to) || to.closest('[role="dialog"]')))) return;
   if (!to && loaDrawerPointerDown) return;
   commitLoaDrawer();

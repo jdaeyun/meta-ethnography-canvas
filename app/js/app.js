@@ -387,7 +387,7 @@ function setActiveTab(tab) {
   vMatrix.className = tab === 'matrix' ? activeCls : inactiveCls;
   vAudit.className = tab === 'audit' ? activeCls : inactiveCls;
   vPub.className = tab === 'pub' ? activeCls : inactiveCls;
-  [[vExtract, 'extract'], [vMatrix, 'matrix'], [vAudit, 'audit'], [vPub, 'pub']].forEach(([b, t]) => b.setAttribute('aria-selected', String(tab === t)));
+  [vExtract, vMatrix, vAudit, vPub].forEach((b, i) => b.setAttribute('aria-selected', String(tab === ['extract', 'matrix', 'audit', 'pub'][i])));
 
   divExtract.classList.toggle('hidden', tab !== 'extract');
   divMatrix.classList.toggle('hidden', tab !== 'matrix');
@@ -418,7 +418,8 @@ if(settingsBtn && settingsDropdown) {
     settingsDropdown.classList.toggle('hidden');
   });
   document.addEventListener('click', (e) => {
-    if (!settingsBtn.contains(e.target) && !settingsDropdown.contains(e.target)) {
+    const t = /** @type {Node} */ (e.target);
+    if (!settingsBtn.contains(t) && !settingsDropdown.contains(t)) {
       settingsDropdown.classList.add('hidden');
     }
   });

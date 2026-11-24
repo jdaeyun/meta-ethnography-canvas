@@ -334,7 +334,7 @@ async function moveStudyOrder(fromIdx, toIdx) {
 function renderStudyList() {
   const list = document.getElementById('studyList');
   list.innerHTML = '';
-  document.getElementById('studiesCount').textContent = state.docs.length;
+  document.getElementById('studiesCount').textContent = String(state.docs.length);
 
   if (state.docs.length === 0) {
     list.innerHTML = `
@@ -961,7 +961,7 @@ document.querySelectorAll('.meta-drop-target').forEach(input => {
     input.classList.add('drop-input-active');
   });
   input.addEventListener('dragleave', () => input.classList.remove('drop-input-active'));
-  input.addEventListener('drop', async e => {
+  input.addEventListener('drop', async (/** @type {DragEvent} */ e) => {
     e.preventDefault();
     input.classList.remove('drop-input-active');
     const droppedText = (e.dataTransfer.getData('text/plain') || '').replace(/\s+/g, ' ').trim();
@@ -1080,7 +1080,7 @@ async function renderPageContentNow(container, num) {
     txtLayer.className = 'textLayer';
     txtLayer.style.width = vp.width + 'px';
     txtLayer.style.height = vp.height + 'px';
-    txtLayer.style.setProperty('--scale-factor', state.scale);
+    txtLayer.style.setProperty('--scale-factor', String(state.scale));
     container.appendChild(txtLayer);
 
     await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
@@ -1135,7 +1135,7 @@ function selectionTextWithSpaces(range) {
 
 document.addEventListener('mouseup', (e) => {
   const tt = document.getElementById('selectionTooltip');
-  if (tt.contains(e.target)) return;
+  if (tt.contains(/** @type {Node} */ (e.target))) return;
   if (divExtract.classList.contains('hidden')) return tt.classList.add('hidden'); // the PDF is only in Tab 1
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !state.activeDocId) return tt.classList.add('hidden');

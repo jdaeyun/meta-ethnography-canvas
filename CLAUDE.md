@@ -45,7 +45,13 @@ optional dependencies, install with `npm ci --include=optional` (Tailwind 4 need
 Re-run `npm run css` after using a Tailwind class that appears nowhere else. Write class names in full
 (no string concatenation such as 'bg-' + color) so the Tailwind scanner can see them.
 `npm run serve` serves the folder at http://localhost:8080 for testing. node_modules/ is not committed.
-`npm test` runs the unit tests, then the smoke tests (`npm run test:unit` / `npm run test:smoke` run one of them):
+`npm test` runs the type check, the unit tests, then the smoke tests (`npm run typecheck` / `npm run test:unit` / `npm run test:smoke`
+run one of them):
+- `npm run typecheck` (TypeScript, `tsconfig.json`): `tsc --checkJs` over the app's scripts as one program, no output files. It catches
+  names that do not exist (a misspelt function or global), misspelt `state` fields (`AppState` typedef in core.js: a new `state` field
+  goes there too) and misspelt option names of `recordAuditLog` etc. DOM nodes accept any property (`tools/types/app-globals.d.ts`), so
+  reading `.value` from `getElementById()` needs no cast. Keep it at zero errors; fix a real error, or add a JSDoc type where the
+  inference is wrong (e.g. `/** @type {DbOp[]} */` for an ops list that mixes puts and deletes).
 - tools/test/unit.test.mjs (node:test, no browser) loads app/js/logic.js alone in a fresh context and tests its functions directly.
   Put a new piece of logic that needs no page there (taking what it needs as arguments), and test it there.
 - tools/test/smoke.mjs drives the ?demo project in Chromium (Playwright: audit logging, restore, lazy matrix rows, dialogs, file://);

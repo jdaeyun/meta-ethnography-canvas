@@ -389,7 +389,7 @@ function restoreConceptLinksOps(last, ops) {
 // ========================================================
 // AUDIT LOGGING ENGINE (With Reviewer Stamp & Minor Op Filter)
 // ========================================================
-async function recordAuditLog({ category, action, detail, fromVal = '', toVal = '', rationale = '', reviewer = null, isMinorOp = false, clusterIds = null }) {
+async function recordAuditLog({ category, action, detail = '', fromVal = '', toVal = '', rationale = '', reviewer = null, isMinorOp = false, clusterIds = null }) {
   if (isMinorOp && !state.logMinorOps) return null;
   const entry = {
     id: 'log_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
@@ -430,5 +430,5 @@ async function logExtractedTextEdit(anno, oldText) {
 }
 
 function updateAuditBadge() {
-  document.getElementById('auditCountBadge').textContent = state.logs.length;
+  document.getElementById('auditCountBadge').textContent = String(state.logs.length);
 }

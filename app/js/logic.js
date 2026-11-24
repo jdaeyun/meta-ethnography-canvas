@@ -7,6 +7,7 @@
 const LOG_ACTION = { rowTitle: 'Refined 3rd Order Construct Title' };
 
 // Edits of one text that are shown as one line in Appendix A (family name; same row for row texts)
+/** @type {[RegExp, string][]} */
 const APPENDIX_EDIT_SERIES = [
   [new RegExp('^' + LOG_ACTION.rowTitle + '$'), 'Row title refined'],
   [/^Updated Step A Translation Summary for /, 'Step A translation summary revised'],
