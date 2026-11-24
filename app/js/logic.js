@@ -79,7 +79,8 @@ function sanitizeProjectData(data) {
   let dropped = 0;
   ['docs', 'annotations', 'clusters', 'logs'].forEach(k => {
     if (!Array.isArray(data[k])) return;
-    const ok = data[k].filter(r => r && typeof r === 'object' && !Array.isArray(r) && (typeof r.id === 'string' || typeof r.id === 'number'));
+    // A usable key: a non-empty string or a finite number ('' or NaN would be refused by the database part way through)
+    const ok = data[k].filter(r => r && typeof r === 'object' && !Array.isArray(r) && (typeof r.id === 'string' ? r.id.trim().length > 0 : Number.isFinite(r.id)));
     dropped += data[k].length - ok.length;
     data[k] = ok;
   });
@@ -113,9 +114,12 @@ function mergeFillEmpty(local, incoming, skip = []) {
   Object.keys(incoming || {}).forEach(k => {
     if (UNSAFE_KEYS.has(k) || skip.includes(k) || isEmptyValue(incoming[k])) return;
     if (MERGE_UNION_KEYS[k] && Array.isArray(incoming[k]) && Array.isArray(local[k])) {
-      const keyOf = MERGE_UNION_KEYS[k], have = new Set(local[k].map(keyOf));
+      const keyOf = MERGE_UNION_KEYS[k], have = new Map(local[k].filter(Boolean).map(x => [keyOf(x), x]));
       const add = incoming[k].filter(x => x && !have.has(keyOf(x)));
       if (add.length) { local[k] = [...local[k], ...add]; filled.push(k); }
+      // The same item on both sides with other content (e.g. a relation's note edited elsewhere): the local one stays, and it is
+      // listed as a conflict, so the difference is seen
+      if (incoming[k].some(x => x && have.has(keyOf(x)) && stableJson(have.get(keyOf(x))) !== stableJson(x))) conflicts.push(k);
       return;
     }
     if (isEmptyValue(local[k])) { local[k] = incoming[k]; filled.push(k); }
@@ -143,9 +147,11 @@ function mergeFillTexts(local, incoming, fields) {
   });
   return filled;
 }
+// As JSON.stringify would write it (a key whose value is undefined is left out, undefined in a list is null), with the keys
+// sorted: a record read back from a file then equals the same record in memory
 function stableJson(v) {
-  if (Array.isArray(v)) return '[' + v.map(stableJson).join(',') + ']';
-  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableJson(v[k])).join(',') + '}';
+  if (Array.isArray(v)) return '[' + v.map(x => x === undefined || typeof x === 'function' ? 'null' : stableJson(x)).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).filter(k => v[k] !== undefined && typeof v[k] !== 'function').sort().map(k => JSON.stringify(k) + ':' + stableJson(v[k])).join(',') + '}';
   return JSON.stringify(v);
 }
 function sameRecord(a, b) { return stableJson(a) === stableJson(b); }
@@ -244,12 +250,16 @@ function flowColumnRanks(ids, links) {
     leads.filter(l => forward.has(l.id)).forEach(l => { if (rank[l.to] < rank[l.from] + 1) { rank[l.to] = rank[l.from] + 1; changed = true; } });
     if (!changed) break;
   }
-  // Constructs joined only by ⇄ / ⚡ sit in the same column as their partner
-  const leadNodes = new Set(leads.flatMap(l => [l.from, l.to]));
-  links.filter(l => !isDirectedLink(l.type)).forEach(l => {
-    if (!leadNodes.has(l.from) && leadNodes.has(l.to)) rank[l.from] = rank[l.to];
-    else if (!leadNodes.has(l.to) && leadNodes.has(l.from)) rank[l.to] = rank[l.from];
-  });
+  // Constructs joined only by ⇄ / ⚡ sit in the same column as their partner, along a chain of any length (A → B ⇄ C ⇄ D)
+  const placed = new Set(leads.flatMap(l => [l.from, l.to]));
+  const loose = links.filter(l => !isDirectedLink(l.type));
+  for (let moved = true; moved;) {
+    moved = false;
+    loose.forEach(l => {
+      if (!placed.has(l.from) && placed.has(l.to)) { rank[l.from] = rank[l.to]; placed.add(l.from); moved = true; }
+      else if (!placed.has(l.to) && placed.has(l.from)) { rank[l.to] = rank[l.from]; placed.add(l.to); moved = true; }
+    });
+  }
   return { rank, leads };
 }
 

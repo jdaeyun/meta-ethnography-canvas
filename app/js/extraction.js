@@ -9,37 +9,47 @@
 // The sidebar is rebuilt after most changes: what the reviewer had open (folded sections) and where the cursor was are put back,
 // so a link or a deletion elsewhere does not close what they were reading or move them out of a box.
 // An element is identified by the chain of cards it sits in (a quote can appear under several constructs) and its position.
-function sidebarKey(el, list) {
-  const chain = [];
-  for (let n = el.parentElement; n && n !== list; n = n.parentElement) if (n.dataset && n.dataset.sidebarAnno) chain.unshift(n.dataset.sidebarAnno);
-  let scope = el.parentElement;
-  while (scope && scope !== list && !(scope.dataset && scope.dataset.sidebarAnno)) scope = scope.parentElement;
-  const sel = el.tagName === 'DETAILS' ? 'details' : (el.tagName.toLowerCase() + (el.classList[0] ? '.' + CSS.escape(el.classList[0]) : ''));
-  const same = [...(scope || list).querySelectorAll(sel)].filter(x => {
+// A key for each box of the sidebar, stable across redraws (the cards it is nested in, its kind, its place among its kind in its
+// card). One keyer per snapshot / restore: the boxes of each kind in each card are listed once, not once per box.
+function sidebarKeyer(list) {
+  const lists = new Map(); // scope element -> Map(selector -> boxes of that kind directly in that card)
+  const scopeOf = el => { let s = el.parentElement; while (s && s !== list && !(s.dataset && s.dataset.sidebarAnno)) s = s.parentElement; return s || list; };
+  return el => {
+    const chain = [];
+    for (let n = el.parentElement; n && n !== list; n = n.parentElement) if (n.dataset && n.dataset.sidebarAnno) chain.unshift(n.dataset.sidebarAnno);
+    const scope = scopeOf(el);
+    const sel = el.tagName === 'DETAILS' ? 'details' : (el.tagName.toLowerCase() + (el.classList[0] ? '.' + CSS.escape(el.classList[0]) : ''));
+    if (!lists.has(scope)) lists.set(scope, new Map());
+    const bySel = lists.get(scope);
     // only those whose nearest card is the same scope (not those of a nested card)
-    let s2 = x.parentElement; while (s2 && s2 !== list && !(s2.dataset && s2.dataset.sidebarAnno)) s2 = s2.parentElement;
-    return (s2 || list) === (scope || list);
-  });
-  return `${chain.join('>') || 'root'}|${sel}|${same.indexOf(el)}`;
+    if (!bySel.has(sel)) bySel.set(sel, [...scope.querySelectorAll(sel)].filter(x => scopeOf(x) === scope));
+    return `${chain.join('>') || 'root'}|${sel}|${bySel.get(sel).indexOf(el)}`;
+  };
 }
 let sidebarStateDocId = null;
 function snapshotSidebarState(list) {
+  const key = sidebarKeyer(list);
   const open = new Set(), closed = new Set();
-  list.querySelectorAll('details').forEach(d => (d.open ? open : closed).add(sidebarKey(d, list)));
+  list.querySelectorAll('details').forEach(d => (d.open ? open : closed).add(key(d)));
   const a = document.activeElement;
-  const focus = a && list.contains(a) && a !== list ? { key: sidebarKey(a, list), start: a.selectionStart, end: a.selectionEnd, top: a.scrollTop } : null;
+  const focus = a && list.contains(a) && a !== list ? { key: key(a), start: a.selectionStart, end: a.selectionEnd, top: a.scrollTop } : null;
   return { docId: sidebarStateDocId, open, closed, focus };
 }
 function restoreSidebarState(list, snap) {
   if (!snap) return;
+  const key = sidebarKeyer(list);
   const sameDoc = snap.docId === state.activeDocId;
   list.querySelectorAll('details').forEach(d => {
-    const k = sidebarKey(d, list);
+    const k = key(d);
     if (!sameDoc && !k.startsWith('root|')) return; // another study: only the study-wide boxes keep their state
     if (snap.open.has(k)) d.open = true; else if (snap.closed.has(k)) d.open = false;
   });
   if (sameDoc && snap.focus) {
-    const el = [...list.querySelectorAll('input, textarea, select, button, summary, [tabindex]')].find(x => sidebarKey(x, list) === snap.focus.key);
+    // Only boxes of the focused one's kind are candidates
+    const kind = snap.focus.key.split('|')[1];
+    let cands = [];
+    try { cands = [...list.querySelectorAll(kind)]; } catch (e) { cands = []; }
+    const el = cands.find(x => key(x) === snap.focus.key);
     if (el && el.offsetParent !== null) {
       el.focus({ preventScroll: true });
       try { if (typeof snap.focus.start === 'number' && el.setSelectionRange) el.setSelectionRange(snap.focus.start, snap.focus.end); } catch (e) { /* not a text box */ }
@@ -119,12 +129,12 @@ function updateSidebar() {
         <span class="text-xs font-bold text-emerald-800 flex items-center flex-wrap gap-1">
           <span class="merge-drag-handle cursor-grab active:cursor-grabbing text-emerald-600 hover:text-violet-700" draggable="true" title="Drag onto another 2nd Order construct of this study if this is the SAME author interpretation stated elsewhere in the paper: it becomes an additional evidence passage of that construct (can be split off again)."><i class="ph ph-dots-six-vertical text-sm"></i></span>
           <span>🟩 2nd Order</span>
-          ${sec.passages.length ? `<span class="text-[10.5px] px-1.5 py-0.2 rounded border border-violet-300 bg-violet-50 text-violet-800 font-semibold" title="Stated in ${sec.passages.length + 1} places in the paper">📑 ${sec.passages.length + 1} passages</span>` : ''}
-          ${sec.origin === 'wrapped_first_order' ? `<span class="text-[10.5px] px-1.5 py-0.2 rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold" title="No author-stated interpretation was captured. The reviewer wrapped a 1st order quote (participant data) in a 2nd order construct and wrote the label themselves (@${escapeHtml(sec.by || '')}).">🏷 Reviewer-wrapped from 1st-order quote</span>` : ''}
-          <button type="button" class="jump-pdf-btn text-xs bg-emerald-200/80 hover:bg-emerald-300 text-emerald-950 px-1.5 py-0.2 rounded-full font-bold cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(sec.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(sec.page)}</span></button>
-          <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1.5 py-0.2 rounded font-mono cursor-pointer transition" title="Click to change reviewer for this construct">@${escapeHtml(sec.by || 'Unknown')}</button>
+          ${sec.passages.length ? `<span class="text-[10.5px] px-1.5 py-px rounded border border-violet-300 bg-violet-50 text-violet-800 font-semibold" title="Stated in ${sec.passages.length + 1} places in the paper">📑 ${sec.passages.length + 1} passages</span>` : ''}
+          ${sec.origin === 'wrapped_first_order' ? `<span class="text-[10.5px] px-1.5 py-px rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold" title="No author-stated interpretation was captured. The reviewer wrapped a 1st order quote (participant data) in a 2nd order construct and wrote the label themselves (@${escapeHtml(sec.by || '')}).">🏷 Reviewer-wrapped from 1st-order quote</span>` : ''}
+          <button type="button" class="jump-pdf-btn text-xs bg-emerald-200/80 hover:bg-emerald-300 text-emerald-950 px-1.5 py-px rounded-full font-bold cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(sec.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(sec.page)}</span></button>
+          <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1.5 py-px rounded font-mono cursor-pointer transition" title="Click to change reviewer for this construct">@${escapeHtml(sec.by || 'Unknown')}</button>
           <span class="text-xs bg-white border border-emerald-200 px-1.5 rounded-full">${linked.length} quotes</span>
-          <span class="concordance-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
+          <span class="concordance-pill text-[11px] px-1.5 py-px rounded border font-semibold ${cBadge.cls} ${showConcUI ? '' : 'hidden'}">${cBadge.label}</span>
         </span>
         <div class="flex items-center space-x-1">
           <button type="button" class="toggle-order-btn text-[11px] text-blue-700 hover:bg-blue-100 border border-blue-200 bg-white px-1.5 py-0.5 rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Switch this construct to a 1st Order Participant Quote"><i class="ph ph-arrows-left-right"></i><span>To 1st</span></button>
@@ -282,7 +292,7 @@ function updateSidebar() {
 
       const pill = w.querySelector('.concordance-pill');
       const meta = getConcordanceBadgeMeta(newStatus);
-      pill.className = `concordance-pill text-[11px] px-1.5 py-0.2 rounded border font-semibold ${meta.cls}`;
+      pill.className = `concordance-pill text-[11px] px-1.5 py-px rounded border font-semibold ${meta.cls}`;
       pill.textContent = meta.label;
 
       await recordAuditLog({
@@ -505,17 +515,20 @@ async function absorbAsPassage(source, target) {
     firstPage: source.firstPage || parseInt(source.page, 10) || null,
     rectsMap: source.rectsMap || null,
     by: source.by, addedAt: new Date().toISOString(),
-    absorbed: { snapshot: sourceSnapshot, addedClusterIds, movedQuoteIds }
+    // ownPassageIds: its own further passages, listed after it in the target; "Split off" takes them back with it
+    absorbed: { snapshot: sourceSnapshot, addedClusterIds, movedQuoteIds, ownPassageIds: ownPassages.map(x => x.id) }
   }, ...ownPassages);
 
   addedClusterIds.forEach(cid => {
     target.clusterIds.push(cid);
-    if (source.clusterRelations[cid]) target.clusterRelations[cid] = source.clusterRelations[cid];
-    if (source.clusterComments[cid]) target.clusterComments[cid] = source.clusterComments[cid];
+    ANNOTATION_ROW_FIELDS.forEach(k => {
+      if (source[k] && source[k][cid]) target[k] = { ...(target[k] || {}), [cid]: source[k][cid] };
+    });
   });
-  for (const f of children) { unlinkQuote(f, source.id); linkQuote(f, target.id); await dbPut('annotations', f); }
-  await dbPut('annotations', target);
-  await dbDelete('annotations', source.id);
+  // (Its within-study relationships (Appendix C) stay on the study under its id: hidden while it is a passage, back when split off)
+  const ops = children.map(f => { unlinkQuote(f, source.id); linkQuote(f, target.id); return { store: 'annotations', put: f }; });
+  ops.push({ store: 'annotations', put: target }, { store: 'annotations', del: source.id });
+  await dbBatch(ops); // its quotes and both constructs in one transaction
   state.annotations = state.annotations.filter(a => a.id !== source.id);
 
   await recordAuditLog({
@@ -545,10 +558,14 @@ async function splitOffPassage(sec, pid) {
     // Give back the matrix rows it brought with it (only those the target did not have already)
     (p.absorbed.addedClusterIds || []).forEach(cid => {
       sec.clusterIds = sec.clusterIds.filter(x => x !== cid);
-      delete sec.clusterRelations[cid]; delete sec.clusterComments[cid];
+      ANNOTATION_ROW_FIELDS.forEach(k => { if (sec[k] && cid in sec[k]) { sec[k] = { ...sec[k] }; delete sec[k][cid]; } });
     });
-    restored.clusterIds = restored.clusterIds.filter(cid => state.clusters.some(c => c.id === cid));
-    for (const f of affectedQuotes) { unlinkQuote(f, sec.id); linkQuote(f, restored.id); await dbPut('annotations', f); }
+    dropGoneLinks(restored); // placements in rows deleted since it was absorbed do not come back
+    // Its own further passages (absorbed with it) go back with it, if they are still there
+    const own = new Set(p.absorbed.ownPassageIds || []);
+    restored.passages = [...(restored.passages || []), ...sec.passages.filter(x => own.has(x.id))];
+    sec.passages = sec.passages.filter(x => !own.has(x.id));
+    affectedQuotes.forEach(f => { unlinkQuote(f, sec.id); linkQuote(f, restored.id); });
   } else {
     restored = normalizeAnnotation({
       id: 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
@@ -563,8 +580,8 @@ async function splitOffPassage(sec, pid) {
   // Patch the undo entry so that Undo also removes the re-created construct
   const top = state.undoStack[state.undoStack.length - 1];
   if (top && top.type === 'annotation_snapshots') top.createdIds = [restored.id];
-  await dbPut('annotations', sec);
-  await dbPut('annotations', restored);
+  // Both constructs and the quotes that go back with it in one transaction
+  await dbBatch([sec, restored, ...affectedQuotes].map(a => ({ store: 'annotations', put: a })));
   state.annotations.push(restored);
   await recordAuditLog({
     category: 'reading_extraction',
@@ -658,15 +675,15 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
     <div class="flex justify-between items-center text-blue-800 font-bold text-[13px]">
       <span class="flex items-center space-x-1">
         <span>🟦 1st Order</span>
-        <button type="button" class="jump-pdf-btn font-bold text-xs bg-blue-100 hover:bg-blue-200 text-blue-900 px-1.5 py-0.2 rounded-full cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(f.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(f.page)}</span></button>
-        <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1 py-0.2 rounded font-mono cursor-pointer transition" title="Click to change reviewer">@${escapeHtml(f.by || 'Unknown')}</button>
+        <button type="button" class="jump-pdf-btn font-bold text-xs bg-blue-100 hover:bg-blue-200 text-blue-900 px-1.5 py-px rounded-full cursor-pointer transition flex items-center space-x-0.5" title="Jump to PDF page ${escapeHtml(f.page)}"><i class="ph ph-crosshair"></i><span>p.${escapeHtml(f.page)}</span></button>
+        <button type="button" class="rev-badge-btn text-[11px] bg-slate-200 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 px-1 py-px rounded font-mono cursor-pointer transition" title="Click to change reviewer">@${escapeHtml(f.by || 'Unknown')}</button>
       </span>
       <div class="flex items-center space-x-1">
-        <button type="button" class="toggle-order-btn text-[11px] text-emerald-800 hover:bg-emerald-100 border border-emerald-300 bg-white px-1.5 py-0.2 rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Switch type directly to 2nd Order Construct"><i class="ph ph-arrows-left-right"></i><span>To 2nd</span></button>
-        <button type="button" class="edit-f-quote-btn text-[11px] text-blue-700 hover:bg-blue-100 px-1 py-0.2 rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Edit quote text (clean up 2-column PDF artifacts)"><i class="ph ph-pencil-simple"></i><span>Edit</span></button>
+        <button type="button" class="toggle-order-btn text-[11px] text-emerald-800 hover:bg-emerald-100 border border-emerald-300 bg-white px-1.5 py-px rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Switch type directly to 2nd Order Construct"><i class="ph ph-arrows-left-right"></i><span>To 2nd</span></button>
+        <button type="button" class="edit-f-quote-btn text-[11px] text-blue-700 hover:bg-blue-100 px-1 py-px rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Edit quote text (clean up 2-column PDF artifacts)"><i class="ph ph-pencil-simple"></i><span>Edit</span></button>
         ${isLinked
           ? `<button class="unl mr-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Unlink from this 2nd Order Construct (other links are kept)"><i class="ph ph-link-break"></i></button>`
-          : `<button class="promote-sec px-1.5 py-0.2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 rounded text-[11px] font-semibold cursor-pointer" title="Keep this 1st Order quote and wrap it in a new parent 2nd Order Concept">+ Wrap</button>`}
+          : `<button class="promote-sec px-1.5 py-px bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 rounded text-[11px] font-semibold cursor-pointer" title="Keep this 1st Order quote and wrap it in a new parent 2nd Order Concept">+ Wrap</button>`}
         <button class="del text-slate-400 hover:text-rose-500 cursor-pointer" title="Delete Quote"><i class="ph ph-trash"></i></button>
       </div>
     </div>
@@ -824,13 +841,13 @@ function openManualAddDrawer(type) {
     badge.textContent = '🟩 Add 2nd Order Construct';
     noteInput.placeholder = 'Short concept label for this author interpretation (optional)...';
     textInput.placeholder = 'Paste or type 2nd Order Construct (author interpretation / quote)...';
-    submitBtn.className = 'px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-xs cursor-pointer transition';
+    submitBtn.className = 'px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-sm cursor-pointer transition';
   } else {
     badge.className = 'text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300';
     badge.textContent = '🟦 Add 1st Order Quote';
     noteInput.placeholder = 'Participant attribution / context, e.g. Patient #4, Night-shift nurse (optional)...';
     textInput.placeholder = 'Paste or type 1st Order participant quote...';
-    submitBtn.className = 'px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs cursor-pointer transition';
+    submitBtn.className = 'px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-sm cursor-pointer transition';
   }
 
   drawer.classList.remove('hidden');
@@ -895,7 +912,7 @@ async function submitManualAddForm() {
   }
   state.annotations.push(a);
   updateSidebar();
-  showSnackbar(`Added manual ${activeManualAddType === 'second_order' ? '2nd Order Construct' : '1st Order Quote'} (p.${cleanPage})`);
+  showSnackbar(`Added manual ${a.type === 'second_order' ? '2nd Order Construct' : '1st Order Quote'} (p.${cleanPage})`);
 }
 
 document.getElementById('manualAddFirstBtn')?.addEventListener('click', () => openManualAddDrawer('first_order'));
@@ -954,17 +971,18 @@ async function toggleAnnotationOrderType(annoId) {
       return;
     }
     // Undoable (Ctrl+Z): no question first; the notice says what changed and offers Undo
-    const switchNotice = [linkedChildren.length ? `${linkedChildren.length} linked quote(s) unlinked` : '', hasClusters ? `removed from ${a.clusterIds.length} matrix row(s)` : ''].filter(Boolean).join(', ');
+    // Its within-study relationships (Appendix C) are between constructs: they go with it, and Ctrl+Z puts them back
+    const removedConceptLinks = ((doc && doc.conceptLinks) || []).filter(l => l.from === a.id || l.to === a.id);
+    const switchNotice = [linkedChildren.length ? `${linkedChildren.length} linked quote(s) unlinked` : '', hasClusters ? `removed from ${a.clusterIds.length} matrix row(s)` : '', removedConceptLinks.length ? `${removedConceptLinks.length} within-study relationship(s) removed` : ''].filter(Boolean).join(', ');
     pushUndoAction({
       type: 'toggle_order_type',
       label: `Switch 2nd ➔ 1st Order (p.${a.page})`,
       snapshot: snapshotBefore,
-      unlinkedChildrenIds: linkedChildren.map(c => c.id)
+      unlinkedChildrenIds: linkedChildren.map(c => c.id),
+      removedConceptLinks, conceptLinksDocId: doc ? doc.id : null
     });
-    for (const child of linkedChildren) {
-      unlinkQuote(child, a.id);
-      await dbPut('annotations', child);
-    }
+    const ops = linkedChildren.map(child => { unlinkQuote(child, a.id); return { store: 'annotations', put: child }; });
+    if (removedConceptLinks.length) { doc.conceptLinks = doc.conceptLinks.filter(l => !removedConceptLinks.includes(l)); ops.push({ store: 'docs', put: doc }); }
     a.type = 'first_order';
     clearQuoteLinks(a);
     delete a.passages;
@@ -976,7 +994,10 @@ async function toggleAnnotationOrderType(annoId) {
     a.clusterIds = [];
     a.clusterComments = {};
     a.clusterRelations = {};
-    await dbPut('annotations', a);
+    delete a.aspectUsedInLoa;
+    delete a.notTranslatedNote;
+    ops.push({ store: 'annotations', put: a });
+    await dbBatch(ops); // the quote, its former quotes' links and its study's relationships in one transaction
     await recordAuditLog({
       category: 'linking',
       action: `Switched 2nd Order Construct to 1st Order Quote (${getDisplayName(doc)}, p.${a.page})`,

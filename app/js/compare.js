@@ -17,6 +17,11 @@ document.getElementById('compareJsonModalBtn').addEventListener('click', () => {
 document.getElementById('closeCompareModalBtn').addEventListener('click', () => {
   compareModal.classList.add('hidden');
   compareModal.classList.remove('flex');
+  // What was imported shows in the view underneath at once (the matrix, the study list, the sidebar)
+  renderStudyList();
+  updateSidebar();
+  renderHighlights();
+  if (!divMatrix.classList.contains('hidden')) renderMatrixView();
 });
 
 document.getElementById('loadPeerJsonBtn').addEventListener('click', () => document.getElementById('peerJsonFileInput').click());
@@ -402,7 +407,7 @@ function renderComparisonTabContent() {
             <span class="font-bold px-2 py-0.5 rounded ${isSec ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}">${isSec ? '🟩 2nd Order' : '🟦 1st Order Quote'}</span>
             <span class="font-bold text-slate-800">${escapeHtml(studyName)}</span>
             <span class="text-slate-400">p.${escapeHtml(p.page)}</span>
-            <span class="text-xs font-mono bg-teal-100 text-teal-800 px-1.5 py-0.2 rounded">@${escapeHtml(p.by || cmp.peerReviewer)}</span>
+            <span class="text-xs font-mono bg-teal-100 text-teal-800 px-1.5 py-px rounded">@${escapeHtml(p.by || cmp.peerReviewer)}</span>
           </div>
           ${p.note ? `<div class="text-xs font-bold text-slate-800">Summary Label: ${escapeHtml(p.note)}</div>` : ''}
           <div class="text-xs italic text-slate-600 bg-slate-50 p-2 rounded border border-slate-200">"${escapeHtml(p.text)}"</div>
@@ -680,10 +685,13 @@ function renderComparisonTabContent() {
           // Empty-cell records (absent / different aspect) are keyed by the peer's study ids: key them by the local ones
           const cellStatus = {};
           Object.keys(pc.cellStatus || {}).forEach(id => { cellStatus[toLocalDoc(id)] = pc.cellStatus[id]; });
-          const newCl = normalizeCluster({ ...JSON.parse(JSON.stringify(pc)), cellStatus, by: cmp.peerReviewer, baseDocId: pBase ? toLocalDoc(pBase) : pBase });
+          // Its own id where that is safe and free (a foreign file may carry any characters); it goes below the rows here
+          const safeId = pc.id && /^[\w.-]+$/.test(String(pc.id)) && !state.clusters.some(c => c.id === pc.id);
+          const newCl = normalizeCluster({ ...JSON.parse(JSON.stringify(pc)), id: safeId ? pc.id : 'cl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+            cellStatus, by: cmp.peerReviewer, baseDocId: pBase ? toLocalDoc(pBase) : pBase, order: state.clusters.length });
           await dbPut('clusters', newCl);
           state.clusters.push(newCl);
-          const placed = await reattachPeerRowPlacements(newCl.id);
+          const placed = await reattachPeerRowPlacements(pc.id, newCl.id);
           await recordAuditLog({
             clusterIds: [newCl.id],
             category: 'concordance',
@@ -808,6 +816,7 @@ async function importPeerConstruct(item, status) {
     cmp.docMapPeerToLocal[item.peerDoc.id] = stub.id;
     cmp.unmatchedPeerDocs = cmp.unmatchedPeerDocs.filter(x => x.id !== item.peerDoc.id);
     cmp.matchedStudies.push({ localDoc: stub, peerDoc: item.peerDoc, how: 'added' });
+    if (!state.loa.baselineDocId) await checkBaselineChange(); // into an empty project: the first study added becomes #1 (as in handleFiles)
     renderStudyList();
   }
   if (!targetDocId) return;
@@ -863,7 +872,8 @@ async function importPeerConstruct(item, status) {
     docId: targetDocId,
     by: item.peerAnno.by || cmp.peerReviewer,
     concordanceStatus: status,
-    concordanceNote: `Imported from @${cmp.peerReviewer} via JSON Diff/Merge.`
+    // The peer's own team-discussion note comes along, after where it came from
+    concordanceNote: `Imported from @${cmp.peerReviewer} via JSON Diff/Merge.` + (String(item.peerAnno.concordanceNote || '').trim() ? `\n@${cmp.peerReviewer}'s note: ${String(item.peerAnno.concordanceNote).trim()}` : '')
   });
   cmp.peerToLocalAnnoId[peerId] = imported.id;
   // If this is a 2nd Order construct, re-attach any previously imported peer quotes that were waiting for it

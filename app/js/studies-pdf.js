@@ -12,14 +12,15 @@ document.getElementById('pdfFileInput').addEventListener('change', async (e) => 
   e.target.value = '';
 });
 
-// Stores a PDF file for an existing study record (e.g. one restored from a backup)
-async function attachPdfFileToDoc(doc, file) {
-  const buffer = await file.arrayBuffer();
+// Stores a PDF file for an existing study record (e.g. one restored from a backup). buffer / sha: when the caller has already
+// read the file and found it identical to the study's recorded fingerprint, it is not read or fingerprinted again.
+async function attachPdfFileToDoc(doc, file, { buffer = null, sha = '' } = {}) {
+  const data = buffer || await file.arrayBuffer();
   doc.hasBinary = true;
-  doc.fpDone = false; // fingerprint the newly attached file
-  await dbPut('pdf_binaries', { id: doc.id, data: buffer });
-  await dbPut('docs', doc);
-  ensureDocFingerprints();
+  const sameFile = !!sha && sha === doc.sha256;
+  if (!sameFile) doc.fpDone = false; // fingerprint the newly attached file
+  await dbBatch([{ store: 'pdf_binaries', put: { id: doc.id, data } }, { store: 'docs', put: doc }]); // the PDF and its study together
+  ensureDocFingerprints(); // only studies not yet fingerprinted are read (e.g. one whose DOI was never looked for)
 }
 
 // ---- Study fingerprints: recognise the same paper in a co-reviewer's file, whatever it is called ----
@@ -86,17 +87,33 @@ async function handleFiles(files) {
     // A study without its PDF (e.g. after a JSON restore) is reconnected by file name, or, if the file was renamed,
     // by its fingerprint: the backup keeps each study's SHA-256, so the identical file is recognised whatever it is called.
     let existingStub = state.docs.find(d => d.name && d.name.toLowerCase() === file.name.toLowerCase() && !d.hasBinary);
-    let buffer = null;
+    let buffer = null, sha = '';
     if (!existingStub && state.docs.some(d => !d.hasBinary && d.sha256)) {
       buffer = await file.arrayBuffer();
-      const sha = await sha256Hex(buffer);
+      sha = await sha256Hex(buffer);
       if (sha) existingStub = state.docs.find(d => !d.hasBinary && d.sha256 === sha) || null;
     }
     if (!existingStub && reconnectMode) { unmatched.push(file); continue; }
     if (existingStub) {
-      await attachPdfFileToDoc(existingStub, file);
+      await attachPdfFileToDoc(existingStub, file, { buffer, sha });
       lastAffectedId = existingStub.id;
       continue;
+    }
+    // The same PDF dropped again (same file name, or the identical file under another name): ask before adding a second study
+    let dup = state.docs.find(d => d.hasBinary && d.name && d.name.toLowerCase() === file.name.toLowerCase());
+    if (!dup && state.docs.some(d => d.hasBinary && d.sha256)) {
+      if (!buffer) buffer = await file.arrayBuffer();
+      if (!sha) sha = await sha256Hex(buffer);
+      if (sha) dup = state.docs.find(d => d.hasBinary && d.sha256 === sha);
+    }
+    if (dup) {
+      const add = await askChoice({
+        title: 'This PDF is already in the project',
+        body: `"${file.name}" ${dup.name && dup.name.toLowerCase() === file.name.toLowerCase() ? 'has the same file name as' : 'is the identical file of'} ${getDisplayName(dup)}.`,
+        choices: [{ value: 'add', tone: 'plain', label: 'Add it as another study anyway', hint: 'For example, a different paper that happens to have the same file name.' }],
+        cancelLabel: 'Skip this file'
+      });
+      if (!add) continue;
     }
     if (!buffer) buffer = await file.arrayBuffer();
 
@@ -204,12 +221,12 @@ function getBadgesHtml(doc) {
     const qColor = doc.quality === 'High' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' :
                    doc.quality === 'Moderate' ? 'bg-amber-100 text-amber-800 border-amber-200' :
                    doc.quality === 'Low' ? 'bg-rose-100 text-rose-800 border-rose-200' : 'bg-slate-100 text-slate-700 border-slate-200';
-    html += `<span class="text-[11px] px-1.5 py-0.2 rounded border font-semibold ${qColor}" title="Critical Appraisal (${escapeHtml(tool)})">${escapeHtml(tool)}: ${escapeHtml(doc.quality)}</span>`;
+    html += `<span class="text-[11px] px-1.5 py-px rounded border font-semibold ${qColor}" title="Critical Appraisal (${escapeHtml(tool)})">${escapeHtml(tool)}: ${escapeHtml(doc.quality)}</span>`;
   }
   if (doc.richness) {
     const rColor = doc.richness === 'Rich' ? 'bg-indigo-100 text-indigo-800 border-indigo-200' :
                    doc.richness === 'Moderate' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200';
-    html += `<span class="text-[11px] px-1.5 py-0.2 rounded border font-semibold ${rColor}" title="Conceptual Depth (Richness)">${escapeHtml(doc.richness)}</span>`;
+    html += `<span class="text-[11px] px-1.5 py-px rounded border font-semibold ${rColor}" title="Conceptual Depth (Richness)">${escapeHtml(doc.richness)}</span>`;
   }
   return html;
 }
@@ -229,8 +246,10 @@ async function checkBaselineChange() {
   const nowId = now ? now.id : null;
   if (prevId === nowId && (!now || prevName === getDisplayName(now))) return;
   state.loa = { ...state.loa, id: 'loa_main', baselineDocId: nowId, baselineDocName: now ? getDisplayName(now) : '' };
-  await dbPut('meta', state.loa);
-  if (!prevId || !nowId || prevId === nowId) return; // first study ever, or only the name changed
+  const bookkeeping = !prevId || !nowId || prevId === nowId; // first study ever, or only the name changed
+  // Only remembering which study is #1 (the change that caused it was saved and marked already): no backup reminder for it
+  await dbPut('meta', state.loa, { quiet: bookkeeping });
+  if (bookkeeping) return;
   await flagRowsForBaselineChange(prevId, prevName, now);
 }
 
@@ -353,7 +372,7 @@ function renderStudyList() {
       <div class="truncate pr-1.5 flex-1">
         <div class="flex items-center space-x-1">
           <i class="ph ph-dots-six-vertical text-slate-400 shrink-0"></i>
-          ${isIndexPaper ? `<span class="text-[11px] bg-amber-500 text-white px-1 py-0.2 rounded font-bold uppercase shrink-0" title="First column in Synthesis Matrix (${escapeHtml(firstStudyMeta().label)})">${escapeHtml(firstStudyMeta().badge)}</span>` : ''}
+          ${isIndexPaper ? `<span class="text-[11px] bg-amber-500 text-white px-1 py-px rounded font-bold uppercase shrink-0" title="First column in Synthesis Matrix (${escapeHtml(firstStudyMeta().label)})">${escapeHtml(firstStudyMeta().badge)}</span>` : ''}
           <span class="truncate">${escapeHtml(dName)}</span>
         </div>
         ${doc.setting ? `<div class="text-xs text-slate-500 font-normal truncate mt-0.5 pl-4"><i class="ph ph-map-pin mr-0.5"></i>${escapeHtml(doc.setting)}</div>` : ''}
@@ -490,6 +509,7 @@ async function switchStudy(id) {
   renderStudyList();
   updateDocHeaderUI();
   populateMetaEditInputs();
+  resetPdfSearchResults(); // the hits shown were the other paper's
 
   if (pageObserver) {
     pageObserver.disconnect();
@@ -1054,6 +1074,7 @@ async function renderPageContentNow(container, num) {
     await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
     if (stale()) { delete container.dataset.rendering; return; }
     const textContent = await page.getTextContent();
+    if (stale()) { delete container.dataset.rendering; return; } // another study opened while the text was read
     await pdfjsLib.renderTextLayer({
       textContentSource: textContent,
       container: txtLayer,
@@ -1103,6 +1124,7 @@ function selectionTextWithSpaces(range) {
 document.addEventListener('mouseup', (e) => {
   const tt = document.getElementById('selectionTooltip');
   if (tt.contains(e.target)) return;
+  if (divExtract.classList.contains('hidden')) return tt.classList.add('hidden'); // the PDF is only in Tab 1
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !state.activeDocId) return tt.classList.add('hidden');
 
@@ -1268,15 +1290,21 @@ document.addEventListener('keydown', (e) => {
 });
 
 async function addAnno(type) {
+  // Taken at once, before any wait: a second press of 1 / 2 (or a second click) finds nothing to add, so nothing is added twice
+  const sel = state.pendingSelection;
+  if (!sel || !sel.txt) return;
+  state.pendingSelection = null;
+  document.getElementById('selectionTooltip').classList.add('hidden');
+  window.getSelection().removeAllRanges();
   const a = normalizeAnnotation({
     id: 'a_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     docId: state.activeDocId,
     type,
     by: state.reviewerId || 'Reviewer',
-    text: stripOuterQuotes(state.pendingSelection.txt),
-    page: state.pendingSelection.page,
-    firstPage: state.pendingSelection.firstPage,
-    rectsMap: state.pendingSelection.rectsMap, // multi-page rects
+    text: stripOuterQuotes(sel.txt),
+    page: sel.page,
+    firstPage: sel.firstPage,
+    rectsMap: sel.rectsMap, // multi-page rects
     note: '',
     nuanceNote: '',
     concordanceStatus: 'pending',
@@ -1286,8 +1314,6 @@ async function addAnno(type) {
   });
   await dbPut('annotations', a);
   state.annotations.push(a);
-  document.getElementById('selectionTooltip').classList.add('hidden');
-  window.getSelection().removeAllRanges();
   renderHighlights();
   updateSidebar();
 }
@@ -1415,6 +1441,14 @@ async function ensurePdfTextIndex() {
   return pageTexts;
 }
 
+// Another study opened: forget the hits of the previous one (the words typed stay, so Enter searches the new paper)
+function resetPdfSearchResults() {
+  pdfSearchState.matches = [];
+  pdfSearchState.activeIdx = -1;
+  pdfSearchState.lastQuery = '';
+  ['pdfSearchStatus', 'pdfSearchPrevBtn', 'pdfSearchNextBtn'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+}
+
 async function runPdfSearch(query, direction = 1) {
   const statusEl = document.getElementById('pdfSearchStatus');
   const prevBtn = document.getElementById('pdfSearchPrevBtn');
@@ -1462,6 +1496,7 @@ async function runPdfSearch(query, direction = 1) {
   }
 }
 
+const searchHighlight = { timer: null, spans: [] }; // the spans lit by the last search, and the timer that clears them
 async function jumpToSearchedPage(matchIdx, queryStr) {
   const matches = pdfSearchState.matches;
   if (!matches.length) return;
@@ -1495,14 +1530,19 @@ async function jumpToSearchedPage(matchIdx, queryStr) {
     const end = at + needle.length;
     spans.forEach((sp, k) => { const a = starts[k], b = a + norm(sp.textContent).length; if (a < end && b > at) hits.add(sp); });
   }
+  // The previous search's highlight goes now, and its timer with it (else it would clear this one part way)
+  clearTimeout(searchHighlight.timer);
+  searchHighlight.spans.forEach(sp => { sp.style.backgroundColor = ''; });
+  searchHighlight.spans = [];
   if (hits.size) {
     const first = spans.find(sp => hits.has(sp));
     first.scrollIntoView({ behavior: 'smooth', block: 'center' });
     hits.forEach(sp => {
       sp.style.backgroundColor = 'rgba(250, 204, 21, 0.55)';
       sp.style.borderRadius = '2px';
-      setTimeout(() => { sp.style.backgroundColor = ''; }, 6000); // long enough to read the passage around it
     });
+    searchHighlight.spans = [...hits];
+    searchHighlight.timer = setTimeout(() => { searchHighlight.spans.forEach(sp => { sp.style.backgroundColor = ''; }); searchHighlight.spans = []; }, 6000); // long enough to read the passage around it
   } else {
     pageContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
@@ -1540,6 +1580,9 @@ async function autoExtractCitationFromPdf() {
   if (!doc || !state.activePdfDoc) {
     showSnackbar('Open a study whose PDF is loaded first.'); return;
   }
+  // Bound to the study and PDF it started with: if another study is opened meanwhile, its form is never filled with these
+  const pdf = state.activePdfDoc;
+  const stillHere = () => state.activeDocId === doc.id && state.activePdfDoc === pdf;
 
   let detectedTitle = '';
   let detectedAuthor = '';
@@ -1549,7 +1592,7 @@ async function autoExtractCitationFromPdf() {
 
   // Stage 1: Check embedded PDF Info Dict & XMP Metadata
   try {
-    const meta = await state.activePdfDoc.getMetadata();
+    const meta = await pdf.getMetadata();
     const info = meta?.info || {};
     const xmp = meta?.metadata;
 
@@ -1579,7 +1622,7 @@ async function autoExtractCitationFromPdf() {
 
   // Stage 2: Page 1 Visual Layout & Font-Height Heuristics
   try {
-    const page1 = await state.activePdfDoc.getPage(1);
+    const page1 = await pdf.getPage(1);
     const vp = page1.getViewport({ scale: 1.0 });
     const tc = await page1.getTextContent();
 
@@ -1678,6 +1721,7 @@ async function autoExtractCitationFromPdf() {
     if (fnAuthor) detectedAuthor = fnAuthor[1];
   }
 
+  if (!stillHere()) return;
   if (!detectedTitle && !detectedAuthor && !detectedYear) {
     showSnackbar('No citation details found in this PDF (it may be a scanned image without OCR). Enter them by hand.'); return;
   }
@@ -1701,6 +1745,7 @@ async function sortStudiesByMode(mode) {
   if (state.docs.length < 2) return;
   const oldIndexPaper = getDisplayName(state.docs[0]);
   const oldOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
+  const oldIds = state.docs.map(d => d.id).join('|'); // by id: two studies can share a display name
 
   if (mode === 'year') {
     state.docs.sort((a, b) => {
@@ -1717,7 +1762,7 @@ async function sortStudiesByMode(mode) {
   }
 
   const newOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
-  if (oldOrderStr === newOrderStr) {
+  if (oldIds === state.docs.map(d => d.id).join('|')) {
     showSnackbar('Studies are already in this order.');
     if (mode === 'richness') await offerRichnessTieOrdering();
     return;
@@ -1777,8 +1822,8 @@ function renderRichnessTieModal() {
       row.className = 'flex items-center justify-between gap-2 bg-white border border-slate-200 rounded px-2 py-1';
       row.innerHTML = `<span class="truncate" title="${escapeHtml(getDisplayName(d))}"><span class="text-slate-400 font-mono">#${g.start + di + 1}</span> ${escapeHtml(getDisplayName(d))}</span>
         <span class="flex items-center space-x-1 shrink-0">
-          <button type="button" class="tie-up px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${di === 0 ? 'disabled' : ''}>▲</button>
-          <button type="button" class="tie-down px-1.5 py-0.2 bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${di === g.docs.length - 1 ? 'disabled' : ''}>▼</button>
+          <button type="button" class="tie-up px-1.5 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${di === 0 ? 'disabled' : ''}>▲</button>
+          <button type="button" class="tie-down px-1.5 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer" ${di === g.docs.length - 1 ? 'disabled' : ''}>▼</button>
         </span>`;
       const swap = (a, b) => { [g.docs[a], g.docs[b]] = [g.docs[b], g.docs[a]]; renderRichnessTieModal(); };
       row.querySelector('.tie-up').onclick = () => swap(di, di - 1);

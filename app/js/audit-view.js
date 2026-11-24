@@ -36,14 +36,21 @@ document.getElementById('addMemoBtn').addEventListener('click', async () => {
               subType === 'Line of Argument' ? 'line_of_argument' : 'reflexive_memo';
 
   const refOpt = document.getElementById('memoTargetRef').selectedOptions[0];
-  await recordAuditLog({
-    category: cat,
-    action: `[${subType}] ${targetRef ? '— ' + targetRef : ''}`,
-    detail: content,
-    clusterIds: refOpt && refOpt.dataset.clusterId ? [refOpt.dataset.clusterId] : null
-  });
-  document.getElementById('memoContentInput').value = '';
-  renderAuditTimeline();
+  // The box is emptied at once, so a second click finds nothing to add; it gets the text back if the memo could not be saved
+  const box = document.getElementById('memoContentInput');
+  box.value = '';
+  try {
+    await recordAuditLog({
+      category: cat,
+      action: `[${subType}] ${targetRef ? '— ' + targetRef : ''}`,
+      detail: content,
+      clusterIds: refOpt && refOpt.dataset.clusterId ? [refOpt.dataset.clusterId] : null
+    });
+  } catch (err) {
+    if (!box.value) box.value = content;
+    throw err;
+  }
+  // (recordAuditLog has drawn the trail again)
 });
 
 function renderAuditView() {
@@ -170,7 +177,7 @@ function renderAuditTimeline() {
           <span class="text-xs font-bold px-2 py-0.5 rounded border flex items-center space-x-1 ${meta.cls}">
             <i class="ph ${meta.icon}"></i><span>${meta.label}</span>
           </span>
-          <button type="button" class="log-rev-btn text-xs font-mono font-bold bg-slate-100 hover:bg-indigo-100 border border-slate-300 text-slate-700 px-1.5 py-0.2 rounded cursor-pointer" title="Click to change reviewer for this log entry">@${escapeHtml(revTag)}</button>
+          <button type="button" class="log-rev-btn text-xs font-mono font-bold bg-slate-100 hover:bg-indigo-100 border border-slate-300 text-slate-700 px-1.5 py-px rounded cursor-pointer" title="Click to change reviewer for this log entry">@${escapeHtml(revTag)}</button>
           <span class="font-bold text-slate-800">${escapeHtml(log.action)}</span>
         </div>
         <div class="flex items-center space-x-2">
@@ -192,6 +199,8 @@ function renderAuditTimeline() {
     bindPendingCommit(rationaleEl, async () => {
       const next = rationaleEl.value.trim();
       const prev = (log.rationale || '').trim();
+      // What is saved is now the box's reference text: an edit after this one also holds a redraw back (renderAuditTimeline)
+      rationaleEl.defaultValue = next;
       if (next === prev) return;
       // A reason written later is not the same as one written at the time: keep when it was written and every earlier wording
       if (prev) {
@@ -210,7 +219,7 @@ function renderAuditTimeline() {
       pushUndoAction({
         type: 'delete_log',
         label: `Audit Log (${log.action.slice(0, 30)})`,
-        log: { ...log }
+        log: JSON.parse(JSON.stringify(log)) // with its lists (row ids, earlier reasons) as they were
       });
       await dbDelete('logs', log.id);
       state.logs = state.logs.filter(x => x.id !== log.id);

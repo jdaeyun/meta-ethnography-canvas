@@ -79,13 +79,10 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
   const initQInput = document.getElementById('initialReviewQuestionInput');
   if (initQInput) initQInput.value = (state.loa && state.loa.reviewQuestion) || '';
 
+  // The first box still to fill gets the focus when the dialog opens (modalAccessibility reads data-focus-id), in one step
+  modal.dataset.focusId = (!initRevInput.value ? initRevInput : !initProjInput.value ? initProjInput : initAimInput).id;
   modal.classList.remove('hidden');
   modal.classList.add('flex');
-  setTimeout(() => {
-    if (!initRevInput.value) initRevInput.focus();
-    else if (!initProjInput.value) initProjInput.focus();
-    else initAimInput.focus();
-  }, 50);
 
   closeBtn.onclick = () => {
     modal.classList.add('hidden');
@@ -166,8 +163,11 @@ function ensureInitialReviewerLogin() {
     state.projectCode = savedProj;
   }
   updateHeaderProjectUI();
-
-  if (!savedRev || !savedProj) {
+}
+// Opened only after the project in the browser's database has been read: a project code (and aim) stored there fills the
+// setup, and nothing read later overwrites what is entered in it
+function openSetupIfIncomplete() {
+  if (!state.reviewerId || !state.projectCode) {
     openProjectSetupModal({
       isInitialOrReset: true,
       titleText: 'Welcome! Project Setup & Phase 1 (Getting Started)'
@@ -229,16 +229,13 @@ window.addEventListener('DOMContentLoaded', async () => {
         ]
       });
       if (how === 'all') {
-        for (const a of state.annotations) {
-          if (a.by === oldRev) { a.by = nextRev; await dbPut('annotations', a); }
-        }
-        for (const c of state.clusters) {
-          if (c.by === oldRev) { c.by = nextRev; await dbPut('clusters', c); }
-        }
+        // Every record in one transaction: all of them carry the new ID, or (on a failure) none
+        const ops = [];
+        state.annotations.forEach(a => { if (a.by === oldRev) { a.by = nextRev; ops.push({ store: 'annotations', put: a }); } });
+        state.clusters.forEach(c => { if (c.by === oldRev) { c.by = nextRev; ops.push({ store: 'clusters', put: c }); } });
         let nLogs = 0;
-        for (const l of state.logs) {
-          if (l.reviewer === oldRev) { l.reviewer = nextRev; nLogs++; await dbPut('logs', l); }
-        }
+        state.logs.forEach(l => { if (l.reviewer === oldRev) { l.reviewer = nextRev; nLogs++; ops.push({ store: 'logs', put: l }); } });
+        await dbBatch(ops);
         await recordAuditLog({ category: 'audit_edit', action: `Attributed all items of @${oldRev} to @${nextRev}`, detail: `${existingCount} construct(s) / row(s) and ${nLogs} audit trail entries.`, fromVal: '@' + oldRev, toVal: '@' + nextRev });
         updateSidebar();
         if (!divMatrix.classList.contains('hidden')) renderMatrixView();
@@ -267,6 +264,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
   populateLoaInputs();
   updateHeaderProjectUI();
+  openSetupIfIncomplete();
   if (state.docs.length && !state.loa.baselineDocId) await checkBaselineChange(); // remember study #1 (projects made before it was stored)
   setTimeout(() => ensureDocFingerprints(), 4000); // projects made before fingerprints were stored: one PDF at a time, after start-up
 
@@ -319,7 +317,7 @@ function renderWelcomeGuideIfNeeded() {
             <i class="ph ph-highlighter-circle text-lg text-emerald-600"></i>
           </div>
           <div class="text-xs font-bold text-slate-800">Extract 1st & 2nd Order</div>
-          <p class="text-[13px] text-slate-600 leading-relaxed">Select text in the PDF and press <kbd class="px-1 py-0.2 bg-white border rounded text-xs font-mono">1</kbd> for Participant Quotes (🟦) or <kbd class="px-1 py-0.2 bg-white border rounded text-xs font-mono">2</kbd> for Author Interpretations (🟩).</p>
+          <p class="text-[13px] text-slate-600 leading-relaxed">Select text in the PDF and press <kbd class="px-1 py-px bg-white border rounded text-xs font-mono">1</kbd> for Participant Quotes (🟦) or <kbd class="px-1 py-px bg-white border rounded text-xs font-mono">2</kbd> for Author Interpretations (🟩).</p>
         </div>
 
         <div class="p-3.5 rounded-xl bg-purple-50/60 border border-purple-100 space-y-1.5">
@@ -387,6 +385,7 @@ function setActiveTab(tab) {
   vMatrix.className = tab === 'matrix' ? activeCls : inactiveCls;
   vAudit.className = tab === 'audit' ? activeCls : inactiveCls;
   vPub.className = tab === 'pub' ? activeCls : inactiveCls;
+  [[vExtract, 'extract'], [vMatrix, 'matrix'], [vAudit, 'audit'], [vPub, 'pub']].forEach(([b, t]) => b.setAttribute('aria-selected', String(tab === t)));
 
   divExtract.classList.toggle('hidden', tab !== 'extract');
   divMatrix.classList.toggle('hidden', tab !== 'matrix');
@@ -480,7 +479,7 @@ window.ondrop = async e => {
 
 // ---- Modals: Esc closes (except the required Reviewer ID dialog), focus moves in and returns, Tab stays inside ----
 (function modalAccessibility() {
-  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn', refutMapModal: 'refutMapCloseBtn', seedChoiceModal: 'seedChoiceCloseBtn', rowOpsModal: 'rowOpsCloseBtn', reasonModal: 'reasonModalCloseBtn', choiceModal: 'choiceModalCloseBtn' };
+  const CLOSE_BTN = { compareModal: 'closeCompareModalBtn', richTieModal: 'richTieCloseBtn', missingPdfModal: 'missingPdfCloseBtn', refutMapModal: 'refutMapCloseBtn', seedChoiceModal: 'seedChoiceCloseBtn', rowOpsModal: 'rowOpsCloseBtn', reasonModal: 'reasonModalCloseBtn', choiceModal: 'choiceModalCloseBtn', reviewerLoginModal: 'closeSetupModalBtn' };
   const MODALS = ['compareModal', 'richTieModal', 'missingPdfModal', 'refutMapModal', 'seedChoiceModal', 'rowOpsModal', 'reviewerLoginModal', 'choiceModal', 'reasonModal'];
   const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   const returnTo = {};
@@ -493,7 +492,9 @@ window.ondrop = async e => {
       const open = !m.classList.contains('hidden');
       if (open && !wasOpen) {
         returnTo[id] = document.activeElement;
-        const first = Array.from(m.querySelectorAll(FOCUSABLE)).find(el => el.offsetParent !== null);
+        // A dialog can name the element to start on (data-focus-id); otherwise its first visible control
+        const named = m.dataset.focusId && document.getElementById(m.dataset.focusId);
+        const first = named && m.contains(named) ? named : Array.from(m.querySelectorAll(FOCUSABLE)).find(el => el.offsetParent !== null);
         if (first) setTimeout(() => first.focus(), 0);
       } else if (!open && wasOpen && returnTo[id] && document.contains(returnTo[id])) {
         try { returnTo[id].focus(); } catch (err) { /* element gone */ }
@@ -504,7 +505,9 @@ window.ondrop = async e => {
   document.addEventListener('keydown', e => {
     const openId = MODALS.slice().reverse().find(visible);
     if (!openId) return;
-    if (e.key === 'Escape' && CLOSE_BTN[openId]) { e.preventDefault(); document.getElementById(CLOSE_BTN[openId])?.click(); return; }
+    // Only where the dialog offers a close button (the project setup has one when edited, none at first start)
+    const closeBtn = CLOSE_BTN[openId] && document.getElementById(CLOSE_BTN[openId]);
+    if (e.key === 'Escape' && closeBtn && !closeBtn.classList.contains('hidden')) { e.preventDefault(); closeBtn.click(); return; }
     if (e.key === 'Tab') {
       const items = Array.from(document.getElementById(openId).querySelectorAll(FOCUSABLE)).filter(el => el.offsetParent !== null);
       if (items.length === 0) return;
@@ -585,5 +588,5 @@ const SKIP_OBSERVED = new Set(['SPAN', 'BR', 'CANVAS', 'I', 'B', 'svg', 'path'])
   initIn(document.body);
   new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(initIn))).observe(document.body, { childList: true, subtree: true });
   // Called by the matrix right after it builds rows, so row heights are final before the scroll position is fixed
-  window.growTextareasNow = root => growMany(Array.from(root.querySelectorAll('textarea')));
+  window.growTextareasNow = root => growMany(Array.from(root.querySelectorAll('textarea:not(.lazy-grow)')));
 })();
