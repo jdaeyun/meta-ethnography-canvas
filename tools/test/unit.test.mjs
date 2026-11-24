@@ -14,7 +14,7 @@ const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'app/js/logic.js'), 'utf8'), ctx, { filename: 'app/js/logic.js' });
 const L = vm.runInContext(`({ LOG_ACTION, appendixSeries, isMemoLog, isKeyDecisionLog, sanitizeProjectData, isEmptyValue, mergeFillEmpty,
   mergeFillTexts, MERGE_FILL_TEXT, stableJson, sameRecord, computeTextSimilarity, isDirectedLink, linkPairOffsets, flowColumnRanks,
-  joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds })`, ctx);
+  joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds, checkInvariants })`, ctx);
 // Objects made inside the context have that context's prototypes: compare them as plain JSON
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -92,6 +92,28 @@ test('study ids from another file: every place a row names a study is turned int
   assert.equal(row.baseDocId, 'p1', 'the row given is not changed');
   assert.equal(L.remapRowDocIds({ baseDocId: null }, toLocal).baseDocId, null, '"No single base" stays');
   assert.equal(L.remapRowDocIds({ baseDocId: '' }, toLocal).baseDocId, '', 'a base not set yet stays');
+});
+
+test('consistency rules: a consistent project passes, each kind of stale link is named', () => {
+  const docs = [{ id: 'd1', conceptLinks: [{ id: 'k', from: 's1', to: 's2' }] }, { id: 'd2', companionOf: 'd1' }];
+  const clusters = [{ id: 'r1', cellStatus: { d2: { status: 'absent' } } }];
+  const annotations = [
+    { id: 's1', docId: 'd1', type: 'second_order', clusterIds: ['r1'], clusterRelations: { r1: 'reciprocal' } },
+    { id: 's2', docId: 'd1', type: 'second_order', clusterIds: [] },
+    { id: 'q1', docId: 'd1', type: 'first_order', parentIds: ['s1'] }
+  ];
+  const loa = { links: [] };
+  assert.deepEqual(plain(L.checkInvariants({ docs, annotations, clusters, loa })), []);
+  const rules = x => plain(L.checkInvariants(x)).map(v => v.rule).sort();
+  assert.deepEqual(rules({ docs, clusters, loa, annotations: [...annotations, { id: 's3', docId: 'd2', type: 'second_order', clusterIds: ['r1', 'gone'], clusterComments: { r9: 'x' } }] }),
+    ['cell-status-with-card', 'row-exists', 'row-fields-in-rows']);
+  assert.deepEqual(rules({ docs, clusters, loa, annotations: [...annotations, { id: 'q2', docId: 'd2', type: 'first_order', parentIds: ['s1', 'gone'], clusterIds: ['r1'] }] }),
+    ['quote-parent', 'quote-parent', 'quote-shape']);
+  assert.deepEqual(rules({ docs: [...docs, { id: 'd3', companionOf: 'd3', conceptLinks: [{ from: 's1', to: 's2' }] }], clusters, annotations, loa: { links: [{ id: 'l', from: 'r1', to: 'gone' }] } }),
+    ['companion', 'concept-link', 'map-link']);
+  // A construct absorbed as a passage keeps its within-study relationships under its id: not a violation
+  const absorbed = annotations.map(a => a.id === 's2' ? { ...a, passages: [{ id: 'p', absorbed: { snapshot: { id: 's9' } } }] } : a);
+  assert.deepEqual(plain(L.checkInvariants({ docs: [{ id: 'd1', conceptLinks: [{ from: 's1', to: 's9' }] }], clusters: [], loa, annotations: absorbed.map(a => ({ ...a, clusterIds: [], clusterRelations: {} })) })), []);
 });
 
 test('Appendix A: key decisions, routine bookkeeping, edit series', () => {

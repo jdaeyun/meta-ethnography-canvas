@@ -94,6 +94,14 @@ async function settle(p, { quiet = 120, timeout = 20000 } = {}) {
     const what = await p.evaluate(() => JSON.stringify([...(window.__mecOpen || new Map())])).catch(() => '?');
     throw new Error('settle: the app did not go idle; in flight: ' + what + ' (' + e.message.split('\n')[0] + ')');
   });
+  // Once idle, the project must keep its consistency rules (checkInvariants, logic.js). A violation is reported as a page error,
+  // so the group's "no page errors" check names the step that left it. A test that makes an inconsistent state on purpose
+  // (to see the app tidy it) sets p.skipInvariants while it does.
+  if (!p.skipInvariants) {
+    const v = await p.evaluate(() => typeof checkInvariants === 'function' && typeof state !== 'undefined'
+      ? checkInvariants({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, loa: state.loa }) : []).catch(() => []);
+    v.forEach(x => { const msg = `Invariant ${x.rule} (${x.id}): ${x.detail}`; if (!p.pageErrors.includes(msg)) p.pageErrors.push(msg); });
+  }
 }
 
 async function openDemo(url = BASE + '?demo') {
@@ -273,13 +281,14 @@ await group('Matrix with many studies: lazy rows keep the scroll position', asyn
     const docs = [], anns = [], cls = [];
     for (let i = 0; i < 30; i++) cls.push(normalizeCluster({ id: 'c' + i, thirdOrderTitle: 'Theme ' + i }));
     for (let d = 0; d < 30; d++) {
-      const doc = normalizeDoc({ ...baseDocs[d % 4], id: 'd' + d, name: 'S' + d + '.pdf' }); docs.push(doc);
+      // (the copies' own references start empty: their relationships and companion links would point to the originals)
+      const doc = normalizeDoc({ ...baseDocs[d % 4], id: 'd' + d, name: 'S' + d + '.pdf', conceptLinks: [], companionOf: '' }); docs.push(doc);
       for (let k = 0; k < 20; k++) {
         const a = normalizeAnnotation({ ...JSON.parse(JSON.stringify(baseAnn[k % baseAnn.length])), id: `a${d}_${k}`, docId: doc.id, text: 'Lorem ipsum '.repeat(10 + (k * 7) % 40), note: '', parentIds: [] });
-        a.clusterIds = [cls[(d * 3 + k) % 30].id]; a.clusterRelations = {}; a.clusterComments = {}; anns.push(a);
+        a.clusterIds = [cls[(d * 3 + k) % 30].id]; a.clusterRelations = {}; a.clusterComments = {}; a.aspectUsedInLoa = {}; a.passages = []; anns.push(a);
       }
     }
-    Object.assign(state, { docs, annotations: anns, clusters: cls }); renderMatrixView();
+    Object.assign(state, { docs, annotations: anns, clusters: cls, loa: { ...state.loa, links: [] } }); renderMatrixView(); // a whole synthetic project (map included)
   });
   await settle(p);
   const built = await p.locator('#matrixTable .cluster-title').count();
@@ -752,14 +761,16 @@ await group('Review fixes: peer rows by title, merge links, PDF search race, Wor
     const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode }));
     const s = d.annotations.find(a => a.type === 'second_order' && a.clusterIds.length);
     d.annotations.push({ ...s, id: 'm_sec', clusterIds: [s.clusterIds[0], 'ghost_row'], clusterRelations: { ghost_row: 'refutational' }, clusterComments: { ghost_row: 'x' } });
-    const f = d.annotations.find(a => a.type === 'first_order');
-    d.annotations.push({ ...f, id: 'm_quote', parentIds: ['ghost_sec', s.id] });
+    const f = d.annotations.find(a => a.type === 'first_order' && a.docId === s.docId) || d.annotations.find(a => a.type === 'first_order');
+    const other = d.annotations.find(a => a.type === 'second_order' && a.docId !== s.docId);
+    // a link to a construct that is not there, one to a construct of another study, and one that is fine
+    d.annotations.push({ ...f, id: 'm_quote', docId: s.docId, parentIds: ['ghost_sec', other ? other.id : 'ghost2', s.id] });
     return JSON.stringify(d);
   });
   p.removeAllListeners('dialog'); p.on('dialog', d => d.accept()); p.choiceAnswer = 'merge';
   await p.setInputFiles('#jsonFileInput', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(json) }); await settle(p, { quiet: 300 });
   const tidy = await p.evaluate(() => { const s = state.annotations.find(a => a.id === 'm_sec'), q = state.annotations.find(a => a.id === 'm_quote'); return { c: s.clusterIds, r: Object.keys(s.clusterRelations), q: q.parentIds }; });
-  check('merged items keep only links to rows and constructs that exist', tidy.c.length === 1 && !tidy.r.includes('ghost_row') && tidy.q.length === 1 && tidy.q[0] !== 'ghost_sec', JSON.stringify(tidy));
+  check('merged items keep only links to rows and constructs that exist (a quote: of its own study)', tidy.c.length === 1 && !tidy.r.includes('ghost_row') && tidy.q.length === 1 && tidy.q[0] !== 'ghost_sec', JSON.stringify(tidy));
   p.removeAllListeners('dialog'); p.on('dialog', d => d.accept()); p.choiceAnswer = null;
   // PDF search: switching study while indexing never stores one paper's text under another
   await tab(p, 'extract'); await settle(p);
@@ -894,7 +905,11 @@ await group('Translation: placements start unjudged; empty cells can say why; ro
   await tab(p, 'matrix'); await settle(p);
   check('Tab 2 context row shows it', (await p.locator('.matrix-context-row').innerText()).includes(`How its concepts relate (${linksBefore + 1})`));
   // A new project asks how to start the rows
-  await p.evaluate(() => { state.clusters = []; delete state.loa.seedChoice; renderMatrixView(); });
+  await p.evaluate(() => {
+    // A project without rows (in memory): no row, so no placement in one and no map relation either
+    state.annotations.forEach(a => [...(a.clusterIds || [])].forEach(id => takeOutOfRow(a, id)));
+    state.clusters = []; state.loa.links = []; delete state.loa.seedChoice; renderMatrixView();
+  });
   await settle(p);
   check('a project without rows asks how to start', await p.evaluate(() => !document.getElementById('seedChoiceModal').classList.contains('hidden')));
   await p.click('#seedChoiceManualBtn'); await settle(p);
@@ -1967,7 +1982,9 @@ await group('Review fixes 8: merge of nested appraisal answers, deletions take t
   if (!cl.skip) check('deleting a construct removes its within-study relationships; Ctrl+Z restores them', cl.gone && cl.back, JSON.stringify(cl));
   // Deleting a study removes empty-cell records and "same study as" pointing to it; Ctrl+Z restores them
   const st = await p.evaluate(async () => {
-    const victim = state.docs[3], other = state.docs[2], row = state.clusters[0];
+    const victim = state.docs[3], other = state.docs[2];
+    // a row where the study has no construct (an empty-cell record is only for an empty cell)
+    const row = state.clusters.find(c => !state.annotations.some(a => a.type === 'second_order' && a.docId === victim.id && (a.clusterIds || []).includes(c.id))) || state.clusters[0];
     row.cellStatus = { ...(row.cellStatus || {}), [victim.id]: { status: 'absent', note: 'checked' } }; await dbPut('clusters', row);
     other.companionOf = victim.id; await dbPut('docs', other);
     renderStudyList(); await new Promise(r => setTimeout(r, 200));
@@ -2204,7 +2221,10 @@ await group('Review fixes 8: switch and undo tidy per-row marks and relationship
     await dbPut('annotations', sec);
     pushUndoAction({ type: 'delete_annotation', label: 'test', annotations: [JSON.parse(JSON.stringify(sec))], unlinkedChildrenIds: [], parentId: sec.id });
     await dbDelete('annotations', sec.id); state.annotations = state.annotations.filter(a => a.id !== sec.id);
-    await dbDelete('clusters', rid); state.clusters = state.clusters.filter(c => c.id !== rid);
+    // the row deleted as the app does it: its cards taken out of it, map relations to it removed
+    const ops = state.annotations.filter(a => (a.clusterIds || []).includes(rid)).map(a => { takeOutOfRow(a, rid); return { store: 'annotations', put: a }; });
+    state.loa.links = (state.loa.links || []).filter(l => l.from !== rid && l.to !== rid);
+    await dbBatch([...ops, { store: 'meta', put: state.loa }, { store: 'clusters', del: rid }]); state.clusters = state.clusters.filter(c => c.id !== rid);
     await performUndo();
     const a = await dbGet('annotations', sec.id);
     return { back: !!a, noGoneRow: !!a && !a.clusterIds.includes(rid) && !(rid in (a.clusterRelations || {})) && !(rid in (a.aspectUsedInLoa || {})) };

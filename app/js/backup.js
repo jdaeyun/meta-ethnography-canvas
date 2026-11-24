@@ -153,11 +153,11 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         await dbPut('clusters', c);
         state.clusters.push(c);
       }
-      const fileSecIds = new Set(data.annotations.filter(a => a && a.type === 'second_order').map(a => a.id));
+      const fileSecs = data.annotations.filter(a => a && a.type === 'second_order');
       for (const rawA of data.annotations) {
         const a = normalizeAnnotation(rawA);
         const was = JSON.stringify([a.clusterIds, a.clusterRelations, a.clusterComments, a.aspectUsedInLoa, a.parentIds]);
-        dropGoneLinks(a, fileSecIds); // rows: those restored above; quotes' constructs: those in the file
+        dropGoneLinks(a, fileSecs); // rows: those restored above; quotes' constructs: those of its study in the file
         if (JSON.stringify([a.clusterIds, a.clusterRelations, a.clusterComments, a.aspectUsedInLoa, a.parentIds]) !== was) mergeReport.tidied++;
         await dbPut('annotations', a);
         state.annotations.push(a);
@@ -267,21 +267,16 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         state.clusters.push(c);
         mergeReport.clusters++;
       }
-      // Items added from the backup may point to rows or 2nd Order constructs that are not in this project: drop those references
-      const liveRows = new Set(state.clusters.map(c => c.id));
-      const liveSecs = new Set(state.annotations.filter(a => a.type === 'second_order').map(a => a.id));
-      for (const a of state.annotations.filter(x => addedAnnoIds.has(x.id))) {
-        let changed = false;
-        if (a.type === 'second_order') {
-          const keep = a.clusterIds.filter(id => liveRows.has(id));
-          if (keep.length !== a.clusterIds.length) { a.clusterIds = keep; changed = true; }
-          ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'].forEach(k => Object.keys(a[k] || {}).forEach(id => { if (!liveRows.has(id)) { delete a[k][id]; changed = true; } }));
-        } else if (a.type === 'first_order') {
-          const keep = quoteParentIds(a).filter(id => liveSecs.has(id));
-          if (keep.length !== a.parentIds.length) { a.parentIds = keep; changed = true; }
-        }
-        if (changed) { mergeReport.tidied++; await dbPut('annotations', a); }
+      // Items added from the backup may point to rows or 2nd Order constructs that are not in this project (or, for a quote,
+      // to a construct of another study): those references are dropped (dropGoneLinks, as everywhere else)
+      const added = state.annotations.filter(x => addedAnnoIds.has(x.id));
+      for (const a of added) {
+        const was = JSON.stringify([a.clusterIds, a.parentIds, ...ANNOTATION_ROW_FIELDS.map(k => a[k])]);
+        dropGoneLinks(a);
+        if (JSON.stringify([a.clusterIds, a.parentIds, ...ANNOTATION_ROW_FIELDS.map(k => a[k])]) !== was) { mergeReport.tidied++; await dbPut('annotations', a); }
       }
+      // An added construct in a row: the row's base if not set yet, no empty-cell record for its study there
+      await dbBatch(placementRowOps(added));
       for (const l of (data.logs || [])) {
         if (state.logs.find(x => x.id === l.id)) continue;
         await dbPut('logs', l);

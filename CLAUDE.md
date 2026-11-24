@@ -60,6 +60,11 @@ run one of them):
   in flight (IndexedDB transactions, async handlers, timers up to 1 s, PDF rendering, pending debounced saves, a reason / choice
   dialog awaiting its automatic answer); when the test is about a condition, wait for that condition with `waitForFunction`.
   If settle times out, its error names what was still in flight. A timer the app sets for longer than 1 s is not waited for.
+  After going idle, `settle` also runs `checkInvariants()` (logic.js: the project's consistency rules, e.g. per-row fields only for
+  rows a construct is placed in, no empty-cell record where the study has a construct, a quote linked only to constructs of its
+  own study, map / within-study / companion links only to what exists). A violation is a page error, so the group's "no page
+  errors" check fails at the step that made it. A new rule goes there (with a unit test); a test that builds an inconsistent
+  state on purpose sets `p.skipInvariants` while it does. `checkInvariants(state)` also works in the browser console.
 
 ## Demo (?demo)
 
@@ -121,7 +126,7 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   A construct's place in a row is changed only through `putIntoRow()` / `takeOutOfRow()` / `rowFieldsOf()` (core.js): membership and
   every per-row field (`ANNOTATION_ROW_FIELDS`) together, so a new per-row field needs no change at the call sites. Study ids in a row
   record from another file (backup merge, Compare) are turned into local ones by `remapRowDocIds()` (logic.js).
-  A construct's per-row fields are `ANNOTATION_ROW_FIELDS` (core.js); whatever brings a construct back (Undo, split off a passage)
+  A construct's per-row fields are `ANNOTATION_ROW_FIELDS` (logic.js); whatever brings a construct back (Undo, split off a passage)
   passes it through `dropGoneLinks()`, so it never points to a row (or, for a quote, a construct) deleted in the meantime.
   Whatever puts a construct into a row (placing, Compare import, Undo) writes `placementRowOps()` with it: a row whose base is
   not set yet ('') takes the study's, and the study's empty-cell record in that row is dropped (`rowsTouchedByPlacement()`).

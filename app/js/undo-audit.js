@@ -52,8 +52,8 @@ async function performUndoStep() {
     // The construct, its quotes' links and its within-study relationships come back in one transaction (as they went);
     // a placement in a row that was deleted in the meantime is not brought back
     const ops = [];
-    const backSecIds = last.annotations.filter(a => a.type === 'second_order').map(a => a.id);
-    const back = last.annotations.map(raw => dropGoneLinks(normalizeAnnotation(JSON.parse(JSON.stringify(raw))), backSecIds));
+    const back = last.annotations.map(raw => normalizeAnnotation(JSON.parse(JSON.stringify(raw))));
+    back.forEach(a => dropGoneLinks(a, back)); // a quote may belong to a construct coming back with it
     back.forEach(a => ops.push({ store: 'annotations', put: a }));
     if (last.unlinkedChildrenIds && last.parentId) {
       for (const cid of last.unlinkedChildrenIds) {
@@ -88,8 +88,8 @@ async function performUndoStep() {
     // Generic restore: put every snapshotted annotation back, delete the ones the operation created (one transaction);
     // never a placement in a row that was deleted in the meantime
     // (a quote's construct may be one of the snapshots: e.g. a construct absorbed as a passage comes back with its quotes)
-    const snapSecIds = last.snapshots.filter(a => a.type === 'second_order').map(a => a.id);
-    const copies = last.snapshots.map(snap => dropGoneLinks(normalizeAnnotation(JSON.parse(JSON.stringify(snap))), snapSecIds));
+    const copies = last.snapshots.map(snap => normalizeAnnotation(JSON.parse(JSON.stringify(snap))));
+    copies.forEach(c => dropGoneLinks(c, copies));
     const snapIds = new Set(last.snapshots.map(x => x.id));
     const gone = (last.createdIds || []).filter(id => !snapIds.has(id));
     await dbBatch([...copies.map(c => ({ store: 'annotations', put: c })), ...gone.map(id => ({ store: 'annotations', del: id })), ...placementRowOps(copies)]);
@@ -142,8 +142,8 @@ async function performUndoStep() {
     // that was deleted in the meantime is not brought back
     // (the same tidying as every other Undo: dropGoneLinks; a quote keeps its links to the study's constructs coming back with it)
     const ops = [];
-    const backSecIds = (last.annotations || []).filter(a => a.type === 'second_order').map(a => a.id);
-    const restored = (last.annotations || []).map(raw => dropGoneLinks(normalizeAnnotation(JSON.parse(JSON.stringify(raw))), backSecIds));
+    const restored = (last.annotations || []).map(raw => normalizeAnnotation(JSON.parse(JSON.stringify(raw))));
+    restored.forEach(a => dropGoneLinks(a, restored));
     const isNew = !state.docs.find(x => x.id === d.id);
     if (isNew) {
       d.hasBinary = Boolean(last.binary && last.binary.byteLength > 0);

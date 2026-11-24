@@ -543,8 +543,7 @@ function clearQuoteLinks(f) { f.parentIds = []; }
 function fileNamePart(s) {
   return String(s || '').replace(/[\\/:*?"<>|\x00-\x1f\s]+/g, '_').replace(/^[._]+|[._]+$/g, '');
 }
-// A 2nd Order construct's per-row fields (keyed by 3rd Order row id), besides its clusterIds
-const ANNOTATION_ROW_FIELDS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+// (A 2nd Order construct's per-row fields: ANNOTATION_ROW_FIELDS, in logic.js)
 // ---- A construct and a row: the one place that changes a construct's membership of a row ----
 // A construct's place in a row is clusterIds plus one value per row in each of ANNOTATION_ROW_FIELDS (judgement, cell note,
 // line-of-argument mark). Every code path that puts a construct into a row, takes it out, or records / restores what it had
@@ -599,12 +598,14 @@ function placementRowOps(annos) {
 }
 // Drop links to what no longer exists, for an annotation brought back (Undo, split off a passage, a restored file): a construct's
 // placements in deleted rows (its clusterIds and every per-row field), a quote's links to deleted 2nd Order constructs.
-// alsoSecIds: constructs being brought back together with it (not in state.annotations yet). Returns the annotation.
-/** @param {any} a @param {Iterable<string>} [alsoSecIds] */
-function dropGoneLinks(a, alsoSecIds = []) {
+// A quote keeps links only to constructs of its own study (as checkInvariants requires).
+// alsoSecs: constructs being brought back together with it (records, not in state.annotations yet). Returns the annotation.
+/** @param {any} a @param {Iterable<any>} [alsoSecs] */
+function dropGoneLinks(a, alsoSecs = []) {
   if (!a) return a;
   if (a.type === 'first_order') {
-    const secs = new Set([...alsoSecIds, ...state.annotations.filter(x => x.type === 'second_order').map(x => x.id)]);
+    const secs = new Set([...alsoSecs, ...state.annotations]
+      .filter(x => x && x.type === 'second_order' && x.docId === a.docId).map(x => x.id));
     a.parentIds = quoteParentIds(a).filter(id => secs.has(id));
     return a;
   }

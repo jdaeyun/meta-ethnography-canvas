@@ -89,6 +89,63 @@ function sanitizeProjectData(data) {
   return data;
 }
 
+// ======================= The project's consistency rules (checked in the tests; nothing here changes data) =======================
+// A 2nd Order construct's per-row fields (keyed by 3rd Order row id), besides its clusterIds
+const ANNOTATION_ROW_FIELDS = ['clusterRelations', 'clusterComments', 'aspectUsedInLoa'];
+
+// Every rule the project's records must keep, in one place. Returns the violations ([] = consistent): { rule, id, detail }.
+// Run after each step of the smoke tests (and available in the browser console), so a record left pointing at something that
+// is gone is caught where it is made, not later in an export.
+/** @param {{ docs?: any[], annotations?: any[], clusters?: any[], loa?: Record<string, any> }} project */
+function checkInvariants({ docs = [], annotations = [], clusters = [], loa = {} }) {
+  const out = [];
+  const bad = (rule, id, detail) => out.push({ rule, id, detail });
+  const docIds = new Set(docs.map(d => d.id)), rowIds = new Set(clusters.map(c => c.id));
+  const secs = annotations.filter(a => a.type === 'second_order');
+  const secById = new Map(secs.map(a => [a.id, a]));
+  /** @type {[string, any[]][]} */ ([['docs', docs], ['annotations', annotations], ['clusters', clusters]]).forEach(([store, list]) => {
+    const seen = new Set();
+    list.forEach(r => { if (seen.has(r.id)) bad('unique-id', r.id, `${store}: the id is used twice`); seen.add(r.id); });
+  });
+  annotations.forEach(a => {
+    if (!docIds.has(a.docId)) bad('annotation-study', a.id, `its study ${a.docId} is not in the project`);
+    if (a.type === 'second_order') {
+      const ids = Array.isArray(a.clusterIds) ? a.clusterIds : [];
+      if (new Set(ids).size !== ids.length) bad('row-once', a.id, 'placed in the same row twice');
+      ids.forEach(id => { if (!rowIds.has(id)) bad('row-exists', a.id, `placed in row ${id}, which is not in the project`); });
+      ANNOTATION_ROW_FIELDS.forEach(k => Object.keys(a[k] || {}).forEach(id => {
+        if (!ids.includes(id)) bad('row-fields-in-rows', a.id, `${k} for row ${id}, where it is not placed`);
+      }));
+    } else if (a.type === 'first_order') {
+      if ((a.clusterIds || []).length) bad('quote-shape', a.id, 'a quote placed in a row');
+      if ((a.passages || []).length) bad('quote-shape', a.id, 'a quote with passages');
+      ANNOTATION_ROW_FIELDS.forEach(k => { if (Object.keys(a[k] || {}).length) bad('quote-shape', a.id, `a quote with ${k}`); });
+      (a.parentIds || []).forEach(pid => {
+        const p = secById.get(pid);
+        if (!p) bad('quote-parent', a.id, `linked to construct ${pid}, which is not in the project`);
+        else if (p.docId !== a.docId) bad('quote-parent', a.id, `linked to construct ${pid} of another study`);
+      });
+    }
+  });
+  clusters.forEach(c => {
+    Object.keys(c.cellStatus || {}).forEach(docId => {
+      if (secs.some(a => a.docId === docId && (a.clusterIds || []).includes(c.id))) bad('cell-status-with-card', c.id, `an empty-cell record for study ${docId}, which has a construct in the row`);
+    });
+  });
+  (Array.isArray(loa.links) ? loa.links : []).forEach(l => {
+    if (!rowIds.has(l.from) || !rowIds.has(l.to)) bad('map-link', l.id, `a map relation to a row not in the project (${l.from} → ${l.to})`);
+  });
+  docs.forEach(d => {
+    if (d.companionOf && (d.companionOf === d.id || !docIds.has(d.companionOf))) bad('companion', d.id, `"same primary study as" ${d.companionOf}, not another study here`);
+    // A construct absorbed as a passage keeps its relationships under its id (they come back when it is split off)
+    const own = new Set(secs.filter(a => a.docId === d.id).flatMap(a => [a.id, ...(a.passages || []).map(p => p.absorbed && p.absorbed.snapshot && p.absorbed.snapshot.id).filter(Boolean)]));
+    (Array.isArray(d.conceptLinks) ? d.conceptLinks : []).forEach(l => {
+      if (!own.has(l.from) || !own.has(l.to)) bad('concept-link', d.id, `a within-study relationship to a construct not in this study (${l.from} → ${l.to})`);
+    });
+  });
+  return out;
+}
+
 // ======================= Study ids from another file (backup.js merge, compare.js) =======================
 // Another reviewer's file, or a backup, can call a study by another id. Every place a 3rd Order row names a study goes
 // through here, so none is forgotten: its base (◆), its empty-cell records (keyed by study) and the re-reading note after
