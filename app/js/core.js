@@ -236,7 +236,7 @@ async function dbPut(store, item, { quiet = false } = {}) {
 // Several writes across stores in ONE transaction: all of them are stored, or none (a crash, a full disk or an error part way
 // leaves the project as it was). For operations that change several records at once: merging / splitting / deleting rows and
 // deleting a study. ops: [{ store, put: item } | { store, del: key }]. quiet: as for dbPut (writes the user did not make)
-/** @typedef {{ store: string, put?: any, del?: any }} DbOp */
+// (DbOp: the typedef is in logic.js)
 /** @param {DbOp[]} ops */
 async function dbBatch(ops, { quiet = false } = {}) {
   if (!ops.length) return;

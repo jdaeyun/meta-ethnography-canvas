@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'app/js/logic.js'), 'utf8'), ctx, { filename: 'app/js/logic.js' });
-const L = vm.runInContext(`({ applyOps, checkInvariants, planMergeRows, planSplitRow, purgeClusterRefs, revertChange, tidyRefsOps, recordOf,
+const L = vm.runInContext(`({ applyOps, checkInvariants, planMergeRows, planSplitRow, planUndoRowMerge, planUndoRowSplit, purgeDocRefs, purgeClusterRefs, rowDeletionOps, revertChange, tidyRefsOps, recordOf,
   putIntoRow, takeOutOfRow, relationIn, rowSecsIn, stableJson })`, ctx);
 const clone = v => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 const plain = clone;
@@ -52,10 +52,13 @@ function judge(p, sid, rid, rel) {
   const s = clone(sec(p, sid));
   s.clusterRelations = { ...s.clusterRelations, [rid]: rel };
   if (rel === 'other_aspect') s.aspectUsedInLoa = { ...(s.aspectUsedInLoa || {}), [rid]: true };
+  else if (s.aspectUsedInLoa && rid in s.aspectUsedInLoa) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[rid]; } // (as matrix.js: the mark goes with ◇)
   write(p, [{ store: 'annotations', put: s }]);
 }
-const merge = (p, src, tgt) => { const plan = L.planMergeRows(p, src, tgt); L.applyOps(p, plan.ops); return plan; };
-const split = (p, src, secIds, nid) => { const plan = L.planSplitRow(p, src, secIds, { id: nid, thirdOrderTitle: 'Split', baseDocId: '', cellStatus: {}, historyFrom: [] }); L.applyOps(p, plan.ops); return plan; };
+// (the app keeps state.clusters in the rows' order after each write: so does this)
+const sortRows = p => { p.clusters.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); };
+const merge = (p, src, tgt) => { const plan = L.planMergeRows(p, src, tgt); L.applyOps(p, plan.ops); sortRows(p); return plan; };
+const split = (p, src, secIds, nid) => { const plan = L.planSplitRow(p, src, secIds, { id: nid, thirdOrderTitle: 'Split', baseDocId: '', cellStatus: {}, historyFrom: [] }); L.applyOps(p, plan.ops); sortRows(p); return plan; };
 // An undoable change, recorded as the app records it (beginChange / finishChange in undo-audit.js)
 function recorded(p, keys, run, created = []) {
   const records = keys.map(({ store, id }) => ({ store, id, before: clone(L.recordOf(p, store, id)) ?? null }));
@@ -65,9 +68,11 @@ function recorded(p, keys, run, created = []) {
   return { records };
 }
 function deleteRow(p, rid) {
-  const { ops } = L.purgeClusterRefs(p, rid);
-  ops.push({ store: 'clusters', del: rid });
-  return recorded(p, ops.map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id })), () => L.applyOps(p, ops));
+  const { ops, row: was } = L.rowDeletionOps(p, rid);
+  const keys = ops.filter(o => !(o.store === 'clusters' && !('del' in o))).map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id }));
+  const ch = recorded(p, keys, () => L.applyOps(p, ops));
+  ch.records.find(r => r.store === 'clusters' && r.id === rid).before = clone(was); // (beginChange's `before`, as matrix.js gives it)
+  return ch;
 }
 function unplace(p, sid, rid) {
   return recorded(p, [{ store: 'annotations', id: sid }], () => { const s = clone(sec(p, sid)); L.takeOutOfRow(s, rid); L.applyOps(p, [{ store: 'annotations', put: s }]); });
@@ -99,17 +104,33 @@ function markEmpty(p, rid, docId) {
   if (L.rowSecsIn(p, rid).some(a => a.docId === docId)) return;
   const c = clone(row(p, rid)); c.cellStatus = { ...c.cellStatus, [docId]: { status: 'absent', note: '' } }; L.applyOps(p, [{ store: 'clusters', put: c }]);
 }
+// A row merge / split as the app records it for Undo (matrix.js), and its Undo (undo-audit.js)
+const mergeStep = (p, src, tgt) => { const plan = merge(p, src, tgt); return { type: 'row_merge', srcId: src, tgtId: tgt, before: plan.before, after: plan.after }; };
+const splitStep = (p, src, ids, nid) => { const plan = split(p, src, ids, nid); return { type: 'row_split', srcId: src, newId: nid, before: plan.before, after: plan.after }; };
+// A study removed with what names it (studies-pdf.js; its Undo also brings back the PDF, so it is tested in the browser)
+function deleteStudy(p, docId) {
+  const refs = L.purgeDocRefs(p, docId);
+  L.applyOps(p, [{ store: 'docs', del: docId }, ...p.annotations.filter(a => a.docId === docId).map(a => ({ store: 'annotations', del: a.id })), ...refs.ops]);
+}
 function undo(p, change) {
+  if (change.type === 'row_merge' || change.type === 'row_split') {
+    const plan = change.type === 'row_merge' ? L.planUndoRowMerge(p, change) : L.planUndoRowSplit(p, change);
+    const t = L.tidyRefsOps(p, plan.ops);
+    L.applyOps(p, t.ops); sortRows(p);
+    return { kept: plain(plan.kept), dropped: plain(t.dropped) };
+  }
   const { ops, kept } = L.revertChange(change, p);
   const t = L.tidyRefsOps(p, ops);
-  L.applyOps(p, t.ops);
+  L.applyOps(p, t.ops); sortRows(p); // (a row brought back goes to its place, as undo-audit.js does)
   return { kept: plain(kept), dropped: plain(t.dropped) };
 }
 // The project's meaning, independent of list order and object identity
 const meaning = p => L.stableJson({
   docs: [...p.docs].sort((a, b) => a.id.localeCompare(b.id)),
   annotations: [...p.annotations].sort((a, b) => a.id.localeCompare(b.id)).map(a => ({ ...a, clusterIds: [...(a.clusterIds || [])].sort(), parentIds: a.parentIds && [...a.parentIds].sort() })),
-  clusters: [...p.clusters].sort((a, b) => a.id.localeCompare(b.id)),
+  // (rows by their place in the list, as the app shows them, not by the number: Undo of a merge / split numbers them 0, 1, 2 …
+  // again, and two rows can share a number, e.g. a row made after another was deleted)
+  clusters: p.clusters.map((c, i) => ({ ...c, order: i })).sort((a, b) => a.id.localeCompare(b.id)),
   links: [...(p.loa.links || [])].sort((a, b) => a.id.localeCompare(b.id))
 });
 
@@ -230,9 +251,25 @@ test('scenario: undoing the making of a construct lets go of what was linked to 
   assert.deepEqual(r.dropped.sort(), ["a quote's link to a construct this undo removes", 'a within-study relationship to a construct this undo removes']);
 });
 
+test('scenario: undoing a split whose new row has another base leaves a ◇ reading made there (and its mark) behind', () => {
+  const p = makeProject();
+  place(p, 's_d2_1', 'r1'); judge(p, 's_d2_1', 'r1', 'reciprocal');
+  place(p, 's_d3_1', 'r1');
+  const ch = splitStep(p, 'r1', ['s_d2_1', 's_d3_1'], 'rn'); // the new row is established by d2 (d1's card stays behind)
+  assert.equal(row(p, 'rn').baseDocId, 'd2');
+  judge(p, 's_d3_1', 'rn', 'other_aspect'); // read ◇ against d2 there, marked as used by the line of argument
+  const r = undo(p, ch); assertConsistent(p, 'undo the split');
+  const s3 = sec(p, 's_d3_1');
+  assert.deepEqual(plain(s3.clusterIds), ['r1']);
+  assert.ok(!(s3.aspectUsedInLoa || {}).r1, 'no mark without its ◇ judgement in the original row');
+  assert.notEqual((s3.clusterRelations || {}).r1, 'other_aspect');
+  assert.equal(sec(p, 's_d2_1').clusterRelations.r1, 'reciprocal', 'the judgement made before the split is back');
+  assert.ok(r.kept.some(k => /against another base, not carried \(the original row keeps its own\)/.test(k)), r.kept.join(' | '));
+});
+
 // ---- Random walks: any order of the steps keeps the project consistent; Undo right after a step restores it exactly ----
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const STEPS = ['place', 'judge', 'merge', 'split', 'deleteRow', 'unplace', 'deleteConstruct', 'addConstruct', 'linkQuote', 'relate', 'markEmpty', 'undo', 'undo'];
+const STEPS = ['place', 'judge', 'merge', 'split', 'deleteRow', 'unplace', 'deleteConstruct', 'addConstruct', 'linkQuote', 'relate', 'markEmpty', 'deleteStudy', 'undo', 'undo'];
 for (const seed of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765, 10946]) {
   test(`random walk (seed ${seed}): 80 steps, consistent after each; an immediate Undo restores the project exactly`, () => {
     const r = rng(seed);
@@ -250,13 +287,23 @@ for (const seed of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 
       } else if (step === 'judge' && placed.length) {
         const s = pick(placed);
         judge(p, s.id, pick(s.clusterIds), pick(['reciprocal', 'refutational', 'other_aspect', 'unjudged']));
-      } else if (step === 'merge' && p.clusters.length > 1) {
-        const a = pick(p.clusters), b = pick(p.clusters.filter(c => c !== a));
-        merge(p, a.id, b.id);
-      } else if (step === 'split' && p.clusters.some(c => L.rowSecsIn(p, c.id).length)) {
-        const c = pick(p.clusters.filter(x => L.rowSecsIn(p, x.id).length));
-        const cards = L.rowSecsIn(p, c.id);
-        split(p, c.id, cards.filter(() => r() < 0.5).concat(cards[0]).map(s => s.id), `rs${seed}_${n++}`);
+      } else if ((step === 'merge' && p.clusters.length > 1) || (step === 'split' && p.clusters.some(c => L.rowSecsIn(p, c.id).length))) {
+        const before = meaning(p);
+        let ch;
+        if (step === 'merge') { const a = pick(p.clusters), b = pick(p.clusters.filter(c => c !== a)); ch = mergeStep(p, a.id, b.id); }
+        else {
+          const c = pick(p.clusters.filter(x => L.rowSecsIn(p, x.id).length));
+          const cards = L.rowSecsIn(p, c.id);
+          ch = splitStep(p, c.id, [...new Set(cards.filter(() => r() < 0.5).concat(cards[0]).map(s => s.id))], `rs${seed}_${n++}`);
+        }
+        assertConsistent(p, label);
+        if (r() < 0.4) { // undone at once: exactly as before
+          const u = undo(p, ch); assertConsistent(p, `${label}, undone at once`);
+          assert.deepEqual(u, { kept: [], dropped: [] }, label);
+          assert.equal(meaning(p), before, `${label}, undone at once`);
+        } else undoable.push(ch);
+      } else if (step === 'deleteStudy' && p.docs.length > 2) {
+        deleteStudy(p, pick(p.docs).id);
       } else if (step === 'linkQuote') {
         const q = pick(p.annotations.filter(a => a.type === 'first_order'));
         const own = secs.filter(a => a.docId === q.docId);

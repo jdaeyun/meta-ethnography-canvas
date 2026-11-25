@@ -124,6 +124,11 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       clearUndoStack();
       state.loa = { id: 'loa_main', projectCode: incomingProjCode || '', aim: '', title: '', flow: '', narrative: '', relateProcess: '', relateOutcome: '', synthStudies: '', appraisalPolicy: '', appraisalUse: '', links: [], updatedAt: null };
 
+      // The project is built in memory first, in the order startup reads it (studies in their order, then constructs, then
+      // rows: a row from before rows recorded their base works its base out from study #1 and the constructs placed in it,
+      // normalizeCluster), then made consistent (tidyRefsOps over every record: a hand-edited or damaged file can name rows,
+      // constructs or studies it does not hold), then written in one transaction (commitOps)
+      const docs = [];
       for (const rawD of data.docs) {
         const d = normalizeDoc(rawD);
         // Same id: the stored PDF is already attached. Otherwise match by file name and copy ONE PDF at a time under the new id.
@@ -143,35 +148,19 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
             d.sha256 = ''; // until then, no fingerprint of the backup's file stands for this one (the DOI describes the study: it stays)
           }
         }
-        await dbPut('docs', d);
-        state.docs.push(d);
+        docs.push(d);
       }
-      // Rows first, so constructs can be checked against them: a reference to a row or a 2nd Order construct the file does not
-      // hold (a hand-edited or damaged file) is dropped, as in a merge
-      for (const rawC of (data.clusters || [])) {
-        const c = normalizeCluster(rawC);
-        await dbPut('clusters', c);
-        state.clusters.push(c);
-      }
-      const fileSecs = data.annotations.filter(a => a && a.type === 'second_order');
-      for (const rawA of data.annotations) {
-        const a = normalizeAnnotation(rawA);
-        const was = JSON.stringify([a.clusterIds, a.clusterRelations, a.clusterComments, a.aspectUsedInLoa, a.parentIds]);
-        dropGoneLinks(a, fileSecs); // rows: those restored above; quotes' constructs: those of its study in the file
-        if (JSON.stringify([a.clusterIds, a.clusterRelations, a.clusterComments, a.aspectUsedInLoa, a.parentIds]) !== was) mergeReport.tidied++;
-        await dbPut('annotations', a);
-        state.annotations.push(a);
-      }
-      for (const l of (data.logs || [])) {
-        await dbPut('logs', l);
-        state.logs.push(l);
-      }
-      // The research aim, model and the other project fields are part of what a failed restore rolls back
-      if (data.loa) {
-        state.loa = { projectCode: incomingProjCode || state.projectCode || '', aim: '', ...state.loa, ...data.loa, id: 'loa_main' };
-        dropGoneMapLinks();
-        await dbPut('meta', state.loa);
-      }
+      state.docs = docs.sort((x, y) => (x.order ?? 999) - (y.order ?? 999));
+      state.annotations = data.annotations.map(normalizeAnnotation);
+      state.clusters = (data.clusters || []).filter(Boolean).map(normalizeCluster).sort((x, y) => (x.order ?? x.createdAt ?? 0) - (y.order ?? y.createdAt ?? 0));
+      // The research aim, model and the other project fields (a file without them: an empty model, stored as such)
+      if (data.loa) state.loa = { projectCode: incomingProjCode || '', aim: '', ...state.loa, ...data.loa, id: 'loa_main' };
+      /** @type {DbOp[]} */
+      const puts = [...state.docs.map(d => ({ store: 'docs', put: d })), ...state.annotations.map(x => ({ store: 'annotations', put: x })),
+        ...state.clusters.map(c => ({ store: 'clusters', put: c })), { store: 'meta', put: state.loa }];
+      const tidy = tidyRefsOps(state, puts);
+      mergeReport.tidied += tidy.ops.filter(o => o.store !== 'meta' && ('del' in o || !puts.some(q => q.put === o.put))).length;
+      await commitOps([...tidy.ops, ...(data.logs || []).map(l => ({ store: 'logs', put: l }))]);
       } catch (restoreErr) {
         // Roll back to the workspace as it was before the restore started
         console.error('Restore failed, rolling back:', restoreErr);
@@ -204,7 +193,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
       // MERGE: add what is not here yet; never overwrite local work. Where the same item exists on both sides
       // with different content, the LOCAL version is kept and the item is listed (and logged) as a conflict.
       // Map backup doc IDs -> local doc IDs (a filename match keeps the LOCAL id, so PDF binaries and local constructs stay attached)
-      const addedAnnoIds = new Set();
+      const addedAnnoIds = new Set(), addedDocIds = new Set(), addedRowIds = new Set();
       // By id, file name, then (a PDF renamed on the other computer) the identical file or the same DOI, as Compare does
       const findLocalDoc = d => state.docs.find(x => x.id === d.id) ||
         state.docs.find(x => x.name && d.name && x.name.toLowerCase() === d.name.toLowerCase()) ||
@@ -227,12 +216,13 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         if (existing) {
           const r = mergeFillEmpty(existing, d, ['id', 'hasBinary', 'order', 'fpDone']); // fpDone: bookkeeping, not content
           if (r.conflicts.length) mergeReport.conflicts.push(`Study ${getDisplayName(existing)}: ${r.conflicts.join(', ')}`);
-          if (r.filled.length) { mergeReport.filled++; await dbPut('docs', existing); }
+          if (r.filled.length) { mergeReport.filled++; addedDocIds.add(existing.id); await dbPut('docs', existing); } // (filled: checked below too)
         } else {
           d.hasBinary = false;
           d.order = state.docs.length;
           await dbPut('docs', d);
           state.docs.push(d);
+          addedDocIds.add(d.id);
           mergeReport.docs++;
         }
       }
@@ -241,7 +231,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         const local = state.annotations.find(x => x.id === a.id);
         if (local) {
           if (!sameRecord(local, a)) {
-            if (mergeFillTexts(local, a, MERGE_FILL_TEXT.annotations).length) { mergeReport.filled++; await dbPut('annotations', local); }
+            if (mergeFillTexts(local, a, MERGE_FILL_TEXT.annotations).length) { mergeReport.filled++; addedAnnoIds.add(local.id); await dbPut('annotations', local); }
             if (!sameRecord(local, a)) mergeReport.conflicts.push(`${a.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} (p.${local.page}): ${local.note || String(local.text || '').slice(0, 50)}`);
           }
           continue;
@@ -257,25 +247,25 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
         const local = state.clusters.find(x => x.id === c.id);
         if (local) {
           if (!sameRecord(local, c)) {
-            if (mergeFillTexts(local, c, MERGE_FILL_TEXT.clusters).length) { mergeReport.filled++; await dbPut('clusters', local); }
+            if (mergeFillTexts(local, c, MERGE_FILL_TEXT.clusters).length) { mergeReport.filled++; addedRowIds.add(local.id); await dbPut('clusters', local); }
             if (!sameRecord(local, c)) mergeReport.conflicts.push(`3rd Order row: ${local.thirdOrderTitle || '(Untitled Row)'}`);
           }
           continue;
         }
         await dbPut('clusters', c);
         state.clusters.push(c);
+        addedRowIds.add(c.id);
         mergeReport.clusters++;
       }
-      // Items added from the backup may point to rows or 2nd Order constructs that are not in this project (or, for a quote,
-      // to a construct of another study): those references are dropped (dropGoneLinks, as everywhere else)
-      const added = state.annotations.filter(x => addedAnnoIds.has(x.id));
-      for (const a of added) {
-        const was = JSON.stringify([a.clusterIds, a.parentIds, ...ANNOTATION_ROW_FIELDS.map(k => a[k])]);
-        dropGoneLinks(a);
-        if (JSON.stringify([a.clusterIds, a.parentIds, ...ANNOTATION_ROW_FIELDS.map(k => a[k])]) !== was) { mergeReport.tidied++; await dbPut('annotations', a); }
-      }
-      // An added construct in a row: the row's base if not set yet, no empty-cell record for its study there
-      await commitOps(placementRowOps(added));
+      // What the backup added or filled in is made consistent with this project (tidyRefsOps, as for an Undo): a reference to a row, construct
+      // or study that is not here is dropped (or, for a quote, to a construct of another study); an added construct in a row
+      // does there what placing does (the row's base if not set yet, no empty-cell record for its study there)
+      const addedPuts = [...state.docs.filter(d => addedDocIds.has(d.id)).map(d => ({ store: 'docs', put: d })),
+        ...state.annotations.filter(x => addedAnnoIds.has(x.id)).map(x => ({ store: 'annotations', put: x })),
+        ...state.clusters.filter(c => addedRowIds.has(c.id)).map(c => ({ store: 'clusters', put: c }))];
+      const changed = tidyRefsOps(state, addedPuts).ops.filter(o => 'del' in o || !addedPuts.some(q => q.put === o.put));
+      mergeReport.tidied += changed.filter(o => o.store === 'annotations').length;
+      await commitOps(changed);
       for (const l of (data.logs || [])) {
         if (state.logs.find(x => x.id === l.id)) continue;
         await dbPut('logs', l);
@@ -287,6 +277,10 @@ document.getElementById('jsonFileInput').addEventListener('change', async (e) =>
     if (incomingProjCode) {
       state.projectCode = incomingProjCode;
       lsSet('me_project_code', incomingProjCode);
+    } else if (replaceCleanly) {
+      // A file without a project code (an older backup) replaces the project: the previous project's code does not stay with it
+      state.projectCode = '';
+      lsRemove('me_project_code');
     }
     if (data.loa && !replaceCleanly) {
       // MERGE: the aim, model and narrative are only filled where they are empty here

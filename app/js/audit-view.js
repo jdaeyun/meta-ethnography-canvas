@@ -146,6 +146,9 @@ function renderAuditTimeline() {
   // A reason box the reviewer has just moved into (nothing typed yet) keeps the focus and caret across the redraw
   const keep = ae && ae.classList.contains('rationale-input') && container.contains(ae) && ae.dataset.logId
     ? { id: ae.dataset.logId, start: ae.selectionStart, end: ae.selectionEnd } : null;
+  // Drawn now: a redraw still waiting for a box to be left is no longer needed (that box goes, and a box taken out of the page
+  // never fires its blur, so the flag would otherwise stay set and hold back every later redraw)
+  auditRedrawWaiting = false;
   container.innerHTML = '';
   const filter = document.getElementById('auditFilterCategory').value;
   const rowFilter = document.getElementById('auditFilterRow')?.value || 'all';
@@ -233,6 +236,8 @@ function renderAuditTimeline() {
 
     // Entries about the trail itself (a deletion, a restored entry, a changed attribution) cannot be deleted: the trail keeps its own history
     if (card.querySelector('.del-log')) card.querySelector('.del-log').onclick = async () => {
+      // A reason typed into the entry a moment ago is saved first, so the copy Ctrl+Z brings back has it
+      await flushAllPendingSaves();
       const change = beginChange(`Audit Log (${log.action.slice(0, 30)})`, [{ store: 'logs', id: log.id }], { undoLogs: [{
         kind: 'trail_restore', targetId: log.id, category: 'audit_edit', action: `Restored a deleted audit trail entry (Undo): ${log.action}`,
         detail: '', clusterIds: log.clusterIds || null }] });
@@ -247,9 +252,7 @@ function renderAuditTimeline() {
         fromVal: log.fromVal || '',
         toVal: log.toVal || '',
         clusterIds: log.clusterIds || null // so a row's history shows that one of its entries was deleted
-      });
-      updateAuditBadge();
-      renderAuditTimeline();
+      }); // (recordAuditLog updates the badge and redraws the Audit Trail)
       showUndoSnackbar('Deleted the audit trail entry (the deletion itself is recorded)');
     };
 

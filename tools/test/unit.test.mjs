@@ -229,6 +229,8 @@ test('consistency rules: a consistent project passes, each kind of stale link is
   const rules = x => plain(L.checkInvariants(x)).map(v => v.rule).sort();
   assert.deepEqual(rules({ docs, clusters, loa, annotations: [...annotations, { id: 's3', docId: 'd2', type: 'second_order', clusterIds: ['r1', 'gone'], clusterComments: { r9: 'x' } }] }),
     ['cell-status-with-card', 'row-exists', 'row-fields-in-rows']);
+  assert.deepEqual(rules({ docs, clusters: [{ id: 'r1', cellStatus: { gone: { status: 'absent' } } }], loa, annotations: [...annotations.slice(1), { ...annotations[0], aspectUsedInLoa: { r1: true } }] }),
+    ['aspect-mark', 'cell-status-study'], "a ◇ mark without the ◇ judgement; an empty-cell record of a study that is not here");
   assert.deepEqual(rules({ docs, clusters, loa, annotations: [...annotations, { id: 'q2', docId: 'd2', type: 'first_order', parentIds: ['s1', 'gone'], clusterIds: ['r1'] }] }),
     ['quote-parent', 'quote-parent', 'quote-shape']);
   assert.deepEqual(rules({ docs: [...docs, { id: 'd3', companionOf: 'd3', conceptLinks: [{ from: 's1', to: 's2' }] }], clusters, annotations, loa: { links: [{ id: 'l', from: 'r1', to: 'gone' }] } }),

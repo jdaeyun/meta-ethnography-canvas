@@ -132,12 +132,13 @@ async function assignSecondOrderToCluster(sec, cluster) {
 // concept-map relations: purgeClusterRefs, logic.js); its constructs stay in the pool / other rows. Ctrl+Z puts all of it back.
 async function deleteClusterRow(cluster) {
   await flushAllPendingSaves(); // a save of the row still waiting must not write it back after the deletion
-  const { ops } = purgeClusterRefs(state, cluster.id);
-  ops.push({ store: 'clusters', del: cluster.id });
-  const placed = ops.filter(o => o.store === 'annotations' && (rowSecs(cluster).some(a => a.id === o.put.id))).length;
-  const change = beginChange(`3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`, ops.map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id })),
-    { undoLogs: [{ clusterIds: [cluster.id], category: 'third_order', action: 'Restored 3rd Order Row (Undo)', toVal: cluster.thirdOrderTitle || '(Untitled Row)',
-      detail: `${placed} construct(s) placed in it again.` }] });
+  // (rowDeletionOps, logic.js: its references go too, and the rows are numbered by their place, so Undo puts it back exactly)
+  const { ops, assignedSecIds, row } = rowDeletionOps(state, cluster.id);
+  // Undo covers the row and what named it; the other rows' new numbers stay (they keep the rows in the order shown)
+  const keys = ops.filter(o => !(o.store === 'clusters' && !('del' in o))).map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id }));
+  const change = beginChange(`3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`, keys,
+    { before: { ['clusters|' + cluster.id]: row }, undoLogs: [{ clusterIds: [cluster.id], category: 'third_order', action: 'Restored 3rd Order Row (Undo)', toVal: cluster.thirdOrderTitle || '(Untitled Row)',
+      detail: `${assignedSecIds.length} construct(s) placed in it again.` }] });
   await commitOps(ops); // unplacing the cards and deleting the row in one transaction; the rows in memory change once it is stored
   finishChange(change);
   await recordAuditLog({
@@ -651,7 +652,7 @@ function renderSecondOrderPool() {
       // opens or closes it gives dragging back on release)
       card.querySelector('.pool-nt').addEventListener('mousedown', () => {
         card.draggable = false;
-        document.addEventListener('mouseup', () => { if (document.activeElement !== ntInput) card.draggable = true; }, { once: true });
+        whenPointerReleased(() => { if (document.activeElement !== ntInput) card.draggable = true; });
       });
       ntInput.addEventListener('blur', () => { card.draggable = true; });
       ntInput.addEventListener('mouseup', () => { card.draggable = true; });

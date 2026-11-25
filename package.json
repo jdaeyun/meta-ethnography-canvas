@@ -8,8 +8,8 @@
     "build": "npm run vendor && npm run css && npm run css:site",
     "serve": "http-server . -p 8080 -c-1",
     "sync-version": "node tools/sync-version.mjs",
-    "test": "tsc -p tsconfig.json && node --test tools/test/unit.test.mjs tools/test/scenario.test.mjs && node tools/test/smoke.mjs",
-    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && tsc -p tsconfig.logic.json && node --test tools/test/unit.test.mjs tools/test/scenario.test.mjs && node tools/test/smoke.mjs",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.logic.json",
     "test:unit": "node --test tools/test/unit.test.mjs tools/test/scenario.test.mjs",
     "test:smoke": "node tools/test/smoke.mjs",
     "css:site": "node node_modules/@tailwindcss/cli/dist/index.mjs -i tools/site/tailwind.site.css -o site/css/tailwind.css --minify"

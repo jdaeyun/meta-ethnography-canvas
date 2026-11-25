@@ -114,17 +114,10 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
     lsSet('me_project_code', projVal);
     if (revInput) revInput.value = revVal;
 
-    state.loa = {
-      ...state.loa,
-      id: 'loa_main',
-      projectCode: projVal,
-      aim: aimVal,
-      reviewQuestion: qVal,
-      updatedAt: Date.now()
-    };
-    await dbPut('meta', state.loa);
+    await commitOps([{ store: 'meta', put: { ...state.loa, id: 'loa_main', projectCode: projVal, aim: aimVal, reviewQuestion: qVal, updatedAt: Date.now() } }]);
     populateLoaInputs();
     updateHeaderProjectUI();
+    if (!divPub.classList.contains('hidden')) renderPublicationView(); // the Methods Summary shows the aim and the question
 
     if (prevAim !== aimVal || prevQ !== qVal || (prevProj && prevProj !== projVal)) {
       await recordAuditLog({
@@ -217,13 +210,15 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     const existingCount = state.annotations.filter(a => a.by === oldRev).length +
                           state.clusters.filter(c => c.by === oldRev).length;
+    // (trail entries count too: a project with only memos or set-up entries so far is still someone's work)
+    const logCount = state.logs.filter(l => l.reviewer === oldRev).length;
     // The new ID takes effect only once it is decided: closing the question (Cancel, ×, Esc) changes nothing
     const useNext = () => { state.reviewerId = nextRev; lsSet('me_reviewer_id', nextRev); };
-    if (!existingCount) useNext();
-    if (existingCount > 0) {
+    if (!existingCount && !logCount) useNext();
+    if (existingCount > 0 || logCount > 0) {
       const how = await askChoice({
         title: `Reviewer ID changed from @${oldRev} to @${nextRev}`,
-        body: `${existingCount} existing construct(s) and row(s) are attributed to @${oldRev}.`,
+        body: `${existingCount} existing construct(s) and row(s) and ${logCount} audit trail entries are attributed to @${oldRev}.`,
         choices: [
           { value: 'new', tone: 'primary', label: `Use @${nextRev} for new work only`, hint: `Existing items stay attributed to @${oldRev}.` },
           { value: 'all', tone: 'plain', label: `Attribute all @${oldRev} items to @${nextRev}`, hint: 'For a change of name only (the same person): constructs, rows and audit trail entries. Recorded in the Audit Trail.' }
@@ -233,16 +228,16 @@ window.addEventListener('DOMContentLoaded', async () => {
       useNext();
       if (how === 'all') {
         // Every record in one transaction: all of them carry the new ID, or (on a failure) none
+        // (copies: the records in memory change once all of them are stored)
+        /** @type {DbOp[]} */
         const ops = [];
-        state.annotations.forEach(a => { if (a.by === oldRev) { a.by = nextRev; ops.push({ store: 'annotations', put: a }); } });
-        state.clusters.forEach(c => { if (c.by === oldRev) { c.by = nextRev; ops.push({ store: 'clusters', put: c }); } });
-        let nLogs = 0;
-        state.logs.forEach(l => { if (l.reviewer === oldRev) { l.reviewer = nextRev; nLogs++; ops.push({ store: 'logs', put: l }); } });
+        state.annotations.forEach(a => { if (a.by === oldRev) ops.push({ store: 'annotations', put: { ...a, by: nextRev } }); });
+        state.clusters.forEach(c => { if (c.by === oldRev) ops.push({ store: 'clusters', put: { ...c, by: nextRev } }); });
+        const nLogs = logCount;
+        state.logs.forEach(l => { if (l.reviewer === oldRev) ops.push({ store: 'logs', put: { ...l, reviewer: nextRev } }); });
         await commitOps(ops);
         await recordAuditLog({ category: 'audit_edit', action: `Attributed all items of @${oldRev} to @${nextRev}`, detail: `${existingCount} construct(s) / row(s) and ${nLogs} audit trail entries.`, fromVal: '@' + oldRev, toVal: '@' + nextRev });
-        updateSidebar();
-        if (!divMatrix.classList.contains('hidden')) renderMatrixView();
-        if (!divAudit.classList.contains('hidden')) renderAuditView();
+        refreshOpenViews(); // (every open view: Tab 4 names the reviewers too)
       }
     }
   });
@@ -271,7 +266,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (state.docs.length && !state.loa.baselineDocId) await checkBaselineChange(); // remember study #1 (projects made before it was stored)
   setTimeout(() => ensureDocFingerprints(), 4000); // projects made before fingerprints were stored: one PDF at a time, after start-up
 
-  document.getElementById('projectSetupBadgeBtn')?.addEventListener('click', () => {
+  document.getElementById('projectSetupBadgeBtn')?.addEventListener('click', async () => {
+    // An aim being written in the drawer is saved first, so the dialog shows it (and saving the dialog cannot overwrite it)
+    await flushAllPendingSaves();
     openProjectSetupModal({
       isInitialOrReset: false,
       titleText: 'Edit Project Code & Phase 1 Research Aim'
@@ -488,7 +485,10 @@ window.ondrop = async e => {
   if (!('BroadcastChannel' in window)) return;
   const banner = document.getElementById('multiTabBanner');
   if (!banner) return;
-  const ch = new BroadcastChannel('mec-tabs-' + DB_NAME);
+  // (a browser may refuse the channel, e.g. in a locked-down or private window: the warning is then not available, and the
+  // rest of the start-up below must still run)
+  let ch;
+  try { ch = new BroadcastChannel('mec-tabs-' + DB_NAME); } catch (err) { console.warn('Other-tab warning not available:', err); return; }
   const me = Math.random().toString(36).slice(2);
   const others = new Set();
   const refresh = () => { banner.classList.toggle('hidden', others.size === 0); banner.classList.toggle('flex', others.size > 0); };
@@ -500,7 +500,7 @@ window.ondrop = async e => {
     else if (m.type === 'bye') others.delete(m.from);
     refresh();
   };
-  ch.postMessage({ type: 'hello', from: me });
+  try { ch.postMessage({ type: 'hello', from: me }); } catch (err) { return; }
   window.addEventListener('pagehide', () => { try { ch.postMessage({ type: 'bye', from: me }); } catch (err) { /* channel closed */ } });
   document.getElementById('multiTabDismissBtn')?.addEventListener('click', () => { banner.classList.add('hidden'); banner.classList.remove('flex'); });
 })();
@@ -562,9 +562,16 @@ document.addEventListener('mousedown', e => {
   const card = field && field.closest('[draggable="true"]');
   if (!card) return;
   card.draggable = false;
-  const restore = () => { card.draggable = true; document.removeEventListener('mouseup', restore, true); };
-  document.addEventListener('mouseup', restore, true);
+  whenPointerReleased(() => { card.draggable = true; });
 }, true);
+// Runs fn once when the press ends, however it ends: released here, released outside the window (seen as the window losing
+// focus or the pointer being cancelled), so nothing that is switched off while a button is down stays off
+function whenPointerReleased(fn) {
+  /** @type {[EventTarget, string][]} */
+  const events = [[document, 'mouseup'], [document, 'pointerup'], [document, 'pointercancel'], [window, 'blur'], [document, 'dragend']];
+  const done = () => { events.forEach(([t, ev]) => t.removeEventListener(ev, done, true)); fn(); };
+  events.forEach(([t, ev]) => t.addEventListener(ev, done, true));
+}
 
 // ---- Icon-only buttons get an accessible name from their tooltip ----
 // Elements the two body observers (icon labels, growing text boxes) never need to look into
@@ -598,7 +605,10 @@ const SKIP_OBSERVED = new Set(['SPAN', 'BR', 'CANVAS', 'I', 'B', 'svg', 'path'])
     live.forEach(el => { el.style.height = 'auto'; });                                   // write
     // A box the reviewer made taller by hand (resize-y) stays at least that tall: the next key press does not shrink it
     const sizes = live.map(el => Math.max(el.scrollHeight + el.offsetHeight - el.clientHeight, el._userH || 0)); // read
-    live.forEach((el, i) => { el.style.height = sizes[i] + 'px'; el._setH = sizes[i]; }); // write
+    live.forEach((el, i) => { el.style.height = sizes[i] + 'px'; }); // write
+    // The height the box really got (max-height may clamp it): compared with it, a clamped box is not taken for one the
+    // reviewer resized by hand (which would then never shrink again)
+    live.forEach(el => { el._setH = el.offsetHeight; }); // read
   };
   const flush = () => { scheduled = false; const els = Array.from(queue); queue.clear(); growMany(els); };
   const schedule = el => { queue.add(el); if (!scheduled) { scheduled = true; requestAnimationFrame(flush); } };
