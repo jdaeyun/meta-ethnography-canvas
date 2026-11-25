@@ -201,9 +201,9 @@ await group('Restore keeps PDFs out of memory-heavy paths and matches by id / fi
   await restore(await payload(false));
   check('same-id restore keeps all PDFs', JSON.stringify(await keys()) === JSON.stringify(orig) && await p.evaluate(() => state.docs.every(d => d.hasBinary)));
   const before = await p.evaluate(() => ({ d: state.docs.length, a: state.annotations.length, l: state.logs.length }));
-  // A write that fails part way (simulated: the first audit entry cannot be stored) must roll the restore back.
-  // (A record without an id no longer fails a restore: malformed records are left out before anything is written.)
-  await p.evaluate(() => { const o = window.dbPut; window.__failOnce = true; window.dbPut = async (st, it, op) => { if (st === 'logs' && window.__failOnce) { window.__failOnce = false; throw new Error('simulated write failure'); } return o(st, it, op); }; });
+  // A write that fails part way (simulated: the transaction that stores the restored project is refused) must roll the restore
+  // back. (A record without an id no longer fails a restore: malformed records are left out before anything is written.)
+  await p.evaluate(() => { const o = window.dbBatch; window.__failOnce = true; window.dbBatch = async (ops, op) => { if (window.__failOnce && ops.some(x => x.store === 'logs')) { window.__failOnce = false; throw new Error('simulated write failure'); } return o(ops, op); }; });
   await restore(await payload(true));
   const after = await p.evaluate(() => ({ d: state.docs.length, a: state.annotations.length, l: state.logs.length }));
   check('failed restore rolls back', JSON.stringify(before) === JSON.stringify(after));
@@ -782,10 +782,12 @@ await group('Review fixes: peer rows by title, merge links, PDF search race, Wor
     await switchStudy(b);
     // A page request on the destroyed PDF may never settle; that is harmless as long as nothing is stored
     const r = await Promise.race([pending.catch(e => 'threw: ' + e.message), new Promise(res => setTimeout(() => res('pending'), 3000))]);
-    return { r: r === null || r === 'pending' ? null : (typeof r === 'string' ? r : 'array'), stored: pdfSearchState.docId };
+    return { r: r === null || r === 'pending' ? null : (typeof r === 'string' ? r : 'array'), stored: pdfSearchState.docId, a, b };
   });
   check('switching study during PDF search indexing stops quietly', race.r === null || (race.r === 'array' && race.stored !== null), JSON.stringify(race));
-  check('the index is never filed under the wrong study', race.stored === null || race.stored === (await p.evaluate(() => state.docs[0].id)));
+  // The index was read from study a: it may be filed under a (it finished before the switch), never under b, the study opened
+  // while it was read
+  check('the index is never filed under the wrong study', race.stored !== race.b && (race.stored === null || race.stored === race.a), JSON.stringify(race));
   // Word export: every table has a real column grid
   await tab(p, 'pub'); await settle(p);
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#downloadWordDocBtn')]);
@@ -1780,7 +1782,7 @@ await group('Review fixes 6: flow by every directed relation, row deletion leave
   const del = await p.evaluate(async () => {
     const c = state.clusters[0], other = state.clusters[1];
     const sec = rowSecs(c).find(s => !isRowBase(s, c.id));
-    sec.clusterRelations[c.id] = 'refutational'; sec.clusterComments[c.id] = 'why'; sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [c.id]: true };
+    sec.clusterRelations[c.id] = 'other_aspect'; sec.clusterComments[c.id] = 'why'; sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [c.id]: true }; // (a mark goes with ◇)
     state.loa.links = [...(state.loa.links || []), { id: 'lk_del', from: c.id, to: other.id, type: 'leads' }];
     await dbPut('annotations', sec); await dbPut('meta', state.loa);
     await tab_matrix();
@@ -1789,7 +1791,7 @@ await group('Review fixes 6: flow by every directed relation, row deletion leave
     await new Promise(r => setTimeout(r, 500));
     const gone = !(c.id in sec.clusterRelations) && !(c.id in sec.clusterComments) && !(sec.aspectUsedInLoa || {})[c.id] && !(state.loa.links || []).some(l => l.id === 'lk_del');
     await performUndo();
-    const back = sec.clusterIds.includes(c.id) && sec.clusterRelations[c.id] === 'refutational' && sec.clusterComments[c.id] === 'why' && sec.aspectUsedInLoa[c.id] === true && state.loa.links.some(l => l.id === 'lk_del');
+    const back = sec.clusterIds.includes(c.id) && sec.clusterRelations[c.id] === 'other_aspect' && sec.clusterComments[c.id] === 'why' && sec.aspectUsedInLoa[c.id] === true && state.loa.links.some(l => l.id === 'lk_del');
     return { gone, back };
   });
   check('deleting a row removes its judgements, notes, marks and map relations', del.gone, JSON.stringify(del));
@@ -2193,7 +2195,7 @@ await group('Review fixes 8: switch and undo tidy per-row marks and relationship
     const other = state.annotations.find(a => a.type === 'second_order' && a.docId === doc.id && a.id !== sec.id);
     if (!other) return { skip: true };
     const rid = sec.clusterIds[0];
-    sec.aspectUsedInLoa = { [rid]: true };
+    sec.clusterRelations = { ...(sec.clusterRelations || {}), [rid]: 'other_aspect' }; sec.aspectUsedInLoa = { [rid]: true }; // (a mark goes with ◇)
     doc.conceptLinks = [...(doc.conceptLinks || []), { id: 'cl_test', from: sec.id, to: other.id, type: 'leads', note: '' }];
     await dbPut('annotations', sec); await dbPut('docs', doc);
     await toggleAnnotationOrderType(sec.id);
@@ -2216,7 +2218,7 @@ await group('Review fixes 8: switch and undo tidy per-row marks and relationship
     }
     if (!src) return { skip: true };
     const rid = src.clusterIds[0];
-    src.aspectUsedInLoa = { [rid]: true }; await dbPut('annotations', src);
+    src.clusterRelations = { ...(src.clusterRelations || {}), [rid]: 'other_aspect' }; src.aspectUsedInLoa = { [rid]: true }; await dbPut('annotations', src); // (a mark goes with ◇)
     await absorbAsPassage(src, tgt);
     const t1 = await dbGet('annotations', tgt.id);
     const moved = !!(t1.aspectUsedInLoa || {})[rid] && !(await dbGet('annotations', src.id));
@@ -2232,7 +2234,7 @@ await group('Review fixes 8: switch and undo tidy per-row marks and relationship
   const ud = await p.evaluate(async () => {
     const sec = state.annotations.find(a => a.type === 'second_order' && (a.clusterIds || []).length);
     const rid = sec.clusterIds[0];
-    sec.clusterRelations = { ...(sec.clusterRelations || {}), [rid]: 'reciprocal' }; sec.aspectUsedInLoa = { [rid]: true };
+    sec.clusterRelations = { ...(sec.clusterRelations || {}), [rid]: 'other_aspect' }; sec.aspectUsedInLoa = { [rid]: true }; // (a mark goes with ◇)
     await dbPut('annotations', sec);
     await deleteSecondOrder(sec);
     // the row deleted as the app does it (its cards taken out of it, map relations to it removed), without an undo step of its own
@@ -2612,8 +2614,8 @@ await group('Review fixes 13: no ghost after delete, undo clears empty-cell note
     const was = [src.baseDocId, tgt.baseDocId];
     const other = state.docs.find(d => d.id !== card.docId);
     src.baseDocId = other.id; tgt.baseDocId = card.docId; await dbPut('clusters', src); await dbPut('clusters', tgt);
-    card.clusterRelations = { ...card.clusterRelations, [src.id]: 'reciprocal' };
-    card.aspectUsedInLoa = { [src.id]: true };
+    card.clusterRelations = { ...card.clusterRelations, [src.id]: 'other_aspect' };
+    card.aspectUsedInLoa = { [src.id]: true }; // (a mark goes with ◇)
     await mergeRows(src, tgt, '');
     const r = { base: secRelation(card, tgt.id) === 'baseline', noSelf: !/to judge again against/.test((card.clusterComments || {})[tgt.id] || ''), noMark: !((card.aspectUsedInLoa || {})[tgt.id]) };
     await performUndo();
@@ -2827,6 +2829,119 @@ await group('Compare: a study added from the peer brings its within-study relati
   check('with one construct imported, the relationship waits (nothing points at a construct not here)', r.afterOne.links === 0 && r.afterOne.waiting === 1 && r.afterOne.ok, JSON.stringify(r));
   check('with both imported, it joins the study under the local ids and is stored', r.joined && r.waitingGone && r.stored, JSON.stringify(r));
   await settle(p);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('Review fixes 10: saves still running are waited for, a refused save is tried again, marks and cards follow the reading', async () => {
+  const p = await openDemo();
+  const sv = await p.evaluate(async () => {
+    const el = document.createElement('input'); document.body.appendChild(el);
+    let stored = '', fail = true, done = false;
+    const run = bindTextField(el, { get: () => stored, set: () => {}, save: () => new Promise((res, rej) => setTimeout(() => {
+      if (fail) { fail = false; rej(new Error('refused')); } else { stored = el.value.trim(); done = true; res(); } }, 150)) });
+    el.value = 'first'; el.dispatchEvent(new Event('input'));
+    await run().catch(() => {});
+    const retried = pendingSaveCleanups.has(run); // the refused commit is pending again
+    el.value = 'second'; el.dispatchEvent(new Event('input'));
+    run(); // started (as on leaving the box), not awaited
+    const f = flushAllPendingSaves(); // e.g. a deletion right after: it waits for the commit already running
+    await f;
+    el.remove();
+    return { retried, waited: f !== null && done && stored === 'second' };
+  });
+  check('a commit whose save was refused stays pending and is tried again', sv.retried, JSON.stringify(sv));
+  check('flushAllPendingSaves waits for a commit already running (a deletion right after cannot be overwritten by it)', sv.waited, JSON.stringify(sv));
+  await tab(p, 'matrix'); await settle(p);
+  // ◇ judgement changed to another: the row's line-of-argument mark goes with it
+  const mk = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && (a.clusterIds || []).some(id => secRelation(a, id) !== 'baseline'));
+    const rid = sec.clusterIds.find(id => secRelation(sec, id) !== 'baseline');
+    sec.clusterRelations = { ...(sec.clusterRelations || {}), [rid]: 'other_aspect' }; sec.aspectUsedInLoa = { ...(sec.aspectUsedInLoa || {}), [rid]: true };
+    await dbPut('annotations', sec); renderMatrixView();
+    return { id: sec.id, rid };
+  });
+  await settle(p);
+  await p.evaluate(({ rid }) => document.querySelector(`[data-cluster-id="${rid}"]`)?.scrollIntoView(), mk); await settle(p);
+  await p.evaluate(({ id, rid }) => {
+    const card = document.querySelector(`tr[data-cluster-id="${rid}"] .matrix-cell-card[data-sec-card="${id}"]`) || document.querySelector(`[data-cluster-id="${rid}"] [data-sec-card="${id}"]`);
+    const sel = card && card.querySelector('.rel-select');
+    if (sel) { sel.value = 'reciprocal'; sel.dispatchEvent(new Event('change')); }
+  }, mk);
+  await settle(p);
+  const mark = await p.evaluate(({ id, rid }) => { const a = state.annotations.find(x => x.id === id); return { rel: a.clusterRelations[rid], mark: !!(a.aspectUsedInLoa || {})[rid] }; }, mk);
+  check('judging a ◇ card otherwise takes its line-of-argument mark away', mark.rel === 'reciprocal' && !mark.mark, JSON.stringify(mark));
+  // One construct in two rows: a label typed on one card shows on the other
+  const sy = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && (a.clusterIds || []).length);
+    const other = state.clusters.find(c => !sec.clusterIds.includes(c.id));
+    await assignSecondOrderToCluster(sec, other);
+    renderMatrixView();
+    return { id: sec.id, rows: [...sec.clusterIds] };
+  });
+  await settle(p);
+  for (const rid of sy.rows) { await p.evaluate(r => document.querySelector(`[data-cluster-id="${r}"]`)?.scrollIntoView(), rid); await settle(p); }
+  const synced = await p.evaluate(({ id }) => {
+    const inputs = [...document.querySelectorAll(`.matrix-cell-card[data-sec-card="${id}"] .sec-label-input`)];
+    if (inputs.length < 2) return { skip: true, n: inputs.length };
+    inputs[0].focus(); inputs[0].value = 'Typed on one card'; inputs[0].dispatchEvent(new Event('input'));
+    return { other: inputs[1].value };
+  }, sy);
+  if (!synced.skip) check("a construct's label typed on its card in one row shows on its card in another row", synced.other === 'Typed on one card', JSON.stringify(synced));
+  await p.evaluate(() => document.activeElement && document.activeElement.blur()); await settle(p);
+  // Pool: opening "why not translated" by its summary does not leave the card undraggable
+  const dr = await p.evaluate(() => {
+    const nt = document.querySelector('#poolList .pool-nt, .pool-nt');
+    if (!nt) return { skip: true };
+    const card = nt.closest('[draggable]');
+    nt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    const during = card.draggable;
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    return { during, after: card.draggable };
+  });
+  if (!dr.skip) check('a pool card can be dragged again after its "why not translated" box is opened', dr.during === false && dr.after === true, JSON.stringify(dr));
+  await settle(p);
+  check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('An older, partly damaged backup: clean restore works out row bases, repairs references and leaves nothing of the previous project', async () => {
+  const p = await openDemo();
+  const built = await p.evaluate(() => {
+    const d = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: state.logs, version: DB_VERSION }));
+    // As written before rows recorded their base (and before format versions, project codes in the file and a stored model)
+    const first = [...d.docs].sort((a, b) => (a.order ?? 999) - (b.order ?? 999))[0].id;
+    const expectBase = {};
+    d.clusters.forEach(c => { expectBase[c.id] = d.annotations.some(a => a.type === 'second_order' && a.docId === first && (a.clusterIds || []).includes(c.id)) ? first : null; delete c.baseDocId; });
+    d.docs.reverse(); // not in their order in the file
+    // Damage, as a hand-edited file may have: a construct of a study that is not there, links to what is not there
+    const sec = d.annotations.find(a => a.type === 'second_order' && (a.clusterIds || []).length);
+    d.annotations.push({ ...sec, id: 'orphan_construct', docId: 'no_such_study' });
+    d.docs[0].companionOf = 'no_such_study';
+    d.docs[1].conceptLinks = [...(d.docs[1].conceptLinks || []), { id: 'ghost_link', from: 'ghost_a', to: 'ghost_b', type: 'leads' }];
+    const quote = d.annotations.find(a => a.type === 'first_order');
+    quote.parentIds = [...(quote.parentIds || []), 'ghost_construct'];
+    const row = d.clusters.find(c => c.id === sec.clusterIds[0]);
+    row.cellStatus = { ...(row.cellStatus || {}), [sec.docId]: { status: 'absent', note: 'but a card is there' }, no_such_study: { status: 'absent', note: '' } };
+    return { json: JSON.stringify(d), expectBase, first };
+  });
+  p.removeAllListeners('dialog'); p.on('dialog', dl => dl.accept()); p.choiceAnswer = 'clean';
+  await p.setInputFiles('#jsonFileInput', { name: 'old.json', mimeType: 'application/json', buffer: Buffer.from(built.json) }); await settle(p, { quiet: 300 });
+  const r = await p.evaluate(async ({ expectBase, first }) => ({
+    bases: state.clusters.filter(c => c.id in expectBase && c.baseDocId !== expectBase[c.id]).map(c => `${c.id}: ${c.baseDocId} (expected ${expectBase[c.id]})`),
+    first: state.docs[0].id === first,
+    violations: checkInvariants(state).map(v => v.rule),
+    orphan: state.annotations.some(a => a.id === 'orphan_construct'),
+    code: state.projectCode, model: !!(await dbGet('meta', 'loa_main'))
+  }), built);
+  check('rows from before row bases: each is worked out from study #1 and its constructs (not all "No single base")', r.bases.length === 0, r.bases.slice(0, 3).join('; '));
+  check('the studies are in their order', r.first);
+  check('references to what the file does not hold are dropped; the project is consistent', r.violations.length === 0 && !r.orphan, JSON.stringify(r.violations));
+  check("a file without a project code or model leaves nothing of the previous project's", r.code === '' && r.model, JSON.stringify({ code: r.code, model: r.model }));
+  // The same file merged into the project: still consistent
+  p.choiceAnswer = 'merge';
+  await p.setInputFiles('#jsonFileInput', { name: 'old.json', mimeType: 'application/json', buffer: Buffer.from(built.json) }); await settle(p, { quiet: 300 });
+  check('merged into a project: still consistent', await p.evaluate(() => checkInvariants(state).length === 0));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });

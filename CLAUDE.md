@@ -51,11 +51,15 @@ run one of them):
   names that do not exist (a misspelt function or global), misspelt `state` fields (`AppState` typedef in core.js: a new `state` field
   goes there too) and misspelt option names of `recordAuditLog` etc. DOM nodes accept any property (`tools/types/app-globals.d.ts`), so
   reading `.value` from `getElementById()` needs no cast. Keep it at zero errors; fix a real error, or add a JSDoc type where the
-  inference is wrong (e.g. `/** @type {DbOp[]} */` for an ops list that mixes puts and deletes).
+  inference is wrong (e.g. `/** @type {DbOp[]} */` for an ops list that mixes puts and deletes). It then checks app/js/logic.js on
+  its own with `strictNullChecks` (tsconfig.logic.json): logic.js must not need anything from another file (the `DbOp` typedef
+  lives there for that reason).
 - tools/test/unit.test.mjs (node:test, no browser) loads app/js/logic.js alone in a fresh context and tests its functions directly.
   Put a new piece of logic that needs no page there (taking what it needs as arguments), and test it there.
 - tools/test/scenario.test.mjs (node:test, no browser) chains the pure steps of logic.js on a small project as a reviewer would
-  (place, judge, merge / split rows via `planMergeRows()` / `planSplitRow()`, delete a row or construct, Undo of a change) and runs
+  (place, judge, merge / split rows via `planMergeRows()` / `planSplitRow()` and their Undo via `planUndoRowMerge()` /
+  `planUndoRowSplit()`, make / delete a construct, link a quote, draw a within-study relationship, record an empty cell, delete a
+  row (`rowDeletionOps()`) or a study, Undo of a change) and runs
   `checkInvariants()` after every step: fixed scenarios for what each step means, and seeded random walks (seed in the test name).
   A step that changes several records gets its pure part in logic.js and a step here; the browser code only names, writes, logs.
 - tools/test/smoke.mjs drives the ?demo project in Chromium (Playwright: audit logging, restore, lazy matrix rows, dialogs, file://);
@@ -65,7 +69,7 @@ run one of them):
   dialog awaiting its automatic answer); when the test is about a condition, wait for that condition with `waitForFunction`.
   If settle times out, its error names what was still in flight. A timer the app sets for longer than 1 s is not waited for.
   After going idle, `settle` also runs `checkInvariants()` (logic.js: the project's consistency rules, e.g. per-row fields only for
-  rows a construct is placed in, no empty-cell record where the study has a construct, a quote linked only to constructs of its
+  rows a construct is placed in, no empty-cell record where the study has a construct or for a study not here, a ◇ line-of-argument mark only with a ◇ judgement, a quote linked only to constructs of its
   own study, map / within-study / companion links only to what exists). A violation is a page error, so the group's "no page
   errors" check fails at the step that made it. A new rule goes there (with a unit test); a test that builds an inconsistent
   state on purpose sets `p.skipInvariants` while it does. `checkInvariants(state)` also works in the browser console.
@@ -150,17 +154,33 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 - Undo: an undoable operation names the records it will touch with `beginChange(label, keys, { undoLogs })` BEFORE changing
   them, and calls `finishChange(change, created)` once written (undo-audit.js). Ctrl+Z (`revertChange()` + `tidyRefsOps()`, logic.js)
   puts back what the operation changed that is still as it left it (objects key by key, lists of ids / records with an id as sets),
-  keeps and names later work, and brings nothing back pointing at what was deleted since. No per-operation undo code: a new field
+  keeps and names later work, and brings nothing back pointing at what was deleted since. When the undo deletes a record (one
+  the operation made), `tidyRefsOps()` checks every record of the project, so nothing linked to it since is left pointing at it. No per-operation undo code: a new field
   is covered. Only study deletion (PDF bytes, study order, #1) and row merge / split (renumbering, carrying later work between
-  rows) keep their own undo. `undoLogs` are the audit entries Ctrl+Z writes (scanned by the smoke test like recordAuditLog calls).
+  rows) keep their own undo; theirs is worked out on copies too (row merge / split: `planUndoRowMerge()` / `planUndoRowSplit()`
+  in logic.js) and passes through `tidyRefsOps()` before `commitOps()`. An undo step whose write is refused goes back on the
+  stack. A row is deleted with `rowDeletionOps()`: the other rows are numbered by their place in the list, so Undo puts the row
+  back exactly where it was (two rows sharing an order number would otherwise make that ambiguous). `undoLogs` are the audit entries Ctrl+Z writes (scanned by the smoke test like recordAuditLog calls).
 - A deletion (and Undo) first awaits `flushAllPendingSaves()`: a debounced save still waiting would otherwise write the deleted
-  record back after it (take Undo snapshots after it). `commitOps()` also does this for any ops with a `del`, as a safety net.
+  record back after it (take Undo snapshots after it). It also waits for saves and commits already running (`trackSave`): a
+  draft save whose pause is over, a commit begun on leaving the box. `commitOps()` flushes too for any ops with a `del`, as a
+  safety net, with `{ running: false }` (it may run inside a commit, which must not wait for itself). A commit whose save is
+  refused stays pending and is tried again (`bindPendingCommit`); `bindTextField` counts a text as committed only once saved.
 - Operations that change several records at once (merge / split / delete a row, delete a study, the order of studies or rows)
   write them with `commitOps(ops)` (core.js), never `dbBatch()` directly (unit test; only demo.js seeding may): one transaction,
   then the same ops applied to `state` (docs / annotations / clusters / logs / `loa_main`), then `getMatrixIndex()` dropped. So a
   refused write removes or adds nothing in memory alone. A record already in `state` keeps its object (its content is replaced);
   a new one is appended (move it afterwards if it needs a place, e.g. a restored study). Build deletions as `del` ops instead of
-  filtering `state` before the write.
+  filtering `state` before the write, and changed records as copies (`{ ...rec, field }`, `putIntoRow()` on a copy,
+  `placementOpsFor()` for the rows a placement changes) instead of changing the records in memory first. An undo entry is pushed
+  only after the write succeeded.
+- After a change that can touch any part of the project (Undo, closing Compare), call `refreshOpenViews({ loa })` (app.js): it
+  draws every open view again (all four tabs, the drawer's chips and map, the study list), instead of each handler listing
+  the views it thinks it changed.
+- A restore (clean) builds the project in memory in the order startup reads it (studies sorted, constructs, then rows, so
+  `normalizeCluster()` can work out an old row's base), passes every record through `tidyRefsOps()` (a hand-edited or damaged
+  file) and writes it in one `commitOps()`; a merge passes what it added or filled in through `tidyRefsOps()`. A clean restore
+  of a file without a project code clears the previous one.
 - Every interpretive change is logged with `recordAuditLog({ category, action, detail, fromVal, toVal, clusterIds })`.
   Pass `clusterIds` whenever the entry concerns 3rd order rows (the row history filter relies on it).
 - A text field of a record uses `bindTextField(el, { get, set, save, commit })` (core.js): the one save path. While typing, the

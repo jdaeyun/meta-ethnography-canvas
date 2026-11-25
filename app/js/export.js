@@ -654,7 +654,11 @@ function getEmergeChecklist() {
       [10, 'Characteristics of included studies', 'Describe included studies, including context, funder and companion papers',
         nDocs === 0 ? A('No studies loaded yet')
           : (state.docs.every(d => d.setting && d.participants && d.methodology) && state.docs.some(d => d.funder)) ? R('Table 1 (incl. funder and linked accounts)')
-          : P(`Table 1; ${state.docs.filter(d => !(d.setting && d.participants && d.methodology)).length} stud(ies) with missing context; ${state.docs.some(d => d.funder) ? '' : 'no funder recorded; '}link companion papers in Edit Study Info`)] ] },
+          : (() => {
+            // Only what is missing is named (no "0 stud(ies) with missing context" when only the funder is)
+            const noContext = state.docs.filter(d => !(d.setting && d.participants && d.methodology)).length;
+            return P(['Table 1', noContext ? `${noContext} stud(ies) with missing context` : '', state.docs.some(d => d.funder) ? '' : 'no funder recorded', 'link companion papers in Edit Study Info'].filter(Boolean).join('; '));
+          })()] ] },
     { name: 'Phase 4\nDetermining how studies are related', items: [
       [11, 'Process for determining how studies are related', 'Which aspects of studies were compared, and how', hasRelProc ? R('Item 11 field → Methods Summary / Table 2') : A('Author to complete: use the Item 11 write-up field beside the Methods Summary')],
       [12, 'Outcome of relating studies', 'How studies relate to each other, incl. disconfirming cases', hasRelOut ? R('Phase 4 outcome text → Table 2 / Table 2b; constructs not translated → Appendix B') : (nCl > 0 ? P('Table 2b (contribution grid); enter the outcome (Item 12) in Research Aim & Overall Model (Tab 2)') : A('Author to complete (Findings)'))] ] },
@@ -826,7 +830,10 @@ function getMethodSections() {
   const scopeText = { full: 'Data were extracted from across the full primary study accounts, not only the findings sections.',
                       findings: 'Data were extracted from the findings sections of the primary study accounts.',
                       mixed: 'Data were extracted mainly from the findings sections, with other sections of each account read for context and concepts.' }[L.extractionScope] || '';
+  // Each pair once, also when the two papers point to each other
+  const seenPairs = new Set();
   const companionPairs = state.docs.filter(d => d.companionOf && state.docs.some(x => x.id === d.companionOf))
+    .filter(d => { const k = [d.id, d.companionOf].sort().join('|'); if (seenPairs.has(k)) return false; seenPairs.add(k); return true; })
     .map(d => `${esc(getDisplayName(d))} and ${esc(getDisplayName(state.docs.find(x => x.id === d.companionOf)))}`);
   const companionHtml = companionPairs.length
     ? ` Some accounts derived from the same primary study (${companionPairs.join('; ')}); these are identified in Table 1.`
@@ -1009,7 +1016,7 @@ async function copyPlainText(text) {
   const ta = document.createElement('textarea');
   ta.value = text;
   ta.setAttribute('readonly', '');
-  ta.className = 'fixed -left-[9999px] top-0 opacity-0';
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0'; // (inline: needs no built CSS class)
   document.body.appendChild(ta);
   ta.select();
   let ok = false;
@@ -1036,7 +1043,7 @@ document.getElementById('copyRichTableBtn').addEventListener('click', async () =
     // placed out of sight for the moment it takes to copy
     copyEl.removeAttribute('id');
     copyEl.classList.remove('gaps-quiet');
-    copyEl.className += ' fixed -left-[9999px] top-0';
+    Object.assign(copyEl.style, { position: 'fixed', left: '-9999px', top: '0' });
     document.body.appendChild(copyEl);
     const range = document.createRange();
     range.selectNodeContents(copyEl);
@@ -1139,6 +1146,10 @@ document.getElementById('downloadWordDocBtn').addEventListener('click', async ()
   function widthTable(rows, pcts) {
     const total = pcts.reduce((a, b) => a + b, 0) || 1;
     const twips = pcts.map(p => Math.round(TEXT_WIDTH_TWIPS * p / total));
+    // (rows / cells are rebuilt from docx.js's own `options`, as kept by docx 8.5.0: should a later version not keep them, the
+    // table still exports, with the grid widths only)
+    const rebuildable = rows.every(r => r && r.options && Array.isArray(r.options.children) && r.options.children.every(c => c && c.options));
+    if (!rebuildable) return new Table({ width: { size: TEXT_WIDTH_TWIPS, type: WidthType.DXA }, columnWidths: twips, layout: TableLayoutType.FIXED, rows });
     // Each cell states its own width too (w:tcW): LibreOffice and some versions of Word ignore the grid alone. A cell spanning
     // several columns gets their sum. Rows and cells are rebuilt from the options they were made with.
     const sized = rows.map(row => {

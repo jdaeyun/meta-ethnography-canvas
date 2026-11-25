@@ -99,15 +99,15 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
 async function assignSecondOrderToCluster(sec, cluster) {
   normalizeAnnotation(sec);
   if (sec.clusterIds.includes(cluster.id)) return;
-  // No relation is assumed: the placement starts as "not yet judged" (see secRelation); nothing left from an earlier
-  // placement in this row comes back (putIntoRow)
-  putIntoRow(sec, cluster.id);
   normalizeCluster(cluster);
+  // No relation is assumed: the placement starts as "not yet judged" (see secRelation); nothing left from an earlier
+  // placement in this row comes back (putIntoRow). Built on a copy: the construct and the row in memory change once stored.
+  const placed = putIntoRow({ ...sec, clusterIds: [...sec.clusterIds] }, cluster.id);
   // The first construct placed in a new row establishes it (◆; the reviewer can change this in the row header), and an
-  // earlier "not addressed / different aspect" note for this study no longer applies (placementRowOps). Read first, for the log.
+  // earlier "not addressed / different aspect" note for this study no longer applies (placementOpsFor). Read first, for the log.
   const prevStatus = emptyCellInfo(cluster, sec.docId);
   // The placement and what it changes in the row in one transaction
-  await commitOps([{ store: 'annotations', put: sec }, ...placementRowOps([sec])]);
+  await commitOps([{ store: 'annotations', put: placed }, ...placementOpsFor(state, [placed])]);
   if (prevStatus) {
     await recordAuditLog({
       clusterIds: [cluster.id], category: 'relating_studies',
@@ -132,12 +132,13 @@ async function assignSecondOrderToCluster(sec, cluster) {
 // concept-map relations: purgeClusterRefs, logic.js); its constructs stay in the pool / other rows. Ctrl+Z puts all of it back.
 async function deleteClusterRow(cluster) {
   await flushAllPendingSaves(); // a save of the row still waiting must not write it back after the deletion
-  const { ops } = purgeClusterRefs(state, cluster.id);
-  ops.push({ store: 'clusters', del: cluster.id });
-  const placed = ops.filter(o => o.store === 'annotations' && (rowSecs(cluster).some(a => a.id === o.put.id))).length;
-  const change = beginChange(`3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`, ops.map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id })),
-    { undoLogs: [{ clusterIds: [cluster.id], category: 'third_order', action: 'Restored 3rd Order Row (Undo)', toVal: cluster.thirdOrderTitle || '(Untitled Row)',
-      detail: `${placed} construct(s) placed in it again.` }] });
+  // (rowDeletionOps, logic.js: its references go too, and the rows are numbered by their place, so Undo puts it back exactly)
+  const { ops, assignedSecIds, row } = rowDeletionOps(state, cluster.id);
+  // Undo covers the row and what named it; the other rows' new numbers stay (they keep the rows in the order shown)
+  const keys = ops.filter(o => !(o.store === 'clusters' && !('del' in o))).map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id }));
+  const change = beginChange(`3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`, keys,
+    { before: { ['clusters|' + cluster.id]: row }, undoLogs: [{ clusterIds: [cluster.id], category: 'third_order', action: 'Restored 3rd Order Row (Undo)', toVal: cluster.thirdOrderTitle || '(Untitled Row)',
+      detail: `${assignedSecIds.length} construct(s) placed in it again.` }] });
   await commitOps(ops); // unplacing the cards and deleting the row in one transaction; the rows in memory change once it is stored
   finishChange(change);
   await recordAuditLog({
@@ -149,6 +150,18 @@ async function deleteClusterRow(cluster) {
   renderLoaClusterChips(); // the drawer's chips and map (if open) lose the row
   renderMatrixView();
   showUndoSnackbar(`Removed the row "${cluster.thirdOrderTitle || 'Untitled'}" (its constructs stay in the pool / other rows)`);
+}
+
+// A construct placed in several rows has a card in each: what is edited on one (its label, its text) is shown on the others
+// built so far, so none of them shows, or writes back, the text as it was. A box being written in is left alone.
+function syncSecCards(sec, fromCard) {
+  document.querySelectorAll(`.matrix-cell-card[data-sec-card="${CSS.escape(sec.id)}"]`).forEach(c => {
+    if (c === fromCard) return;
+    const label = c.querySelector('.sec-label-input');
+    if (label && document.activeElement !== label) { label.value = sec.note || ''; label.title = sec.text || ''; }
+    const quote = c.querySelector('.cell-quote-display');
+    if (quote) quote.textContent = `"${sec.text || ''}"`;
+  });
 }
 
 async function removeSecondOrderFromCluster(sec, cluster) {
@@ -635,7 +648,12 @@ function renderSecondOrderPool() {
     const ntInput = card.querySelector('.pool-nt-input');
     if (ntInput) {
       // The note box sits on a draggable card: keep text selection inside it from starting a drag
-      card.querySelector('.pool-nt').addEventListener('mousedown', () => { card.draggable = false; });
+      // (dragging is off while the box is pressed or written in, so text can be selected; a click on its summary that only
+      // opens or closes it gives dragging back on release)
+      card.querySelector('.pool-nt').addEventListener('mousedown', () => {
+        card.draggable = false;
+        whenPointerReleased(() => { if (document.activeElement !== ntInput) card.draggable = true; });
+      });
       ntInput.addEventListener('blur', () => { card.draggable = true; });
       ntInput.addEventListener('mouseup', () => { card.draggable = true; });
       let initialNt = sec.notTranslatedNote;
@@ -1452,6 +1470,7 @@ function renderMatrixTable() {
 
           const card = document.createElement('div');
           card.className = `matrix-cell-card ${relMeta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
+          card.dataset.secCard = sec.id; // (syncSecCards: the same construct's cards in other rows follow an edit made here)
           card.draggable = true;
           card.ondragstart = e => {
             e.dataTransfer.setData('text/sec-id', sec.id);
@@ -1541,6 +1560,7 @@ function renderMatrixTable() {
               const oldText = sec.text;
               sec.text = cleaned;
               cellQuoteDisp.textContent = `"${cleaned}"`;
+              syncSecCards(sec, card);
               await dbPut('annotations', sec);
               await logExtractedTextEdit(sec, oldText);
             }
@@ -1552,12 +1572,15 @@ function renderMatrixTable() {
             relSelect.addEventListener('mousedown', e => e.stopPropagation());
             relSelect.onchange = async (e) => {
               e.stopPropagation();
-              if (!sec.clusterRelations) sec.clusterRelations = {};
               const prevRel = secRelation(sec, cluster.id);
               const nextRel = relSelect.value;
               if (nextRel === prevRel) return;
-              sec.clusterRelations[cluster.id] = nextRel;
-              await dbPut('annotations', sec);
+              const next = { ...sec, clusterRelations: { ...(sec.clusterRelations || {}), [cluster.id]: nextRel } };
+              // The line-of-argument mark goes with a ◇ judgement: judged otherwise, the row's mark goes too (judged ◇ again
+              // later, the card is not shown as used until the reviewer ticks it again)
+              const markGone = nextRel !== 'other_aspect' && !!(sec.aspectUsedInLoa && sec.aspectUsedInLoa[cluster.id]);
+              if (markGone) { next.aspectUsedInLoa = { ...sec.aspectUsedInLoa }; delete next.aspectUsedInLoa[cluster.id]; }
+              await commitOps([{ store: 'annotations', put: next }]); // (sec is updated once it is stored)
               if (state.isLoaOpen && (nextRel === 'other_aspect' || prevRel === 'other_aspect')) renderLoaAspects();
 
               const nextMeta = getCellRelationMeta(nextRel);
@@ -1574,7 +1597,8 @@ function renderMatrixTable() {
                 clusterIds: [cluster.id],
                 category: 'third_order',
                 action: `Judged construct as ${getCellRelationMeta(nextRel).label.replace(/^\S+\s/, '')} in "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-                detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note || '"' + sec.text.slice(0, 65) + '..."'}`,
+                detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note || '"' + sec.text.slice(0, 65) + '..."'}`
+                  + (markGone ? '\nIt is no longer marked as used by the line of argument.' : ''),
                 fromVal: getCellRelationMeta(prevRel).label,
                 toVal: getCellRelationMeta(nextRel).label
               });
@@ -1588,7 +1612,7 @@ function renderMatrixTable() {
 
           const saveSec = () => dbPut('annotations', sec);
           bindTextField(card.querySelector('.sec-label-input'), {
-            get: () => sec.note, set: v => { sec.note = v; }, save: saveSec,
+            get: () => sec.note, set: v => { sec.note = v; }, save: saveSec, onInput: () => syncSecCards(sec, card),
             commit: (oldLabel, newLabel) => recordAuditLog({
               kind: 'construct_label',
               clusterIds: liveClusterIds(sec),

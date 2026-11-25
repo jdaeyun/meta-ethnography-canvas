@@ -1,0 +1,8 @@
+{
+  // `npm run typecheck` also checks app/js/logic.js on its own with strictNullChecks: the pure logic (no DOM, no `state`)
+  // never reads a property of something that may be null or undefined without checking. The rest of the app stays at
+  // strict: false (tsconfig.json).
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "strictNullChecks": true },
+  "files": ["app/js/logic.js"]
+}

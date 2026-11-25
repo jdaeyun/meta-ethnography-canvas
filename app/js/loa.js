@@ -424,17 +424,18 @@ function mapNodeCenter(g) {
 (function bindLoaMapMoves() {
   const box = document.getElementById('loaMapBox');
   if (!box) return;
-  const toSvg = ev => {
-    const svg = box.querySelector('svg'), m = svg && svg.getScreenCTM();
-    return m ? new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m.inverse()) : null;
-  };
+  const screenToMap = () => { const svg = box.querySelector('svg'), m = svg && svg.getScreenCTM(); return m ? m.inverse() : null; };
+  // During a drag the conversion taken when it started is kept: the map grows (and its scale changes) as a box is dragged past
+  // its edge, and converting with the new scale on every frame would move the box away from the pointer, frame after frame
+  const toSvg = (ev, inv = screenToMap()) => (inv ? new DOMPoint(ev.clientX, ev.clientY).matrixTransform(inv) : null);
   let drag = null, frame = 0;
   box.addEventListener('pointerdown', ev => {
     const g = ev.button === 0 && ev.target.closest && ev.target.closest('.loa-map-node');
-    const p = g && toSvg(ev);
+    const inv = g && screenToMap();
+    const p = inv && toSvg(ev, inv);
     if (!p) return;
     const c = mapNodeCenter(g), layout = getLoaMapLayout();
-    drag = { id: g.dataset.node, layout, dx: p.x - c.x, dy: p.y - c.y, sx: ev.clientX, sy: ev.clientY, moved: false, before: mapPositionsCopy(layout) };
+    drag = { id: g.dataset.node, layout, inv, dx: p.x - c.x, dy: p.y - c.y, sx: ev.clientX, sy: ev.clientY, moved: false, before: mapPositionsCopy(layout) };
     box.setPointerCapture(ev.pointerId);
     ev.preventDefault();
   });
@@ -442,7 +443,7 @@ function mapNodeCenter(g) {
     if (!drag) return;
     if (!drag.moved && Math.hypot(ev.clientX - drag.sx, ev.clientY - drag.sy) < 3) return;
     drag.moved = true;
-    const p = toSvg(ev);
+    const p = toSvg(ev, drag.inv);
     if (!p) return;
     setMapPos(drag.layout, drag.id, p.x - drag.dx, p.y - drag.dy);
     if (!frame) frame = requestAnimationFrame(() => { frame = 0; drawLoaMapBox(); });
@@ -703,10 +704,12 @@ WRITEUP_FIELDS.forEach(([key, id, category]) => {
   });
 });
 
+// The drawer has edits not saved yet (declared before populateLoaInputs reads it, so no call can meet it uninitialised)
+let loaDrawerDirty = false;
 function populateLoaInputs() {
   // A field being typed in keeps its text (its commit is still to come); so do the drawer's fields while the drawer has
   // edits not saved yet (they are saved together: commitLoaDrawer)
-  const drawerDirty = loaDrawerDirty; // (declared below; this runs only after the script has loaded)
+  const drawerDirty = loaDrawerDirty;
   const drawer = [['aim', 'loaAimInput'], ['title', 'loaTitleInput'], ['flow', 'loaFlowInput'], ['narrative', 'loaNarrativeInput'], ['relateOutcome', 'loaRelateOutcomeInput'], ...LOA_EXTRA_FIELDS];
   drawer.forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement && !drawerDirty) el.value = state.loa[k] || ''; });
   WRITEUP_FIELDS.forEach(([k, id]) => { const el = document.getElementById(id); if (el && el !== document.activeElement) el.value = state.loa[k] || ''; });
@@ -721,7 +724,6 @@ function populateLoaInputs() {
 // The drawer's fields are saved together (one audit entry per section that changed): when the reviewer leaves the drawer,
 // closes it, switches tab or leaves the page (a pending commit, like every other text box), or clicks Save & Log now.
 const LOA_DRAWER_FIELD_IDS = () => ['loaAimInput', 'loaTitleInput', 'loaFlowInput', 'loaNarrativeInput', 'loaRelateOutcomeInput', ...LOA_EXTRA_FIELDS.map(f => f[1])];
-let loaDrawerDirty = false;
 const commitLoaDrawer = async () => {
   if (!loaDrawerDirty) return;
   loaDrawerDirty = false;

@@ -60,21 +60,30 @@ async function findDoiInPdf(buffer) {
     if (pdf) { try { await pdf.destroy(); } catch (e) { /* ignore */ } }
   }
 }
+// One run at a time; a study added while it runs is picked up by the same run (the next study to do is looked up after each one)
 let fingerprintBusy = false;
 async function ensureDocFingerprints() {
   if (fingerprintBusy) return;
   fingerprintBusy = true;
+  const tried = new Set();
   try {
-    for (const d of state.docs.filter(x => x.hasBinary && !x.fpDone)) {
-      const rec = await dbGet('pdf_binaries', d.id); // one PDF in memory at a time
-      if (!rec || !rec.data || !rec.data.byteLength) continue;
-      d.sha256 = await sha256Hex(rec.data);
-      if (!d.doi) d.doi = await findDoiInPdf(rec.data);
-      d.fpDone = true;
-      if (state.docs.includes(d)) await dbPut('docs', d, { quiet: true });
+    let d;
+    while ((d = state.docs.find(x => x.hasBinary && !x.fpDone && !tried.has(x.id)))) {
+      tried.add(d.id);
+      try {
+        const rec = await dbGet('pdf_binaries', d.id); // one PDF in memory at a time
+        if (!rec || !rec.data || !rec.data.byteLength) continue;
+        d.sha256 = await sha256Hex(rec.data);
+        if (!d.doi) {
+          d.doi = await findDoiInPdf(rec.data);
+          // The study's info dock open on it with an empty DOI box: the box shows it, so "Save Info" keeps it
+          const box = document.getElementById('metaDoi');
+          if (d.doi && state.isEditMetaMode && state.activeDocId === d.id && box && !box.value.trim()) box.value = d.doi;
+        }
+        d.fpDone = true;
+        if (state.docs.includes(d)) await dbPut('docs', d, { quiet: true });
+      } catch (e) { console.warn('Fingerprinting skipped for one study:', e); }
     }
-  } catch (e) {
-    console.warn('Fingerprinting skipped:', e);
   } finally {
     fingerprintBusy = false;
   }
@@ -235,7 +244,7 @@ function getBadgesHtml(doc) {
 
 async function persistDocOrder() {
   // The whole order in one transaction: never half of the studies in the new order and half in the old
-  await commitOps(state.docs.map((d, i) => { d.order = i; return { store: 'docs', put: d }; }));
+  await commitOps(state.docs.map((d, i) => ({ store: 'docs', put: { ...d, order: i } }))); // (copies: memory changes once stored)
   await checkBaselineChange();
 }
 
@@ -403,6 +412,10 @@ function renderStudyList() {
         // "same primary study as" (purgeDocRefs, logic.js; a row's ◆ base is kept: it tells which rows study #1 established,
         // see checkBaselineChange)
         const refs = purgeDocRefs(state, doc.id);
+        // The study, its PDF, its constructs and the references to it go in one transaction; the records in memory change once
+        // all of it is stored (commitOps)
+        await commitOps([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refs.ops]);
+        // On the undo stack only once it is stored (a refused write leaves the study, and nothing to undo)
         pushUndoAction({
           type: 'delete_study',
           label: `Study (${getDisplayName(doc)})`,
@@ -412,9 +425,6 @@ function renderStudyList() {
           position: idx,
           cellStatus: refs.cellStatus, companions: refs.companions
         });
-        // The study, its PDF, its constructs and the references to it go in one transaction; the records in memory change once
-        // all of it is stored (commitOps)
-        await commitOps([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refs.ops]);
         await recordAuditLog({
           category: 'study_order',
           rationale: why,
@@ -580,9 +590,12 @@ async function setPdfZoom(newScale) {
   if (state.activePdfDoc) {
     // Same PDF, new size: lay the pages out again without reading and parsing the file again
     const myToken = ++switchStudyToken;
-    if (await layoutPdfPages(state.activePdfDoc, () => myToken !== switchStudyToken)) renderHighlights();
+    if (!(await layoutPdfPages(state.activePdfDoc, () => myToken !== switchStudyToken))) return; // another study opened meanwhile: its place is its own
+    renderHighlights();
   } else {
-    await switchStudy(state.activeDocId);
+    const docId = state.activeDocId;
+    await switchStudy(docId);
+    if (state.activeDocId !== docId) return;
   }
   scrollContainer.scrollTop = scrollContainer.scrollHeight * scrollRatio;
 }
@@ -903,7 +916,9 @@ function renderAppraisalDomains(doc) {
     });
   }
 }
-document.getElementById('metaAppraisalTool').addEventListener('change', () => {
+document.getElementById('metaAppraisalTool').addEventListener('change', async () => {
+  // A reason just typed for the other checklist is saved and logged before its boxes are replaced
+  await flushAllPendingSaves();
   const doc = state.docs.find(d => d.id === state.activeDocId);
   if (doc) renderAppraisalDomains(doc);
 });
@@ -1549,16 +1564,19 @@ async function jumpToSearchedPage(matchIdx, queryStr) {
   const spans = Array.from(pageContainer.querySelectorAll('.textLayer span')).filter(sp => sp.firstChild && sp.firstChild.nodeType === 3);
   const norm = t => t.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
   const needle = norm(q).trim();
+  // The same text as the search index: items joined (joinSeparator), then every run of spaces one space. A span that ends or
+  // starts with a space must not leave two where the index has one, or a phrase found there is not found here.
   let joined = '';
-  const starts = spans.map(sp => {
+  const add = str => { for (const ch of str) { if (ch === ' ' && joined.endsWith(' ')) continue; joined += ch; } };
+  const ranges = spans.map(sp => {
     const t = norm(sp.textContent);
-    if (joined && t) joined += joinSeparator(joined, t); // the same joining as the search index
-    const at = joined.length; joined += t; return at;
+    if (joined && t) add(joinSeparator(joined, t));
+    const at = joined.length; add(t); return [at, joined.length];
   });
   const hits = new Set();
   for (let at = needle ? joined.indexOf(needle) : -1; at >= 0; at = joined.indexOf(needle, at + 1)) {
     const end = at + needle.length;
-    spans.forEach((sp, k) => { const a = starts[k], b = a + norm(sp.textContent).length; if (a < end && b > at) hits.add(sp); });
+    spans.forEach((sp, k) => { const [a, b] = ranges[k]; if (a < end && b > at) hits.add(sp); });
   }
   // The previous search's highlight goes now, and its timer with it (else it would clear this one part way)
   clearTimeout(searchHighlight.timer);
