@@ -495,7 +495,7 @@ const LOA_ACTIONS = {
     const action = LOA_ACTIONS[el.dataset.action];
     if (!action) return;
     ev.stopPropagation();
-    Promise.resolve(action(el)).catch(err => console.error('Drawer action failed:', err));
+    return Promise.resolve(action(el));
   };
   drawer.addEventListener('click', ev => run(ev, false));
   drawer.addEventListener('change', ev => run(ev, true));

@@ -406,7 +406,7 @@ async function removeStudyWithReason(doc) {
     if (!el || !list.contains(el)) return;
     ev.stopPropagation();
     const doc = state.docs.find(d => d.id === el.dataset.doc);
-    if (doc) removeStudyWithReason(doc).catch(err => console.error('Removing the study failed:', err));
+    return doc ? removeStudyWithReason(doc) : undefined;
   });
 })();
 

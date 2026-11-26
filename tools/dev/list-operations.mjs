@@ -283,8 +283,8 @@ const ALLOWED_DIRECT = [
   ['loa.js', 'saveMapPositions', 'layout while dragging a box (undoable, not logged)'],
   ['matrix.js', "bindTextField(tdMeta.querySelector('.cluster-title')).save", 'the title\'s draft save also redraws the drawer\'s chips'],
   ['backup.js', "document.getElementById('jsonFileInput') on 'change'", 'a clean restore clears the stores, copies PDFs one at a time and rolls back by hand'],
-  ['audit-view.js', "document.getElementById('addMemoBtn') on 'click'", 'a memo is an entry on its own'],
-  ['compare.js', 'memoBtn.onclick', 'a note on a different translation order is an entry on its own'],
+  ['audit-view.js', "AUDIT_ACTIONS['add-memo']", 'a memo is an entry on its own'],
+  ['compare.js', "COMPARE_ACTIONS['order-memo']", 'a note on a different translation order is an entry on its own'],
   ['backup.js', 'resetProject', 'reset empties every store (asked first; the trail goes with the project)'],
   ['demo.js', 'clearDemoStores', 'the demo database is emptied before the demo is seeded']
 ];

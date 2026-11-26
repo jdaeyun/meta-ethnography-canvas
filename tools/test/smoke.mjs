@@ -24,6 +24,8 @@ const BASE = `http://127.0.0.1:${server.address().port}/me_canvas.html`;
 const browser = await chromium.launch();
 let failures = 0, passes = 0;
 const check = (name, ok, extra = '') => { if (ok) { passes++; console.log(`  ok   ${name}`); } else { failures++; console.log(`  FAIL ${name} ${extra}`); } };
+// A check whose setup did not find what it needs in the demo ({ skip: true }) fails, instead of passing without checking anything
+const needs = r => { if (r && r.skip) check('the demo has what the next check needs (it was skipped)', false, JSON.stringify(r)); return !(r && r.skip); };
 
 // ---- Waiting for the app instead of waiting a fixed time ----
 // Every page counts what the app still has in flight: IndexedDB transactions, async event handlers, short timers, and the
@@ -38,7 +40,9 @@ const BUSY_PROBE = () => {
     let done = false;
     return () => { if (done) return; done = true; window.__mecBusy--; const n = open.get(label) - 1; if (n) open.set(label, n); else open.delete(label); };
   };
-  const track = (r, label) => { if (r && typeof r.then === 'function') { const end = begin(label); r.then(end, end); } return r; };
+  // (a promise that fails is reported again as unhandled, so the page error reaches the group's "no page errors" check;
+  // tracking it must not swallow it)
+  const track = (r, label) => { if (r && typeof r.then === 'function') { const end = begin(label); r.then(end, e => { end(); return Promise.reject(e); }); } return r; };
   // IndexedDB transactions, until they complete
   const tx = IDBDatabase.prototype.transaction;
   IDBDatabase.prototype.transaction = function (...a) {
@@ -72,6 +76,21 @@ const BUSY_PROBE = () => {
     return id;
   };
   window.clearTimeout = function (id) { const end = ends.get(id); if (end) { ends.delete(id); end(); } return ct.call(window, id); };
+  // Inside page.evaluate (where settle cannot be called): wait until nothing is in flight and no draft save is pending, and
+  // this has stayed so for `quiet` ms, instead of a fixed time
+  window.__mecIdle = (quiet = 120, timeout = 20000) => new Promise((resolve, reject) => {
+    const t0 = performance.now();
+    let since = null;
+    const tick = () => {
+      const now = performance.now();
+      const saving = typeof pendingSaveCleanups !== 'undefined' && [...pendingSaveCleanups].some(f => !f.isCommit);
+      if ((window.__mecBusy || 0) > 0 || saving) since = null; else if (since == null) since = now;
+      if (since != null && now - since >= quiet) { resolve(); return; }
+      if (now - t0 > timeout) { reject(new Error('__mecIdle: still in flight: ' + JSON.stringify([...open]))); return; }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
   // The app's own functions are globals of its classic scripts: wrapped once they are defined, before the app starts
   document.addEventListener('DOMContentLoaded', () => {
     for (const name of ['switchStudy', 'layoutPdfPages', 'renderPageContentNow', 'processPeerJsonFile']) {
@@ -294,6 +313,7 @@ await group('Matrix with many studies: lazy rows keep the scroll position', asyn
   const built = await p.locator('#matrixTable .cluster-title').count();
   check('only some rows are built at first', built > 0 && built < 30, `built=${built}`);
   const drift = await p.evaluate(async () => {
+    // (a fixed wait on purpose: the rows are built by an IntersectionObserver after the scroll, which the busy probe does not see)
     const c = document.getElementById('matrixTable').parentElement, wait = ms => new Promise(r => setTimeout(r, ms));
     let worst = 0;
     c.scrollTop = c.scrollHeight; await wait(400);
@@ -385,9 +405,16 @@ await group('Research Aim drawer scrolls; study storyline is visible; site versi
   check('storyline box shows under the study header', await p.evaluate(() => !document.getElementById('docOverviewBox').classList.contains('hidden')) && (await p.locator('#docOverviewSummary').innerText()).includes('lone watch'));
   await p.click('#activeDocHeader'); await settle(p);
   check('it steps aside while the edit dock is open', await p.evaluate(() => document.getElementById('docOverviewBox').classList.contains('hidden')));
+  // At a release only app/version.js is edited; the sync workflow updates the markers on main. So a branch may be one sync
+  // ahead: then every marker must still show one and the same version (the one last synced), none left behind or hand-written
   const { spawnSync } = await import('node:child_process');
   const r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'sync-version.mjs'), '--check'], { cwd: ROOT, encoding: 'utf8' });
-  check('every version marker on the site matches version.js', r.status === 0, (r.stdout || '') + (r.stderr || ''));
+  const markers = ['me_canvas.html', 'site/index.html', 'site/manual.html', 'site/meta-ethnography-101.html']
+    .flatMap(f => [...fs.readFileSync(path.join(ROOT, f), 'utf8').matchAll(/<(\w+) data-mec="version">([^<]*)<\/\1>/g)].map(m => m[2]));
+  const cff = (fs.readFileSync(path.join(ROOT, 'CITATION.cff'), 'utf8').match(/^version: "([^"]+)"/m) || [])[1];
+  const shown = new Set([...markers, cff]);
+  check('every version marker on the site matches version.js (or, before the sync on main, the version last synced)',
+    r.status === 0 || (markers.length > 0 && shown.size === 1), (r.stdout || '') + (r.stderr || '') + ' shown: ' + [...shown].join(', '));
   await p.context().close();
 });
 
@@ -408,7 +435,7 @@ await group('Theme column folds to a strip', async () => {
     const dt = new DataTransfer(); dt.setData('text/sec-id', sec.id);
     tr.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
     tr.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
-    await new Promise(r => setTimeout(r, 800));
+    await __mecIdle();
     return state.annotations.find(a => a.id === sec.id).clusterIds.includes(target.id);
   });
   check('cards can still be dropped on a folded row', dropped);
@@ -1173,7 +1200,10 @@ await group('Review fixes 2: welcome buttons, awaited commits, peer rows importe
   await p.evaluate(() => { state.activeDocId = null; renderWelcomeGuideIfNeeded(); });
   const [chooser] = await Promise.all([p.waitForEvent('filechooser', { timeout: 3000 }).catch(() => null), p.click('#welcomeSelectPdfBtn')]);
   check('welcome "Select PDF Files" opens the file chooser', !!chooser);
-  check('no inline on…= handlers in the app scripts', !/\son[a-z]+="/.test(['app.js', 'matrix.js', 'extraction.js', 'export.js', 'compare.js', 'studies-pdf.js', 'audit-view.js', 'loa.js', 'backup.js'].map(f => fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8')).join('\n')));
+  // (every script and the page itself: the Content-Security-Policy blocks inline handlers anywhere)
+  const inline = [...fs.readdirSync(path.join(ROOT, 'app/js')).filter(f => f.endsWith('.js')).map(f => 'app/js/' + f), 'me_canvas.html']
+    .filter(f => /\son[a-z]+="/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
+  check('no inline on…= handlers in the app scripts or the page', inline.length === 0, inline.join(', '));
   await p.evaluate(() => switchStudy(state.docs[0].id)); await settle(p);
   // A pending commit can be awaited: its audit entry is in the trail when the flush resolves
   await tab(p, 'matrix'); await settle(p);
@@ -1258,11 +1288,11 @@ await group('Review fixes 2: welcome buttons, awaited commits, peer rows importe
     // Rendering the tab changes nothing; opening it (the tab button) places the waiting construct, once
     const nLogs = state.logs.length;
     setCompareTab('clusters_logs'); renderComparisonTabContent(); renderComparisonTabContent();
-    await new Promise(r => setTimeout(r, 300));
+    await __mecIdle();
     const renderOnly = state.logs.length === nLogs && !state.annotations.find(a => a.text === 'Waiting for a row made here').clusterIds.includes('local_t');
     document.querySelector('.cmp-tab-btn[data-cmptab="clusters_logs"]').click();
     document.querySelector('.cmp-tab-btn[data-cmptab="clusters_logs"]').click();
-    await new Promise(r => setTimeout(r, 600));
+    await __mecIdle();
     const got = state.annotations.find(a => a.text === 'Waiting for a row made here');
     const placedLogs = state.logs.filter(l => /^Placed 1 construct\(s\) imported from @Peer in "made here TOO"/.test(l.action)).length;
     return { ids: got.clusterIds, rel: got.clusterRelations.local_t, waiting: !!got._peerRows, renderOnly, placedLogs };
@@ -1308,7 +1338,7 @@ await group('MERGE restore maps every study id of a study matched by file name',
 await group('Reasons are asked in a multi-line dialog; undoable deletions show Undo instead of asking first', async () => {
   const p = await openDemo();
   p.autoReason = false;
-  check('no prompt() left for reasons (only the reviewer ID and a construct label)', ['studies-pdf.js', 'matrix.js', 'compare.js'].every(f => !/\bprompt\(/.test(fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8'))));
+  // (no prompt(): the group "No browser dialogs" checks every script)
   // Translation order: Cancel leaves everything as it was
   await tab(p, 'extract'); await settle(p);
   const before = await p.evaluate(() => getOrderStrategy());
@@ -1499,7 +1529,7 @@ await group('Review fixes 3: restore choice, card removal, row moves under a fil
     state.matrixRefutationalOnly = false;
     return { r };
   });
-  if (!moved.skip) check('a row moves past the next visible row while a filter hides others', moved.r);
+  if (needs(moved)) check('a row moves past the next visible row while a filter hides others', moved.r);
   // Flow map: same-column loops in the last column stay inside the picture
   const fits = await p.evaluate(() => {
     const saved = state.loa.links;
@@ -1533,7 +1563,7 @@ await group('Review fixes 3: restore choice, card removal, row moves under a fil
     const k = sp.findIndex((x, i) => i + 1 < sp.length && sp[i + 1].textContent.trim().length > 3);
     const q = sp[k].textContent.trim().split(/\s+/).pop() + ' ' + sp[k + 1].textContent.trim().split(/\s+/)[0];
     await runPdfSearch(q);
-    await new Promise(r => setTimeout(r, 300));
+    await __mecIdle();
     return { q, lit: [...pc.querySelectorAll('.textLayer span')].filter(x => x.style.backgroundColor).length };
   });
   check('a search phrase over two text spans lights both up', phrase.lit >= 2, JSON.stringify(phrase));
@@ -1565,7 +1595,7 @@ await group('Compare remembers what was set aside; the text sketch can be writte
     // Set aside the one we made
     const idx = state.peerComparison.peerOnlyAnnos.findIndex(x => x.peerAnno.id === 'peer_aside_1');
     const btns = [...document.querySelectorAll('.imp-dismiss')];
-    btns[idx].click(); await new Promise(res => setTimeout(res, 300));
+    btns[idx].click(); await __mecIdle();
     const stored = (state.loa.peerSetAside || []).some(x => x.peerId === 'peer_aside_1' && x.reviewer === 'Peer');
     // Second round: the same file again
     await processPeerJsonFile(mkPeer('A reading only the peer has, set aside after discussion'));
@@ -1579,7 +1609,7 @@ await group('Compare remembers what was set aside; the text sketch can be writte
     // Reconsider brings it back into the list and forgets the record
     await processPeerJsonFile(mkPeer('A reading only the peer has, set aside after discussion'));
     setCompareTab('unique'); renderComparisonTabContent();
-    const rb = document.querySelector('.set-aside-box .reconsider-btn'); if (!rb) return { before, stored, again, listedApart, box, changedBack, reconsidered: false }; rb.click(); await new Promise(res => setTimeout(res, 300));
+    const rb = document.querySelector('.set-aside-box .reconsider-btn'); if (!rb) return { before, stored, again, listedApart, box, changedBack, reconsidered: false }; rb.click(); await __mecIdle();
     const reconsidered = state.peerComparison.peerOnlyAnnos.some(x => x.peerAnno.id === 'peer_aside_1') && !(state.loa.peerSetAside || []).some(x => x.peerId === 'peer_aside_1');
     return { before, stored, again, listedApart, box, changedBack, reconsidered };
   });
@@ -1587,6 +1617,18 @@ await group('Compare remembers what was set aside; the text sketch can be writte
   check('the same construct in the next file is not shown as new, but listed as set aside earlier', !r.again && r.listedApart && r.box, JSON.stringify(r));
   check('a construct whose text changed since is shown again', r.changedBack);
   check('Reconsider takes it back into the list', r.reconsidered);
+  // Compare's cards only draw: each button or menu that does something carries data-action, run by the one listener on the tab
+  const cmpWiring = await p.evaluate(() => {
+    const out = {};
+    for (const t of ['studies', 'unique', 'divergent', 'aligned', 'clusters_logs']) {
+      setCompareTab(t); renderComparisonTabContent();
+      const all = [...document.querySelectorAll('#compareTabContent button, #compareTabContent select')];
+      out[t] = { n: all.length, own: all.filter(e => e.onclick || e.onchange).length, noAction: all.filter(e => !e.dataset.action || !COMPARE_ACTIONS[e.dataset.action]).map(e => e.className.split(' ')[0]) };
+    }
+    return out;
+  });
+  check('Compare: every button and menu runs a COMPARE_ACTIONS entry, none has a handler of its own',
+    Object.values(cmpWiring).every(x => x.own === 0 && x.noAction.length === 0) && cmpWiring.clusters_logs.n > 0, JSON.stringify(cmpWiring));
   // Text sketch from the map
   await tab(p, 'matrix'); await settle(p);
   await p.click('#toggleLoaDrawerBtn'); await settle(p);
@@ -1633,7 +1675,7 @@ await group('Review fixes 4: similarity, study info autosave, #1 by id, zoom wit
   check('changing #1 between two studies with the same display name is still recorded', sameName.asked);
   // Zoom keeps the loaded PDF (no new parse)
   await p.evaluate(() => switchStudy(state.docs[0].id)); await settle(p);
-  const zoom = await p.evaluate(async () => { const before = state.activePdfDoc; await setPdfZoom(state.scale + 0.2); await new Promise(r => setTimeout(r, 400)); return { same: state.activePdfDoc === before, pages: document.querySelectorAll('#pdfPagesWrapper .page-container').length, hl: document.querySelectorAll('#pdfPagesWrapper .hl-box').length }; });
+  const zoom = await p.evaluate(async () => { const before = state.activePdfDoc; await setPdfZoom(state.scale + 0.2); await __mecIdle(); return { same: state.activePdfDoc === before, pages: document.querySelectorAll('#pdfPagesWrapper .page-container').length, hl: document.querySelectorAll('#pdfPagesWrapper .hl-box').length }; });
   check('zooming keeps the loaded PDF and lays the pages out again (with their highlights)', zoom.same && zoom.pages > 0 && zoom.hl > 0, JSON.stringify(zoom));
   // Merge: lists of separate records are merged as a union, not reported as a conflict
   const json = await p.evaluate(() => {
@@ -1658,7 +1700,7 @@ await group('Review fixes 4: similarity, study info autosave, #1 by id, zoom wit
     document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     return { during, after: card.draggable };
   });
-  if (!drag.skip) check('a matrix card is not draggable while the mouse is down in one of its boxes', drag.during === false && drag.after === true, JSON.stringify(drag));
+  if (needs(drag)) check('a matrix card is not draggable while the mouse is down in one of its boxes', drag.during === false && drag.after === true, JSON.stringify(drag));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });
@@ -1684,7 +1726,7 @@ await group('Review fixes 5: drawer autosave, merge across bases, split undo kee
     await mergeRows(x, y, '');
     return { rel: secRelation(card, y.id), note: (card.clusterComments[y.id] || ''), log: state.logs[0].detail };
   });
-  if (!mr.skip) check('merging rows established by different studies: moved cards start unjudged, the earlier judgement noted', mr.rel === 'unjudged' && /judged Refutational against/.test(mr.note) && /start unjudged/.test(mr.log), JSON.stringify(mr));
+  if (needs(mr)) check('merging rows established by different studies: moved cards start unjudged, the earlier judgement noted', mr.rel === 'unjudged' && /judged Refutational against/.test(mr.note) && /start unjudged/.test(mr.log), JSON.stringify(mr));
   else check('merge across bases: demo rows suitable', false, 'no suitable rows');
   await p.evaluate(() => performUndo()); await settle(p);
   // Split, then add a card and write in the new row, then undo the split: nothing written there is lost
@@ -1699,7 +1741,7 @@ await group('Review fixes 5: drawer autosave, merge across bases, split undo kee
     await performUndo();
     return { gone: !state.clusters.some(c => c.id === nw.id), text: /Step B written in the new row/.test(src.synthesisNote || ''), extra: extra ? extra.clusterIds.includes(src.id) && !extra.clusterIds.includes(nw.id) : true, log: /Kept what was changed after it/.test(state.logs[0].detail) };
   });
-  if (!sp.skip) check('undoing a split keeps what was added to the new row (cards and texts go to the original row)', sp.gone && sp.text && sp.extra && sp.log, JSON.stringify(sp));
+  if (needs(sp)) check('undoing a split keeps what was added to the new row (cards and texts go to the original row)', sp.gone && sp.text && sp.extra && sp.log, JSON.stringify(sp));
   // One transaction: a write that fails leaves nothing half-written
   const atomic = await p.evaluate(async () => {
     const a = state.annotations[0];
@@ -1748,10 +1790,10 @@ await group('Review fixes 5: drawer autosave, merge across bases, split undo kee
   const pg = await p.evaluate(async () => {
     const t0 = Date.now();
     for (let i = 0; i < 200; i++) state.logs.push({ id: 'pg_' + i, timestamp: t0 - 1e9 - i, category: 'linking', action: 'Linked 1st Order Quote to 2nd Order Construct (X)', reviewer: 'A' });
-    setActiveTab('audit'); await new Promise(r => setTimeout(r, 300));
+    setActiveTab('audit'); await __mecIdle();
     const shown = document.querySelectorAll('#auditTimelineList > div').length;
     const more = document.querySelector('.audit-show-more'); const label = more && more.textContent;
-    more && more.click(); await new Promise(r => setTimeout(r, 300));
+    more && more.click(); await __mecIdle();
     return { shown, label, after: document.querySelectorAll('#auditTimelineList > div').length, total: state.logs.length };
   });
   check('the audit timeline shows a page of entries and more on request', pg.shown === 150 && new RegExp(`Show ${Math.min(150, pg.total - 150)} more`).test(pg.label || '') && pg.after === Math.min(300, pg.total), JSON.stringify(pg));
@@ -1787,9 +1829,9 @@ await group('Review fixes 6: flow by every directed relation, row deletion leave
     state.loa.links = [...(state.loa.links || []), { id: 'lk_del', from: c.id, to: other.id, type: 'leads' }];
     await dbPut('annotations', sec); await dbPut('meta', state.loa);
     await tab_matrix();
-    async function tab_matrix() { setActiveTab('matrix'); await new Promise(r => setTimeout(r, 400)); }
+    async function tab_matrix() { setActiveTab('matrix'); await __mecIdle(); }
     document.querySelector(`#matrixTable tr[data-cluster-id="${c.id}"] .del-cluster`).click();
-    await new Promise(r => setTimeout(r, 500));
+    await __mecIdle();
     const gone = !(c.id in sec.clusterRelations) && !(c.id in sec.clusterComments) && !(sec.aspectUsedInLoa || {})[c.id] && !(state.loa.links || []).some(l => l.id === 'lk_del');
     await performUndo();
     const back = sec.clusterIds.includes(c.id) && sec.clusterRelations[c.id] === 'other_aspect' && sec.clusterComments[c.id] === 'why' && sec.aspectUsedInLoa[c.id] === true && state.loa.links.some(l => l.id === 'lk_del');
@@ -1827,24 +1869,24 @@ await group('Review fixes 6: flow by every directed relation, row deletion leave
     await dbBatch([{ store: 'docs', del: d.id }, ...state.annotations.filter(a => a.docId === d.id).map(a => ({ store: 'annotations', del: a.id }))]);
     state.docs = state.docs.filter(x => x.id !== d.id); state.annotations = state.annotations.filter(a => a.docId !== d.id);
     state.clusters = state.clusters.filter(c => c.id !== rowId); await dbDelete('clusters', rowId);
-    await performUndo(); await new Promise(r => setTimeout(r, 400));
+    await performUndo(); await __mecIdle();
     const back = state.annotations.find(a => a.id === sec.id);
     return { back: !!back, dangling: back ? back.clusterIds.includes(rowId) : null };
   });
-  if (!st.skip) check('undoing a study deletion does not bring back a placement in a row deleted meanwhile', st.back && st.dangling === false, JSON.stringify(st));
+  if (needs(st)) check('undoing a study deletion does not bring back a placement in a row deleted meanwhile', st.back && st.dangling === false, JSON.stringify(st));
   // Trail: deleting a construct is logged; entries about the trail cannot be deleted; a deletion undone does not reach Appendix A
   const tr = await p.evaluate(async () => {
-    setActiveTab('extract'); await switchStudy(state.docs[0].id); await new Promise(r => setTimeout(r, 600));
+    setActiveTab('extract'); await switchStudy(state.docs[0].id); await __mecIdle();
     const btn = document.querySelector('#annotationsList .del');
-    if (btn) btn.click(); await new Promise(r => setTimeout(r, 500));
+    if (btn) btn.click(); await __mecIdle();
     const logged = /^Deleted a (1st Order quote|2nd Order construct)/.test(state.logs[0].action);
-    await performUndo(); await new Promise(r => setTimeout(r, 300));
+    await performUndo(); await __mecIdle();
     const victim = state.logs.find(l => l.category === 'third_order');
-    setActiveTab('audit'); await new Promise(r => setTimeout(r, 400));
+    setActiveTab('audit'); await __mecIdle();
     const card = [...document.querySelectorAll('#auditTimelineList .del-log')].find(b => b.closest('div').textContent.includes(victim.action)) || document.querySelector('#auditTimelineList .del-log');
-    card.click(); await new Promise(r => setTimeout(r, 400));
+    card.click(); await __mecIdle();
     const delLog = state.logs[0];
-    await performUndo(); await new Promise(r => setTimeout(r, 400));
+    await performUndo(); await __mecIdle();
     const editCards = [...document.querySelectorAll('#auditTimelineList > div')].filter(c => /Deleted an audit trail entry|Restored a deleted audit trail entry/.test(c.textContent));
     const noDelBtn = editCards.length > 0 && editCards.every(c => !c.querySelector('.del-log'));
     const key = getAppendixASpec('key').rows;
@@ -1853,6 +1895,12 @@ await group('Review fixes 6: flow by every directed relation, row deletion leave
   });
   check('deleting a construct in Tab 1 is logged', tr.logged, JSON.stringify(tr));
   check('entries about the trail itself have no delete button', tr.noDelBtn);
+  // The timeline only draws: its buttons carry data-action, run by the one listener on the Audit Trail view
+  const auditWiring = await p.evaluate(() => {
+    const all = [...document.querySelectorAll('#auditTimelineList button'), document.getElementById('addMemoBtn')];
+    return { n: all.length, own: all.filter(e => e.onclick).length, noAction: all.filter(e => !e.dataset.action || !AUDIT_ACTIONS[e.dataset.action]).length };
+  });
+  check('Audit Trail: every button runs an AUDIT_ACTIONS entry, none has a handler of its own', auditWiring.n > 2 && auditWiring.own === 0 && auditWiring.noAction === 0, JSON.stringify(auditWiring));
   check('an audit entry deleted and restored with Ctrl+Z does not reach Appendix A (key decisions)', !tr.inAppendix);
   // A reason being typed in the timeline is not interrupted by a redraw
   const rs = await p.evaluate(async () => {
@@ -1860,7 +1908,7 @@ await group('Review fixes 6: flow by every directed relation, row deletion leave
     box.focus(); box.value = 'typing a reason'; box.dispatchEvent(new Event('input', { bubbles: true }));
     renderAuditTimeline();
     const same = document.activeElement === box && box.isConnected && box.value === 'typing a reason';
-    box.blur(); await new Promise(r => setTimeout(r, 300));
+    box.blur(); await __mecIdle();
     return { same };
   });
   check('a reason being typed stays in place while the timeline would redraw', rs.same);
@@ -1894,7 +1942,7 @@ await group('Switching study quickly: the last click wins, also while a commit i
   const r = await p.evaluate(async () => {
     const x = state.docs[1].id, y = state.docs[2].id;
     const a = switchStudy(x); const b = switchStudy(y);
-    await Promise.all([a, b]); await new Promise(res => setTimeout(res, 500));
+    await Promise.all([a, b]); await __mecIdle();
     return { active: state.activeDocId === y, saved: state.docs[0].contextNote === 'typed, not yet saved' };
   });
   check('the study clicked last is the one open, and the text typed before is saved', r.active && r.saved, JSON.stringify(r));
@@ -1909,8 +1957,8 @@ await group('Review fixes 7: undo logs of constructs, manual entry kept on failu
     const sec = state.annotations.find(a => a.type === 'second_order' && a.docId === state.activeDocId && a.clusterIds.length);
     const card = document.querySelector(`[data-sidebar-anno="${sec.id}"]`);
     const del = card && (card.querySelector(':scope .del') || card.closest('div').querySelector('.del'));
-    del.click(); await new Promise(r => setTimeout(r, 500));
-    await performUndo(); await new Promise(r => setTimeout(r, 400));
+    del.click(); await __mecIdle();
+    await performUndo(); await __mecIdle();
     const log = state.logs[0];
     return { action: log.action, rows: (log.clusterIds || []).length, key: isKeyDecisionLog(log), back: state.annotations.some(a => a.id === sec.id) };
   });
@@ -1976,12 +2024,12 @@ await group('Review fixes 8: merge of nested appraisal answers, deletions take t
     d.conceptLinks = [...(d.conceptLinks || []), { id: 'cl_test', from: s1.id, to: s2.id, type: 'leads', note: '' }];
     await dbPut('docs', d); updateSidebar();
     document.querySelector(`[data-sidebar-anno="${s1.id}"]`).closest('div').querySelector('.del')?.click();
-    await new Promise(r => setTimeout(r, 500));
+    await __mecIdle();
     const gone = !(d.conceptLinks || []).some(l => l.id === 'cl_test');
-    await performUndo(); await new Promise(r => setTimeout(r, 400));
+    await performUndo(); await __mecIdle();
     return { gone, back: (d.conceptLinks || []).some(l => l.id === 'cl_test') };
   });
-  if (!cl.skip) check('deleting a construct removes its within-study relationships; Ctrl+Z restores them', cl.gone && cl.back, JSON.stringify(cl));
+  if (needs(cl)) check('deleting a construct removes its within-study relationships; Ctrl+Z restores them', cl.gone && cl.back, JSON.stringify(cl));
   // Deleting a study removes empty-cell records and "same study as" pointing to it; Ctrl+Z restores them
   const st = await p.evaluate(async () => {
     const victim = state.docs[3], other = state.docs[2];
@@ -1989,11 +2037,11 @@ await group('Review fixes 8: merge of nested appraisal answers, deletions take t
     const row = state.clusters.find(c => !state.annotations.some(a => a.type === 'second_order' && a.docId === victim.id && (a.clusterIds || []).includes(c.id))) || state.clusters[0];
     row.cellStatus = { ...(row.cellStatus || {}), [victim.id]: { status: 'absent', note: 'checked' } }; await dbPut('clusters', row);
     other.companionOf = victim.id; await dbPut('docs', other);
-    renderStudyList(); await new Promise(r => setTimeout(r, 200));
+    renderStudyList(); await __mecIdle();
     [...document.querySelectorAll('#studyList .del')][state.docs.indexOf(victim)].click();
-    await new Promise(r => setTimeout(r, 600));
+    await __mecIdle();
     const gone = !(victim.id in (row.cellStatus || {})) && other.companionOf === '';
-    await performUndo(); await new Promise(r => setTimeout(r, 800));
+    await performUndo(); await __mecIdle();
     return { gone, back: (row.cellStatus || {})[victim.id] && other.companionOf === victim.id };
   });
   check('deleting a study removes references to it; Ctrl+Z restores them', st.gone && !!st.back, JSON.stringify(st));
@@ -2009,7 +2057,7 @@ await group('Review fixes 8: merge of nested appraisal answers, deletions take t
     renderSecondOrderPool();
     const sel = [...document.querySelectorAll('.pool-place')].find(x => [...x.options].some(o => o.value === target.id));
     sel.value = target.id; sel.dispatchEvent(new Event('change'));
-    await new Promise(r => setTimeout(r, 600));
+    await __mecIdle();
     return { waiting, placed: sec.clusterIds.includes(target.id) };
   });
   check('a card waiting for a peer row says so', pl.waiting, JSON.stringify(pl));
@@ -2024,7 +2072,7 @@ await group('Review fixes 8: merge of nested appraisal answers, deletions take t
     const n = state.logs.length;
     const el = document.getElementById('loaNarrativeInput'); el.focus(); el.value += ' (more)'; el.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('choiceModalCancelBtn').focus(); // as when a dialog opens from the drawer
-    await new Promise(r => setTimeout(r, 300));
+    await __mecIdle();
     return state.logs.length === n;
   });
   check('focus moving into a dialog does not commit the drawer', dr);
@@ -2055,7 +2103,7 @@ await group('Sidebar redraw keeps open sections, focus and caret', async () => {
     if (ta) { ta.focus(); caret = Math.min(3, ta.value.length); ta.setSelectionRange(caret, caret); }
     const id = card.dataset.sidebarAnno;
     updateSidebar();
-    await new Promise(res => setTimeout(res, 200));
+    await __mecIdle();
     const card2 = list.querySelector(`[data-sidebar-anno="${id}"]`);
     const det2 = card2 && card2.querySelectorAll('details')[idx];
     const ae = document.activeElement;
@@ -2207,7 +2255,7 @@ await group('Review fixes 8: switch and undo tidy per-row marks and relationship
     const b = await dbGet('annotations', sec.id), d2 = await dbGet('docs', doc.id);
     return { switched, back: b.type === 'second_order' && !!(b.aspectUsedInLoa || {})[rid] && (d2.conceptLinks || []).some(l => l.id === 'cl_test') };
   });
-  if (!sw.skip) check('switching a construct to a quote drops its line-of-argument marks and within-study relationships; Ctrl+Z restores them', sw.switched && sw.back, JSON.stringify(sw));
+  if (needs(sw)) check('switching a construct to a quote drops its line-of-argument marks and within-study relationships; Ctrl+Z restores them', sw.switched && sw.back, JSON.stringify(sw));
   await settle(p);
   // Absorb a construct as a passage and split it off again: its line-of-argument mark moves with it and back
   const ab = await p.evaluate(async () => {
@@ -2229,7 +2277,7 @@ await group('Review fixes 8: switch and undo tidy per-row marks and relationship
     const t2 = await dbGet('annotations', tgt.id), back = await dbGet('annotations', src.id);
     return { moved, back: !!back && !!(back.aspectUsedInLoa || {})[rid] && !((t2.aspectUsedInLoa || {})[rid]) };
   });
-  if (!ab.skip) check('a construct made a passage takes its line-of-argument mark along, and gets it back when split off', ab.moved && ab.back, JSON.stringify(ab));
+  if (needs(ab)) check('a construct made a passage takes its line-of-argument mark along, and gets it back when split off', ab.moved && ab.back, JSON.stringify(ab));
   else check('passage absorb: demo has suitable constructs', false, 'none');
   await settle(p);
   // Delete a construct, then its row, then undo the construct: it comes back without the row that is gone
@@ -2288,7 +2336,7 @@ await group('Review fixes 9: flow sketch buttons save, row bases on merge / spli
     tgt.baseDocId = tgtBase; await dbPut('clusters', tgt);
     return r;
   });
-  if (!mg.skip) check('merging into a row with another base: the source row\'s base card starts unjudged (no old judgement carried)', mg.unjudged && mg.noted, JSON.stringify(mg));
+  if (needs(mg)) check('merging into a row with another base: the source row\'s base card starts unjudged (no old judgement carried)', mg.unjudged && mg.noted, JSON.stringify(mg));
   else check('merge across bases: demo rows suitable', false, 'none');
   await settle(p);
   // Split of a "No single base" row stays without a single base; Ctrl+Z after a merge numbers the rows again
@@ -2401,7 +2449,7 @@ await group('Review fixes 10: setup after the project is read, no double entries
     return { cls: box.className.split(' ')[0] };
   });
   await settle(p);
-  if (!typed.skip) check('a matrix rebuild commits the text being typed (saved and logged)', await p.evaluate(() => state.logs.some(l => /typed before a rebuild/.test((l.toVal || '') + (l.detail || '')))), JSON.stringify(typed));
+  if (needs(typed)) check('a matrix rebuild commits the text being typed (saved and logged)', await p.evaluate(() => state.logs.some(l => /typed before a rebuild/.test((l.toVal || '') + (l.detail || '')))), JSON.stringify(typed));
   // Merging into a row set to "No single base" keeps it so
   const nb = await p.evaluate(async () => {
     const [src, tgt] = [state.clusters[0], state.clusters[1]];
@@ -2429,7 +2477,7 @@ await group('Review fixes 10: setup after the project is read, no double entries
     return { back: a.clusterIds.includes(src.id), rel: (a.clusterRelations || {})[src.id] === next, note: (a.clusterComments || {})[src.id] === 'Read again after the split',
       noGarbage: !Object.keys(a.clusterRelations || {}).concat(Object.keys(a.clusterComments || {})).includes(nw.id), log: /now in the original row/.test(state.logs[0].detail) };
   });
-  if (!su.skip) check('undoing a split keeps a judgement / note changed in the new row, in the original row', su.back && su.rel && su.note && su.noGarbage && su.log, JSON.stringify(su));
+  if (needs(su)) check('undoing a split keeps a judgement / note changed in the new row, in the original row', su.back && su.rel && su.note && su.noGarbage && su.log, JSON.stringify(su));
   await settle(p);
   // A construct with its own further passages, absorbed and split off again, takes them back
   const pa = await p.evaluate(async () => {
@@ -2503,7 +2551,7 @@ await group('Review fixes 11: history count without a second rebuild, peer rows,
     const btn = document.querySelector(`#matrixTable tr[data-cluster-id="${CSS.escape(h.id)}"] .cl-history-btn`);
     return { builds: h.builds, before: h.before, after: rowHistoryCount(c), shown: btn && btn.textContent };
   });
-  if (!hc.skip) check('a rebuild while typing builds the table once; the History count follows the new entry', hc.builds === 1 && hc.after === hc.before + 1 && hc.shown === `🕘 History (${hc.after})`, JSON.stringify(hc));
+  if (needs(hc)) check('a rebuild while typing builds the table once; the History count follows the new entry', hc.builds === 1 && hc.after === hc.before + 1 && hc.shown === `🕘 History (${hc.after})`, JSON.stringify(hc));
   await settle(p);
   // A construct waiting for a peer row: when the row arrives, it sets the row's base (if not set) and clears the empty-cell note
   const rp = await p.evaluate(async () => {
@@ -2596,7 +2644,7 @@ await group('Review fixes 13: no ghost after delete, undo clears empty-cell note
     return { id };
   });
   await settle(p);
-  if (!ghost.skip) check('a quote deleted right after typing in it stays deleted', await p.evaluate(async id => !(await dbGet('annotations', id)) && !state.annotations.some(a => a.id === id), ghost.id), JSON.stringify(ghost));
+  if (needs(ghost)) check('a quote deleted right after typing in it stays deleted', await p.evaluate(async id => !(await dbGet('annotations', id)) && !state.annotations.some(a => a.id === id), ghost.id), JSON.stringify(ghost));
   // Undo that brings a card back into a row clears the empty-cell note for its study there
   const uc = await p.evaluate(async () => {
     const sec = state.annotations.find(a => a.type === 'second_order' && liveClusterIds(a).length);
@@ -2626,7 +2674,7 @@ await group('Review fixes 13: no ghost after delete, undo clears empty-cell note
     src.baseDocId = was[0]; tgt.baseDocId = was[1]; await dbPut('clusters', src); await dbPut('clusters', tgt);
     return r;
   });
-  if (!mb.skip) check('merging: a card of the target row\'s base study becomes its base, without an old judgement or mark', mb.base && mb.noSelf && mb.noMark, JSON.stringify(mb));
+  if (needs(mb)) check('merging: a card of the target row\'s base study becomes its base, without an old judgement or mark', mb.base && mb.noSelf && mb.noMark, JSON.stringify(mb));
   await settle(p);
   // A reviewer-wrapped construct switched to a quote goes back to the quote text, without its 2nd Order fields
   const wq = await p.evaluate(async () => {
@@ -2637,7 +2685,7 @@ await group('Review fixes 13: no ghost after delete, undo clears empty-cell note
     const a = state.annotations.find(x => x.id === w.id);
     return { type: a.type, text: a.text === stripOuterQuotes(f.text), origin: a.origin === undefined };
   });
-  if (!wq.skip) check('a wrapped construct switched to a quote is the quote again, without 2nd Order fields', wq.type === 'first_order' && wq.text && wq.origin, JSON.stringify(wq));
+  if (needs(wq)) check('a wrapped construct switched to a quote is the quote again, without 2nd Order fields', wq.type === 'first_order' && wq.text && wq.origin, JSON.stringify(wq));
   await settle(p);
   // Reviewer ID change cancelled: nothing changes
   p.autoReason = false;
@@ -2772,7 +2820,9 @@ await group('Shared global scope: no top-level name is declared twice across the
   const pageUse = logic.match(/\b(document|window|localStorage|indexedDB|state|lsGet|lsSet|dbPut|dbGet\w*|showSnackbar)\b/g) || [];
   check('logic.js uses nothing of the page or the project state', pageUse.length === 0, [...new Set(pageUse)].join(', '));
   // The smoke tests wait for the app (settle) or for a condition, never a fixed time
-  const fixedWaits = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').filter(l => l.includes('.waitFor' + 'Timeout(')).length;
+  // (in the page too: a sleep inside page.evaluate waits for __mecIdle() instead)
+  const fixedWaits = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n')
+    .filter(l => l.includes('.waitFor' + 'Timeout(') || new RegExp('setTimeout\\((r|res), \\d').test(l)).length;
   check('no fixed waits in the smoke tests', fixedWaits === 0, `${fixedWaits} found`);
   check(`no top-level name declared twice (${seen.size} names)`, dups.length === 0, dups.join('; '));
 });
@@ -2897,7 +2947,7 @@ await group('Review fixes 10: saves still running are waited for, a refused save
     inputs[0].focus(); inputs[0].value = 'Typed on one card'; inputs[0].dispatchEvent(new Event('input'));
     return { other: inputs[1].value };
   }, sy);
-  if (!synced.skip) check("a construct's label typed on its card in one row shows on its card in another row", synced.other === 'Typed on one card', JSON.stringify(synced));
+  if (needs(synced)) check("a construct's label typed on its card in one row shows on its card in another row", synced.other === 'Typed on one card', JSON.stringify(synced));
   await p.evaluate(() => document.activeElement && document.activeElement.blur()); await settle(p);
   // Pool: opening "why not translated" by its summary does not leave the card undraggable
   const dr = await p.evaluate(() => {
@@ -2909,7 +2959,7 @@ await group('Review fixes 10: saves still running are waited for, a refused save
     document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     return { during, after: card.draggable };
   });
-  if (!dr.skip) check('a pool card can be dragged again after its "why not translated" box is opened', dr.during === false && dr.after === true, JSON.stringify(dr));
+  if (needs(dr)) check('a pool card can be dragged again after its "why not translated" box is opened', dr.during === false && dr.after === true, JSON.stringify(dr));
   await settle(p);
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
@@ -2974,7 +3024,7 @@ await group('One transaction per change: a record and its audit entry together; 
     try { await sel.onchange({ target: sel }); } catch (e) { threw = true; } finally { window.dbBatch = orig; }
     return { threw, same: target.noteSource === before.src, noEntry: state.logs.length === before.logs };
   });
-  if (!rf.skip) check('a refused write leaves the record and the trail in memory as they were', rf.threw && rf.same && rf.noEntry, JSON.stringify(rf));
+  if (needs(rf)) check('a refused write leaves the record and the trail in memory as they were', rf.threw && rf.same && rf.noEntry, JSON.stringify(rf));
   await p.evaluate(() => updateSidebar()); await settle(p);
   // Removing a further passage is logged (adding one is) and undoable
   const ps = await p.evaluate(async () => {
@@ -3037,11 +3087,11 @@ await group('One transaction per change: a record and its audit entry together; 
     const card = [...document.querySelectorAll('.flag-disc')].map(b => b.closest('div.bg-white')).find(c => c && c.textContent.includes((sec.note || sec.text).slice(0, 20)));
     if (!card) return { skip: true };
     const before = state.logs.length;
-    await card.querySelector('.flag-disc').onclick();
+    card.querySelector('.flag-disc').click(); await __mecIdle();
     return { status: sec.concordanceStatus, kept: sec.concordanceNote.includes('Our own note from the team meeting'), reason: /Extracted only by @/.test(sec.concordanceNote),
       logged: state.logs.length === before + 1 && state.logs[0].kind === 'construct_team' && /^Flagged for discussion/.test(state.logs[0].action) };
   });
-  if (!fd.skip) check('"Flag for Discussion" keeps the construct\'s team note, adds the reason and is logged', fd.status === 'discuss' && fd.kept && fd.reason && fd.logged, JSON.stringify(fd));
+  if (needs(fd)) check('"Flag for Discussion" keeps the construct\'s team note, adds the reason and is logged', fd.status === 'discuss' && fd.kept && fd.reason && fd.logged, JSON.stringify(fd));
   else check('the local-only construct is listed in Compare', false, JSON.stringify(fd));
   await p.evaluate(() => { document.getElementById('closeCompareModalBtn').click(); state.peerComparison = null; });
   await settle(p);
