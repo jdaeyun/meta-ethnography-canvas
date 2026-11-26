@@ -62,18 +62,18 @@ the views is listed in section 12.
 
 | File | Size | Owns | Main entry points |
 |---|---|---|---|
-| `core.js` | 53 KB | storage engine, `state`, normalisation, save path for text, dialogs, small helpers | `initDB`, `dbPut`, `dbDelete`, `dbBatch`, `commitOps`, `bindTextField`, `bindPendingCommit`, `flushAllPendingSaves`, `normalizeDoc/Annotation/Cluster`, `upgradeProjectData`, `askReason`, `askChoice`, `showNotice`, `showSnackbar` |
-| `logic.js` | 81 KB | everything that can be decided without the page (unit-tested in Node) | `checkInvariants`, `putIntoRow` / `takeOutOfRow` / `rowFieldsOf`, `applyOps`, `revertChange`, `tidyRefsOps`, `planMergeRows` / `planSplitRow` (+ undo plans), `rowDeletionOps`, `remapDocIds`, `purgeDocRefs`, `purgeClusterRefs`, `isKeyDecisionLog`, `LOG_KINDS`, `sanitizeProjectData` |
-| `app.js` | 36 KB | start-up, project / reviewer setup, tab switching, settings, PDF drag & drop | `DOMContentLoaded` handler, `setActiveTab`, `refreshOpenViews`, `openProjectSetupModal` |
-| `undo-audit.js` | 12 KB | the one save path for changes, audit entries and the undo stack | `saveChange`, `auditEntry`, `recordAuditLog`, `beginChange`, `finishChange`, `pushUndoAction`, `performUndo` |
-| `loa.js` | 52 KB | the Research Aim & Overall Model drawer, concept map (SVG), team models, Tab 4 write-up fields | `populateLoaInputs`, `saveLoaDrawer` / `commitLoaDrawer`, `renderLoaMap`, `renderTeamModels`, `addTeamModel` |
-| `studies-pdf.js` | 95 KB | studies: import, order, details / appraisal dock; PDF rendering, selection, highlights, search, citation auto-fill | `handleFiles`, `renderStudyList`, `switchStudy`, `persistDocOrder`, `checkBaselineChange`, `saveCurrentMeta`, `addAnno` |
-| `extraction.js` | 66 KB | Tab 1 sidebar: quote and construct cards, links, passages, wrap, manual entry, 1st ⇄ 2nd switch | `updateSidebar`, `makeFirstCard`, `deleteSecondOrder`, `absorbAsPassage`, `splitOffPassage`, `toggleAnnotationOrderType` |
-| `matrix.js` | 128 KB | Tab 2: pool, rows (synthesis / CERQual / team sub-tabs), empty cells, auto-placement, row order, merge / split | `renderMatrixView`, `renderMatrixTable`, `buildRowBody`, `renderSecondOrderPool`, `assignSecondOrderToCluster`, `removeSecondOrderFromCluster`, `deleteClusterRow`, `mergeRows`, `splitRow`, `getMatrixIndex` |
-| `audit-view.js` | 17 KB | Tab 3 | `renderAuditView`, `renderAuditTimeline`, memo form |
-| `compare.js` | 60 KB | Compare & merge another reviewer's JSON | `processPeerJsonFile`, `matchPeerDocs`, `renderComparisonTabContent`, `importPeerConstructNow`, `mergePeerAuditLogs` |
-| `export.js` | 102 KB | Tab 4, read only: one spec per table, three renderers (HTML, Markdown, Word) | `getMethodSections`, `getEmergeChecklist`, `getTable1Spec` … `getAppendixASpec`, `renderPublicationView` |
-| `backup.js` | 28 KB | JSON backup, restore (clean / merge), reset | `jsonFileInput` change handler, `resetProject` |
+| `core.js` | 51 KB | storage engine, `state`, normalisation, save path for text, dialogs, small helpers | `initDB`, `dbPut`, `dbDelete`, `dbBatch`, `commitOps`, `bindTextField`, `bindPendingCommit`, `flushAllPendingSaves`, `normalizeDoc/Annotation/Cluster`, `upgradeProjectData`, `askReason`, `askChoice`, `showNotice`, `showSnackbar` |
+| `logic.js` | 153 KB | everything that can be decided without the page (unit-tested in Node) | `checkInvariants`, `putIntoRow` / `takeOutOfRow` / `rowFieldsOf`, `applyOps`, `revertChange`, `tidyRefsOps`, `planMergeRows` / `planSplitRow` (+ undo plans), `rowDeletionOps`, `remapDocIds`, `purgeDocRefs`, `purgeClusterRefs`, `isKeyDecisionLog`, `LOG_KINDS`, `sanitizeProjectData`, the operations `op…()` (one per reviewer action, e.g. `opPlace`, `opAbsorbPassage`, `opImportPeerConstruct`) |
+| `app.js` | 33 KB | start-up, project / reviewer setup, tab switching, settings, PDF drag & drop | `DOMContentLoaded` handler, `setActiveTab`, `refreshOpenViews`, `openProjectSetupModal` |
+| `undo-audit.js` | 14 KB | the one save path for changes, audit entries and the undo stack | `saveChange`, `auditEntry`, `recordAuditLog`, `runOperation`, `OP_NAMES`, `beginChange`, `finishChange`, `pushUndoAction`, `performUndo` |
+| `loa.js` | 45 KB | the Research Aim & Overall Model drawer, concept map (SVG), team models, Tab 4 write-up fields | `populateLoaInputs`, `saveLoaDrawer` / `commitLoaDrawer`, `renderLoaMap`, `renderTeamModels`, `addTeamModel`, `LOA_ACTIONS` |
+| `studies-pdf.js` | 88 KB | studies: import, order, details / appraisal dock; PDF rendering, selection, highlights, search, citation auto-fill | `handleFiles`, `renderStudyList`, `switchStudy`, `persistDocOrder`, `checkBaselineChange`, `saveCurrentMeta`, `addAnno` |
+| `extraction.js` | 57 KB | Tab 1 sidebar: quote and construct cards, links, passages, wrap, manual entry, 1st ⇄ 2nd switch | `updateSidebar`, `makeFirstCard`, `SIDEBAR_ACTIONS`, `deleteSecondOrder`, `absorbAsPassage`, `splitOffPassage`, `toggleAnnotationOrderType` |
+| `matrix.js` | 116 KB | Tab 2: pool, rows (synthesis / CERQual / team sub-tabs), empty cells, auto-placement, row order, merge / split | `renderMatrixView`, `renderMatrixTable`, `buildRowBody`, `renderSecondOrderPool`, `assignSecondOrderToCluster`, `removeSecondOrderFromCluster`, `deleteClusterRow`, `mergeRows`, `splitRow`, `getMatrixIndex`, `MATRIX_ACTIONS` |
+| `audit-view.js` | 17 KB | Tab 3 | `renderAuditView`, `renderAuditTimeline`, `AUDIT_ACTIONS` (memo form, reasons, attribution, deleting an entry) |
+| `compare.js` | 54 KB | Compare & merge another reviewer's JSON | `processPeerJsonFile`, `matchPeerDocs`, `renderComparisonTabContent`, `COMPARE_ACTIONS`, `importPeerConstructNow`, `mergePeerAuditLogs` |
+| `export.js` | 99 KB | Tab 4, read only: one spec per table, three renderers (HTML, Markdown, Word) | `getMethodSections`, `getEmergeChecklist`, `getTable1Spec` … `getAppendixASpec`, `renderPublicationView` |
+| `backup.js` | 27 KB | JSON backup, restore (clean / merge), reset | `jsonFileInput` change handler, `resetProject` |
 | `demo.js` | 4 KB | `?demo`: seeds the AI-generated demo project into its own database | `seedDemoIfEmpty` |
 
 ## 4. Data
@@ -322,8 +322,10 @@ wording kept) and the reviewer name (re-attribution); they can be deleted (undoa
 | `tools/test/smoke.mjs` | the real app in Chromium on the demo project; after every step `settle()` waits for idle and runs `checkInvariants()`; plus checks for wording, CSP, layout widths, compatibility, audit kinds, no browser dialogs, shared global names |
 
 The smoke group "One transaction per change" checks that a refused write leaves memory and the trail as they were, and
-the fixes of section 7. What the tests still cannot reach well: handlers that live inside render functions (only the smoke
-test reaches them, one click at a time).
+the fixes of section 7. Inside `page.evaluate`, a smoke test waits with `__mecIdle()` (the same idea as `settle`), never a
+fixed time; a promise of an event handler that fails is reported as a page error, so the group's "no page errors" check
+sees it. What the tests still cannot reach well: the code still written in the views (section 12, last column), which only
+the smoke test reaches, one click at a time.
 
 ## 11. Operations inventory
 

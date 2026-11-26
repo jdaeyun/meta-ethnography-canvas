@@ -273,7 +273,6 @@ test('scenario: undoing a split whose new row has another base leaves a ◇ read
   assert.ok(r.kept.some(k => /against another base, not carried \(the original row keeps its own\)/.test(k)), r.kept.join(' | '));
 });
 
-// ---- Random walks: any order of the steps keeps the project consistent; Undo right after a step restores it exactly ----
 test('operations: each says what it changes, and returns nothing when nothing changes', () => {
   const p = makeProject();
   // Placing clears the study's empty-cell record, with an entry for it, and the construct starts unjudged
@@ -586,6 +585,7 @@ test('operations of the trail and the project setup: reasons kept with their his
 });
 
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+// ---- Random walks: any order of the steps keeps the project consistent; Undo right after a step restores it exactly ----
 const STEPS = ['place', 'judge', 'merge', 'split', 'deleteRow', 'unplace', 'deleteConstruct', 'addConstruct', 'linkQuote', 'relate', 'markEmpty', 'deleteStudy',
   'absorb', 'splitOff', 'removePassage', 'moveRow', 'rowBase', 'rowTeam', 'undo', 'undo'];
 for (const seed of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765, 10946]) {

@@ -420,7 +420,7 @@ const SIDEBAR_ACTIONS = {
     const action = SIDEBAR_ACTIONS[el.dataset.action];
     if (!action) return;
     ev.stopPropagation();
-    Promise.resolve(action(sidebarActionContext(el))).catch(err => console.error('Sidebar action failed:', err));
+    return Promise.resolve(action(sidebarActionContext(el)));
   };
   list.addEventListener('click', ev => run(ev, false));
   list.addEventListener('change', ev => run(ev, true));

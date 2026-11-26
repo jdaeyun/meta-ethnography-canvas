@@ -755,7 +755,7 @@ const COMPARE_ACTIONS = {
     const action = COMPARE_ACTIONS[el.dataset.action];
     if (!action) return;
     ev.stopPropagation();
-    Promise.resolve(action(compareActionContext(el))).catch(err => console.error('Compare action failed:', err));
+    return Promise.resolve(action(compareActionContext(el)));
   };
   content.addEventListener('click', ev => run(ev, false));
   content.addEventListener('change', ev => run(ev, true));

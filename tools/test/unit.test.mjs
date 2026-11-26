@@ -283,7 +283,8 @@ test('map: direction, parallel relations, flow columns with cycles and undirecte
   assert.equal(off['3'], 0, 'a single relation stays on the straight line');
   assert.equal(off['1'], -off['2'], 'two relations of one pair part to either side');
   const rev = L.linkPairOffsets([{ id: '1', from: 'a', to: 'b' }, { id: '2', from: 'b', to: 'a' }]);
-  assert.notEqual(Math.sign(rev['1'] * 1), Math.sign(rev['2'] * -1), 'A→B and B→A also part');
+  // Each offset is measured to one side of its own relation's direction: A→B and B→A part unless their offsets mirror
+  assert.ok(rev['1'] !== 0 && rev['2'] !== 0 && rev['1'] !== -rev['2'], `A→B and B→A also part (${rev['1']}, ${rev['2']})`);
   const { rank } = L.flowColumnRanks(['a', 'b', 'c', 'd', 'e'], [
     { id: '1', from: 'a', to: 'b', type: 'leads' }, { id: '2', from: 'b', to: 'c', type: 'encompasses' },
     { id: '3', from: 'c', to: 'a', type: 'leads' },   // a cycle: broken for the ranking only

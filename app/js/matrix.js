@@ -1558,7 +1558,7 @@ const MATRIX_ACTIONS = {
     const action = MATRIX_ACTIONS[el.dataset.action];
     if (!action || !ctx.row) return;
     ev.stopPropagation();
-    Promise.resolve(action(ctx)).catch(err => console.error('Matrix action failed:', err));
+    return Promise.resolve(action(ctx));
   };
   table.addEventListener('click', ev => run(ev, false));
   table.addEventListener('change', ev => run(ev, true));

@@ -275,6 +275,6 @@ const AUDIT_ACTIONS = {
     const action = AUDIT_ACTIONS[el.dataset.action];
     if (!action) return;
     ev.stopPropagation();
-    Promise.resolve(action(auditActionContext(el))).catch(err => console.error('Audit Trail action failed:', err));
+    return Promise.resolve(action(auditActionContext(el)));
   });
 })();
