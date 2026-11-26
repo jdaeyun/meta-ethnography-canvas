@@ -206,7 +206,7 @@ async function saveChange(ops, entries = []) {
 async function runOperation(work, { undo = null } = {}) {
   if (undo || typeof work === 'function') await flushAllPendingSaves();
   const result = typeof work === 'function' ? work(state) : work;
-  if (!result || !result.ops.length) return false;
+  if (!result || (!result.ops.length && !(result.entries || []).length)) return false;
   const keys = result.ops.filter(o => o.store !== 'logs' && o.store !== 'pdf_binaries').map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id }));
   const change = undo ? beginChange(undo.label, keys, { undoLogs: undo.undoLogs || [], before: undo.before || {} }) : null;
   await saveChange(result.ops, (result.entries || []).map(e => auditEntry(e)));

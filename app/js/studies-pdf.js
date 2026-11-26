@@ -171,19 +171,8 @@ function getOrderStrategy() {
 function firstStudyMeta() { return ORDER_STRATEGIES[getOrderStrategy()]; }
 async function setOrderStrategy(next, { rationale = '', reason = '' } = {}) {
   if (!ORDER_STRATEGIES[next]) return;
-  const prev = getOrderStrategy();
-  if (prev === next) return;
-  const loa = /** @type {Record<string, any>} */ ({ ...state.loa, id: 'loa_main', orderStrategy: next, updatedAt: Date.now() });
-  if (rationale) loa.orderRationale = rationale; // reused in the Methods Summary
-  await saveChange([{ store: 'meta', put: loa }], auditEntry({
-    kind: 'order_strategy',
-    category: 'study_order',
-    action: `Set translation-order strategy: ${ORDER_STRATEGIES[next].label}`,
-    detail: reason || 'Changed in the study list.',
-    fromVal: ORDER_STRATEGIES[prev].label,
-    toVal: ORDER_STRATEGIES[next].label,
-    rationale
-  }));
+  const labels = Object.fromEntries(Object.entries(ORDER_STRATEGIES).map(([k, v]) => [k, v.label]));
+  if (!(await runOperation(opOrderStrategy(state, { next, rationale, reason, labels })))) return;
   const sel = document.getElementById('orderStrategySelect');
   if (sel) sel.value = next;
   renderStudyList();
@@ -248,70 +237,20 @@ function getBadgesHtml(doc) {
 // Only the studies whose number changes are written.
 /** @param {any[]} [list] @param {any} [entries] @param {DbOp[]} [extraOps] */
 async function persistDocOrder(list = state.docs, entries = [], extraOps = []) {
-  await saveChange([...list.flatMap((d, i) => d.order === i ? [] : [{ store: 'docs', put: { ...d, order: i } }]), ...extraOps], entries);
+  await runOperation(opStudyOrder(state, { ids: list.map(d => d.id), entries, extraOps }));
   sortStudies(state.docs);
   await checkBaselineChange();
 }
 
 // ---- Study #1 is where translation starts: when it changes, rows established by the former #1 have to be re-read ----
-// The #1 study is remembered in the project (loa.baselineDocId), so every path that reorders, deletes or restores studies is covered.
+// The #1 study is remembered in the project (loa.baselineDocId), so every path that reorders, deletes or restores studies is
+// covered (opBaselineCheck, logic.js). Only remembering it (the first study, or a new name) is bookkeeping: no backup reminder.
 async function checkBaselineChange() {
-  const prevId = state.loa.baselineDocId || null;
-  const prevName = state.loa.baselineDocName || '';
-  const now = state.docs[0] || null;
-  const nowId = now ? now.id : null;
-  if (prevId === nowId && (!now || prevName === getDisplayName(now))) return;
-  const loaOp = { store: 'meta', put: { ...state.loa, id: 'loa_main', baselineDocId: nowId, baselineDocName: now ? getDisplayName(now) : '' } };
-  // First study ever, or only the name changed: only remembering which study is #1 (the change that caused it was saved and
-  // marked already), so no backup reminder for it
-  if (!prevId || !nowId || prevId === nowId) { await commitOps([loaOp], { quiet: true }); return; }
-  const flags = rowFlagsForBaselineChange(prevId, prevName, now);
-  await saveChange([loaOp, ...flags.ops], flags.entries);
-  if (flags.affected) showSnackbar(`Study #1 changed: ${flags.affected} row(s) marked for re-reading in the Synthesis Matrix.`);
-}
-
-// Rows keep the study that established them (cluster.baseDocId): a new #1 does not change any row's base. Rows established
-// by the former #1 are marked for re-reading, because the translation order they were built on has changed.
-// Returns the rows' writes (copies), their audit entries and how many rows were marked.
-function rowFlagsForBaselineChange(prevId, prevName, nowDoc) {
-  /** @type {DbOp[]} */
-  const ops = [];
-  const entries = [];
-  // A row whose flag started from the study that is #1 again (moved back, or a deletion undone) is back on the basis it was
-  // built on: its flag is cleared instead of renewed. So is a row whose base already is the new #1.
-  const reverted = state.clusters.filter(c => c.baselineChange && (c.baselineChange.fromDocId === nowDoc.id || c.baseDocId === nowDoc.id));
-  reverted.forEach(c => { const next = { ...c }; delete next.baselineChange; ops.push({ store: 'clusters', put: next }); });
-  if (reverted.length) {
-    entries.push(auditEntry({
-      kind: 'baseline_rows',
-      category: 'study_order',
-      action: `Study #1 is ${getDisplayName(nowDoc)}: ${reverted.length} row(s) are back on the basis they were built on`,
-      detail: `Re-reading flag cleared for: ${reverted.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
-      clusterIds: reverted.map(c => c.id)
-    }));
-  }
-  const revertedIds = new Set(reverted.map(c => c.id));
-  // Rows established by the former #1, and rows already flagged by an earlier change (A → B → C keeps A)
-  const affected = state.clusters.filter(c => !revertedIds.has(c.id) && (c.baseDocId === prevId || c.baselineChange));
-  if (affected.length) {
-    const at = Date.now();
-    affected.forEach(c => {
-      const orig = c.baselineChange;
-      ops.push({ store: 'clusters', put: { ...c, baselineChange: { at, fromDocId: orig ? orig.fromDocId : prevId, fromName: orig ? orig.fromName : prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) } } });
-    });
-    entries.push(auditEntry({
-      kind: 'baseline_rows',
-      category: 'study_order',
-      action: `Study #1 changed: ${affected.length} 3rd Order row(s) established by an earlier #1 need re-reading`,
-      detail: `#1 was ${prevName || 'another study'}; it is now ${getDisplayName(nowDoc)}. These rows keep the study that established them`
-        + ` (the other studies were translated into its construct); no judgement was changed. Re-read each row, or make the new #1 its base.`
-        + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
-      fromVal: `#1: ${prevName}`,
-      toVal: `#1: ${getDisplayName(nowDoc)}`,
-      clusterIds: affected.map(c => c.id)
-    }));
-  }
-  return { ops, entries, affected: affected.length };
+  const r = opBaselineCheck(state, OP_NAMES);
+  if (!r) return;
+  if (r.quiet) { await commitOps(r.ops, { quiet: true }); return; }
+  await runOperation(r);
+  if (r.affected) showSnackbar(`Study #1 changed: ${r.affected} row(s) marked for re-reading in the Synthesis Matrix.`);
 }
 
 async function moveStudyOrder(fromIdx, toIdx) {
@@ -403,67 +342,71 @@ function renderStudyList() {
         ${doc.setting ? `<div class="text-xs text-slate-500 font-normal truncate mt-0.5 pl-4"><i class="ph ph-map-pin mr-0.5"></i>${escapeHtml(doc.setting)}</div>` : ''}
         ${badges ? `<div class="flex flex-wrap gap-1 mt-1 pl-4">${badges}</div>` : ''}
       </div>
-      <button class="del text-slate-400 hover:text-rose-500 px-1 shrink-0 cursor-pointer" title="Delete this study"><i class="ph ph-trash"></i></button>
+      <button data-action="study-remove" data-doc="${escapeHtml(doc.id)}" class="del text-slate-400 hover:text-rose-500 px-1 shrink-0 cursor-pointer" title="Delete this study"><i class="ph ph-trash"></i></button>
     `;
 
     item.addEventListener('click', (e) => { if (!e.target.closest('.del')) switchStudy(doc.id); });
-    item.querySelector('.del').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const nExtracted = state.annotations.filter(a => a.docId === doc.id).length;
-      // One dialog: the decision and its reason (removing a study from the synthesis is an interpretive decision)
-      const why = await askReason({
-        title: `Remove ${getDisplayName(doc)} from the synthesis?`,
-        context: `The study and its ${nExtracted} extracted construct(s)/quote(s) are deleted${idx === 0 ? ', and the next study becomes #1' : ''}. The removal is recorded in the Audit Trail; Ctrl+Z undoes it.`,
-        label: 'Why is this study being removed? (optional, saved in the Audit Trail as the rationale)',
-        confirmLabel: 'Remove study', draftKey: 'remove-study-' + doc.id
-      });
-      if (why !== null) {
-        await flushAllPendingSaves(); // nothing of the study still waiting to be saved lands after the deletion
-        const wasIndex = idx === 0;
-        const binRec = await dbGet('pdf_binaries', doc.id);
-        const toDel = state.annotations.filter(a => a.docId === doc.id);
-        // References to the study elsewhere are removed with it and put back by Ctrl+Z: empty-cell records in rows and
-        // "same primary study as" (purgeDocRefs, logic.js; a row's ◆ base is kept: it tells which rows study #1 established,
-        // see checkBaselineChange)
-        const refs = purgeDocRefs(state, doc.id);
-        const rest = state.docs.filter(d => d.id !== doc.id);
-        // The study, its PDF, its constructs, the references to it and the entry go in one transaction; the records in memory
-        // change once all of it is stored
-        await saveChange([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refs.ops], auditEntry({
-          kind: 'study_remove',
-          category: 'study_order',
-          rationale: why,
-          action: `Removed Study from the Synthesis: ${getDisplayName(doc)}${wasIndex ? ' (was the #1 study)' : ''}`,
-          detail: `"${doc.title || doc.name}" was deleted together with ${toDel.length} extracted construct(s)/quote(s).${wasIndex && rest[0] ? ` New #1 study: ${getDisplayName(rest[0])}.` : ''}`,
-          fromVal: `${rest.length + 1} studies`,
-          toVal: `${rest.length} studies`
-        }));
-        // On the undo stack only once it is stored (a refused write leaves the study, and nothing to undo)
-        pushUndoAction({
-          type: 'delete_study',
-          label: `Study (${getDisplayName(doc)})`,
-          doc: JSON.parse(JSON.stringify(doc)),
-          binary: binRec && binRec.data ? binRec.data : null,
-          annotations: toDel.map(a => JSON.parse(JSON.stringify(a))),
-          position: idx,
-          cellStatus: refs.cellStatus, companions: refs.companions
-        });
-        await persistDocOrder(); // after the removal's entry: a change of #1 it causes is logged after it
-        if (state.activeDocId === doc.id) state.activeDocId = state.docs[0]?.id || null;
-        showUndoSnackbar(`Removed ${getDisplayName(doc)}`);
-        renderStudyList();
-        if (state.activeDocId) switchStudy(state.activeDocId);
-        else {
-          await closeActivePdf(); // the last study went: its PDF is let go, not only hidden behind the welcome guide
-          renderWelcomeGuideIfNeeded();
-          updateDocHeaderUI();
-          updateSidebar();
-        }
-      }
-    });
     list.appendChild(item);
   });
 }
+
+// Removing a study from the synthesis (the study list's 🗑): one dialog for the decision and its reason; undoable (Ctrl+Z),
+// with its PDF, constructs and references (opRemoveStudy, logic.js)
+async function removeStudyWithReason(doc) {
+  const idx = state.docs.indexOf(doc);
+  if (idx < 0) return;
+  const nExtracted = state.annotations.filter(a => a.docId === doc.id).length;
+  // One dialog: the decision and its reason (removing a study from the synthesis is an interpretive decision)
+  const why = await askReason({
+    title: `Remove ${getDisplayName(doc)} from the synthesis?`,
+    context: `The study and its ${nExtracted} extracted construct(s)/quote(s) are deleted${idx === 0 ? ', and the next study becomes #1' : ''}. The removal is recorded in the Audit Trail; Ctrl+Z undoes it.`,
+    label: 'Why is this study being removed? (optional, saved in the Audit Trail as the rationale)',
+    confirmLabel: 'Remove study', draftKey: 'remove-study-' + doc.id
+  });
+  if (why !== null) {
+    await flushAllPendingSaves(); // nothing of the study still waiting to be saved lands after the deletion
+    const binRec = await dbGet('pdf_binaries', doc.id);
+    const toDel = state.annotations.filter(a => a.docId === doc.id).map(a => JSON.parse(JSON.stringify(a)));
+    // The study, its PDF, its constructs, the references to it (empty-cell records, "same primary study as") and the
+    // entry go in one transaction (opRemoveStudy, logic.js); the records in memory change once all of it is stored
+    const removal = opRemoveStudy(state, { docId: doc.id, why }, OP_NAMES);
+    const refs = removal.refs;
+    await runOperation(removal);
+    // On the undo stack only once it is stored (a refused write leaves the study, and nothing to undo)
+    pushUndoAction({
+      type: 'delete_study',
+      label: `Study (${getDisplayName(doc)})`,
+      doc: JSON.parse(JSON.stringify(doc)),
+      binary: binRec && binRec.data ? binRec.data : null,
+      annotations: toDel,
+      position: idx,
+      cellStatus: refs.cellStatus, companions: refs.companions
+    });
+    await persistDocOrder(); // after the removal's entry: a change of #1 it causes is logged after it
+    if (state.activeDocId === doc.id) state.activeDocId = state.docs[0]?.id || null;
+    showUndoSnackbar(`Removed ${getDisplayName(doc)}`);
+    renderStudyList();
+    if (state.activeDocId) switchStudy(state.activeDocId);
+    else {
+      await closeActivePdf(); // the last study went: its PDF is let go, not only hidden behind the welcome guide
+      renderWelcomeGuideIfNeeded();
+      updateDocHeaderUI();
+      updateSidebar();
+    }
+  }
+}
+// The study list's buttons that change data carry data-action; one listener on the list runs them
+(() => {
+  const list = document.getElementById('studyList');
+  if (!list) return;
+  list.addEventListener('click', ev => {
+    const el = ev.target && ev.target.closest && ev.target.closest('[data-action="study-remove"]');
+    if (!el || !list.contains(el)) return;
+    ev.stopPropagation();
+    const doc = state.docs.find(d => d.id === el.dataset.doc);
+    if (doc) removeStudyWithReason(doc).catch(err => console.error('Removing the study failed:', err));
+  });
+})();
 
 // Page placeholders at the current zoom, observed for lazy rendering. Used when a study opens and when the zoom changes
 // (the PDF stays loaded: a new zoom only lays the pages out again).
@@ -789,46 +732,11 @@ async function saveCurrentMeta() {
   if (doiRaw && !next.doi) showSnackbar('That is not a DOI (it starts with 10.…): it was not saved.');
   if (document.activeElement !== doiEl) doiEl.value = next.doi;
 
-  const summary = d => `${d.appraisalTool}:${d.quality || 'None'}| Richness:${d.richness || 'None'}`;
-  const name = getDisplayName(next);
-  const entries = [];
-  if ((doc.group || '') !== next.group) {
-    entries.push(auditEntry({ kind: 'subgroup', category: 'context_appraisal', action: `Set subgroup for ${name}`, fromVal: doc.group || '(none)', toVal: next.group || '(none)' }));
-  }
-  if (summary(doc) !== summary(next)) {
-    entries.push(auditEntry({
-      kind: 'appraisal',
-      category: 'context_appraisal',
-      action: `Updated Critical Appraisal / Richness for ${name}`,
-      detail: `Setting: ${next.setting || '-'} | Sample: ${next.participants || '-'} | Note: ${next.contextNote || '-'}`,
-      fromVal: summary(doc),
-      toVal: summary(next)
-    }));
-  }
-  const overviewChanged = (doc.studyOverview || '') !== next.studyOverview;
-  if (overviewChanged) {
-    entries.push(auditEntry({
-      kind: 'study_overview',
-      category: 'reading_extraction',
-      action: `${doc.studyOverview ? 'Revised' : 'Wrote'} Study Overview / Key Metaphors for ${name}`,
-      detail: 'Phase 3–4: the account read as a whole (storyline, key metaphors and how they relate) before / alongside construct extraction.',
-      fromVal: doc.studyOverview || '(Empty)',
-      toVal: next.studyOverview || '(Empty)'
-    }));
-  }
-  if ((doc.companionOf || '') !== next.companionOf) {
-    const other = state.docs.find(d => d.id === next.companionOf);
-    entries.push(auditEntry({
-      kind: 'companion',
-      category: 'context_appraisal',
-      action: next.companionOf ? `Linked ${name} as a companion paper (same primary study)` : `Unlinked companion paper: ${name}`,
-      detail: next.companionOf ? `Same primary study as ${getDisplayName(other)} (eMERGe item 10).` : '',
-      fromVal: doc.companionOf ? getDisplayName(state.docs.find(d => d.id === doc.companionOf)) : '(separate study)',
-      toVal: other ? getDisplayName(other) : '(separate study)'
-    }));
-  }
+  // Stored with an audit entry for each part that changed, in one transaction (opStudyInfo, logic.js)
   const groupChanged = (doc.group || '') !== next.group;
-  await saveChange([{ store: 'docs', put: next }], entries);
+  const overviewChanged = (doc.studyOverview || '') !== next.studyOverview;
+  const fields = Object.fromEntries(Object.keys(next).filter(k => next[k] !== doc[k]).map(k => [k, next[k]]));
+  await runOperation(opStudyInfo(state, { docId: doc.id, fields }, { ...OP_NAMES, nameOf: getDisplayName }));
   if (groupChanged && typeof renderStudyVisibilityBar === 'function') renderStudyVisibilityBar();
 
   renderStudyList();
@@ -861,14 +769,7 @@ function renderAppraisalDomains(doc) {
   // One answer, reason or summary text: the study's copy with it and its entry, in one transaction.
   // field: 'appraisalItems' (patch for question id) or 'appraisalSummary' (patch of the summary)
   const saveAnswer = async (field, id, patch, what, detail, from, to) => {
-    const cur = field === 'appraisalItems' ? appraisalItemsOf(doc, tool) : appraisalSummaryOf(doc, tool);
-    const part = id ? { ...cur, [id]: { ...(cur[id] || {}), ...patch } } : { ...cur, ...patch };
-    await saveChange([{ store: 'docs', put: { ...doc, [field]: { ...(doc[field] || {}), [tool]: part } } }], auditEntry({
-      kind: 'appraisal_answer',
-      category: 'context_appraisal',
-      action: `Appraisal (${tool} ${what}) for ${getDisplayName(doc)}: ${from ? 'changed' : 'recorded'}`,
-      detail, fromVal: from || '', toVal: to || ''
-    }));
+    await runOperation(opAppraisalAnswer(state, { docId: doc.id, tool, field, id, patch, what, detail, from, to }, OP_NAMES));
     updateStatus();
   };
   const bindText = (el, get, save) => {

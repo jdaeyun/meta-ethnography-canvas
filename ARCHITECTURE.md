@@ -345,7 +345,9 @@ map positions is intended.
 |---|---|---|---|
 | Tab 2 matrix (matrix.js) | row team status, seed confirmed, row base, re-read, CERQual, empty cell (status, note), judgement, place, unplace, not translated, move row | yes (`MATRIX_ACTIONS`) | create / delete a row, merge / split (pure plans already: `planMergeRows` …), auto-placement, row texts (`bindTextField`) |
 | Tab 1 sidebar (extraction.js) | link / unlink a quote, label source, extracted text, team status, within-study relationships, delete a construct / quote, add / remove a passage, wrap a quote | yes (`SIDEBAR_ACTIONS`) | absorb / split off a passage, 1st ⇄ 2nd switch, manual entry, labels and notes (`bindTextField`) |
-| studies-pdf.js, loa.js, compare.js, audit-view.js, app.js, backup.js | — | — | all of their changes (each through `saveChange`; order and study #1: `persistDocOrder`) |
+| Drawer and write-up fields (loa.js) | map relations (add, remove), ◇ used by the line of argument, team models (add, remove), a write-up field, the drawer's fields saved together | yes (`LOA_ACTIONS`, on `#loaDrawer`) | map layout and box positions (layout, not logged) |
+| Studies (studies-pdf.js) | order strategy, order of studies, study #1 and its rows (`opBaselineCheck`), removing a study, the study info dock, appraisal answers | the study list's 🗑 (`study-remove` on `#studyList`) | adding PDFs and their fingerprints (bookkeeping), a new extraction from the PDF, sorting (builds the order, then `persistDocOrder`) |
+| compare.js, audit-view.js, app.js, backup.js | — | — | all of their changes (each through `saveChange`) |
 
 A test keeps the one path: `npm test` runs `node tools/dev/list-operations.mjs --rules`, which fails when a change is
 stored without its entry, a record is changed in memory before it is written, an entry has no kind, or `dbPut` /

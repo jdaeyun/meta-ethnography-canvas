@@ -1077,6 +1077,255 @@ function opWrapQuote(project, { quoteId, construct }, h) {
   };
 }
 
+// ---- The Research Aim & Overall Model drawer and the write-up fields (loa.js) ----
+// How two 3rd Order rows relate in the line-of-argument map
+const LINK_TYPES = {
+  leads: { sym: '➔', label: 'leads to', color: '#6d28d9', dash: '' },
+  mutual: { sym: '⇄', label: 'is mutually related to', color: '#0f766e', dash: '' },
+  contradicts: { sym: '⚡', label: 'is in tension with', color: '#be123c', dash: '6 4' },
+  encompasses: { sym: '⊃', label: 'encompasses', color: '#b45309', dash: '' },
+  metaphor: { sym: '≈', label: 'is understood through the metaphor of', color: '#0369a1', dash: '2 3' }
+};
+/** @param {any} c */
+function clusterLabel(c) { return (c && c.thirdOrderTitle && c.thirdOrderTitle.trim()) || '(Untitled row)'; }
+/** @param {any} project @param {any} l */
+const relationText = (project, l) => `"${clusterLabel(rowOf(project, l.from))}" ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} "${clusterLabel(rowOf(project, l.to))}"`;
+/** @param {any} project @param {Record<string, any>} fields */
+const loaOp = (project, fields) => ({ store: 'meta', put: { ...(project.loa || {}), id: 'loa_main', ...fields, updatedAt: Date.now() } });
+// A relation between two rows in the map (the same relation twice, or B–A for one without direction, is not added)
+/** @param {any} project @param {{ link: any }} a @returns {OpResult | null} */
+function opAddMapRelation(project, { link }) {
+  const links = Array.isArray(project.loa && project.loa.links) ? project.loa.links : [];
+  if (!link || link.from === link.to || !rowOf(project, link.from) || !rowOf(project, link.to) || !LINK_TYPES[link.type]) return null;
+  if (links.some(l => l.type === link.type && ((l.from === link.from && l.to === link.to) || (!isDirectedLink(link.type) && l.from === link.to && l.to === link.from)))) return null;
+  const m = LINK_TYPES[link.type];
+  return {
+    ops: [loaOp(project, { links: [...links, link] })],
+    entries: [{ kind: 'map_relation', clusterIds: [link.from, link.to], category: 'line_of_argument',
+      action: `Added relation: ${relationText(project, link)}`, detail: `${m.label}${link.note ? ' — ' + link.note : ''}` }]
+  };
+}
+/** @param {any} project @param {{ linkId: string }} a @returns {OpResult | null} */
+function opRemoveMapRelation(project, { linkId }) {
+  const links = Array.isArray(project.loa && project.loa.links) ? project.loa.links : [];
+  const l = links.find(x => x.id === linkId);
+  if (!l) return null;
+  return {
+    ops: [loaOp(project, { links: links.filter(x => x !== l) })],
+    entries: [{ kind: 'map_relation', clusterIds: [l.from, l.to], category: 'line_of_argument', action: `Removed relation: ${relationText(project, l)}`, detail: l.note || '' }]
+  };
+}
+// A ◇ the line of argument draws on (or no longer): a card judged ◇ in a row (secId), or an empty cell marked ◇ (docId)
+/** @param {any} project @param {{ rowId: string, docId: string, secId?: string | null, used: boolean }} a @param {OpNames} h @returns {OpResult | null} */
+function opAspectUse(project, { rowId, docId, secId = null, used }, h) {
+  const row = rowOf(project, rowId);
+  if (!row) return null;
+  /** @type {DbOp} */
+  let op;
+  let note = '';
+  if (secId) {
+    const sec = secOf(project, secId);
+    if (!sec || relationIn(project, sec, rowId) !== 'other_aspect' || !!(sec.aspectUsedInLoa || {})[rowId] === used) return null;
+    const marks = { ...(sec.aspectUsedInLoa || {}) };
+    if (used) marks[rowId] = true; else delete marks[rowId];
+    op = { store: 'annotations', put: { ...sec, aspectUsedInLoa: marks } };
+    note = [sec.note, (sec.clusterComments || {})[rowId]].filter(Boolean).join(': ');
+  } else {
+    const v = (row.cellStatus || {})[docId];
+    if (!v || v.status !== 'other_aspect' || !!v.usedInLoa === used) return null;
+    const cell = { ...v };
+    if (used) cell.usedInLoa = true; else delete cell.usedInLoa;
+    op = { store: 'clusters', put: { ...row, cellStatus: { ...row.cellStatus, [docId]: cell } } };
+    note = v.note || '';
+  }
+  const where = `${h.docName(docId) || 'Study'} (${secId ? 'in' : 'beside'} "${clusterLabel(row)}")`;
+  return {
+    ops: [op],
+    entries: [{ kind: 'aspect_use', clusterIds: [rowId], category: 'line_of_argument',
+      action: used ? `Line of argument draws on a different aspect: ${where}` : `Line of argument no longer draws on: ${where}`,
+      detail: note, fromVal: used ? 'Not used' : 'Used in the line of argument', toVal: used ? 'Used in the line of argument' : 'Not used' }]
+  };
+}
+// An independent model of one reviewer, recorded beside the others (how: where it came from) / removed
+/** @param {any} project @param {{ model: any, how: string }} a @returns {OpResult | null} */
+function opAddTeamModel(project, { model, how }) {
+  if (!model || !(model.title || model.flow || model.narrative || (model.links && model.links.length))) return null;
+  const models = Array.isArray(project.loa && project.loa.teamModels) ? project.loa.teamModels : [];
+  const links = model.links || [];
+  return {
+    ops: [loaOp(project, { teamModels: [...models, model] })],
+    entries: [{ kind: 'team_model', category: 'team_model', action: `Recorded independent model of @${model.reviewer}${model.title ? ': "' + model.title + '"' : ''}`,
+      detail: `${how}\n${model.flow ? 'Flow: ' + model.flow + '\n' : ''}${links.length ? 'Relations: ' + links.map(l => `${l.from} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${l.to}`).join('; ') + '\n' : ''}${model.narrative ? 'Narrative: ' + model.narrative : ''}` }]
+  };
+}
+/** @param {any} project @param {{ modelId: string }} a @returns {OpResult | null} */
+function opRemoveTeamModel(project, { modelId }) {
+  const models = Array.isArray(project.loa && project.loa.teamModels) ? project.loa.teamModels : [];
+  const m = models.find(x => x.id === modelId);
+  if (!m) return null;
+  return {
+    ops: [loaOp(project, { teamModels: models.filter(x => x !== m) })],
+    entries: [{ kind: 'team_model', category: 'team_model', action: `Removed independent model record of @${m.reviewer}${m.title ? ': "' + m.title + '"' : ''}`, detail: '' }]
+  };
+}
+// One write-up field of Tab 4 (label: its name; show(v): how a value reads in the trail)
+/** @param {any} project @param {{ key: string, value: string, category: string, label: string, show?: (v: string) => string }} a @returns {OpResult | null} */
+function opWriteupField(project, { key, value, category, label, show = v => v }) {
+  const old = (project.loa && project.loa[key]) || '';
+  if (old === value) return null;
+  return {
+    ops: [loaOp(project, { [key]: value })],
+    entries: [{ kind: key === 'reviewQuestion' ? 'review_question' : 'writeup', targetLabel: key, category, action: `Updated ${label}`,
+      fromVal: old ? show(old) : '(empty)', toVal: value ? show(value) : '(cleared)' }]
+  };
+}
+// The drawer's fields saved together (values: the aim, title, flow, narrative, Item 12 and the extra fields; extraFields:
+// [key, input id, category] of the extra fields; labels: their names). One entry per part that changed.
+/** @param {any} project @param {{ values: Record<string, string>, projectCode: string, extraFields: any[][], labels: Record<string, string> }} a @returns {OpResult | null} */
+function opSaveDrawer(project, { values, projectCode, extraFields, labels }) {
+  const loa = project.loa || {};
+  const old = k => loa[k] || '';
+  const changed = Object.keys(values).filter(k => old(k) !== values[k]);
+  if (!changed.length) return null;
+  const v = values;
+  /** @type {Record<string, any>[]} */
+  const entries = [];
+  if (changed.includes('aim')) entries.push({ kind: 'aim', category: 'aim_question', action: 'Updated Phase 1 Research Aim', detail: v.aim || '(cleared)',
+    fromVal: old('aim') ? old('aim').slice(0, 90) : '(none)', toVal: v.aim ? v.aim.slice(0, 90) : '(cleared)' });
+  if (['title', 'flow', 'narrative'].some(k => changed.includes(k))) entries.push({ kind: 'line_of_argument', category: 'line_of_argument',
+    action: `Updated Line of Argument Synthesis${v.title ? ': "' + v.title + '"' : ''}`,
+    detail: `${v.flow ? 'Model Flow: ' + v.flow + '\n' : ''}${v.narrative ? 'Narrative: ' + v.narrative : ''}`,
+    fromVal: old('title') || old('flow') || old('narrative') ? `${old('title') || '(Untitled)'} — ${(old('narrative') || old('flow')).slice(0, 70)}...` : '(Initial Draft)',
+    toVal: `${v.title || '(Untitled)'} — ${(v.narrative || v.flow || '').slice(0, 70)}...` });
+  // One entry per extra field that changed (alternative interpretations, Item 16, team merge)
+  extraFields.filter(([k]) => changed.includes(k)).forEach(([k, , cat]) => entries.push({
+    kind: ({ alternativeInterpretations: 'alternative_interpretations', modelContext: 'model_context', teamMergeNote: 'team_merge_note' })[k], targetLabel: k,
+    category: cat, action: `Updated ${labels[k]}`, detail: `${labels[k]}: ${v[k] || '(cleared)'}`,
+    fromVal: old(k).slice(0, 90) || '(Initial Draft)', toVal: (v[k] || '').slice(0, 90) || '(cleared)' }));
+  if (changed.includes('relateOutcome')) entries.push({ kind: 'relate_outcome', category: 'relating_studies',
+    action: 'Updated Phase 4: Outcome of Relating Studies (eMERGe item 12)', detail: v.relateOutcome ? 'Outcome: ' + v.relateOutcome : '(cleared)',
+    fromVal: old('relateOutcome') ? `${old('relateOutcome').slice(0, 70)}...` : '(Initial Draft)', toVal: v.relateOutcome ? `${v.relateOutcome.slice(0, 70)}...` : '(cleared)' });
+  return { ops: [loaOp(project, { projectCode, ...values })], entries };
+}
+
+// ---- Studies: order, study #1, removal, study info and appraisal (studies-pdf.js) ----
+/** @param {any} project @param {any} id */
+const docOf = (project, id) => (project.docs || []).find(d => d && d.id === id) || null;
+// The translation-order strategy (labels: the strategies' names, as shown)
+/** @param {any} project @param {{ next: string, rationale?: string, reason?: string, labels: Record<string, string> }} a @returns {OpResult | null} */
+function opOrderStrategy(project, { next, rationale = '', reason = '', labels }) {
+  const loa = project.loa || {};
+  const prev = labels[loa.orderStrategy] ? loa.orderStrategy : 'index';
+  if (!labels[next] || prev === next) return null;
+  return {
+    ops: [loaOp(project, { orderStrategy: next, ...(rationale ? { orderRationale: rationale } : {}) })], // (the reason is reused in the Methods Summary)
+    entries: [{ kind: 'order_strategy', category: 'study_order', action: `Set translation-order strategy: ${labels[next]}`,
+      detail: reason || 'Changed in the study list.', fromVal: labels[prev], toVal: labels[next], rationale }]
+  };
+}
+// The studies in a new order (ids: every study, in that order; only those whose number changes are written), with the
+// entries about it and any other writes (extraOps)
+/** @param {any} project @param {{ ids: string[], entries?: Record<string, any>[], extraOps?: DbOp[] }} a @returns {OpResult} */
+function opStudyOrder(project, { ids, entries = [], extraOps = [] }) {
+  const list = ids.map(id => docOf(project, id)).filter(Boolean);
+  return { ops: [...list.flatMap((d, i) => d.order === i ? [] : [{ store: 'docs', put: { ...d, order: i } }]), ...extraOps], entries };
+}
+// Study #1 is where translation starts. Rows keep the study that established them; when #1 changes, rows established by the
+// former #1 (or flagged by an earlier change) are marked for re-reading, and rows back on their own basis lose the mark.
+// Returns the writes (with study #1 remembered in the model) and their entries; bookkeeping (no entry, quiet) when #1 is
+// remembered for the first time or only its name changed; null when nothing changes.
+/** @param {any} project @param {OpNames} h @returns {(OpResult & { quiet: boolean, affected: number }) | null} */
+function opBaselineCheck(project, h) {
+  const loa = project.loa || {};
+  const prevId = loa.baselineDocId || null, prevName = loa.baselineDocName || '';
+  const now = (project.docs || [])[0] || null;
+  const nowId = now ? now.id : null, nowName = now ? (h.docName(nowId) || '') : '';
+  if (prevId === nowId && (!now || prevName === nowName)) return null;
+  const remember = { store: 'meta', put: { ...loa, id: 'loa_main', baselineDocId: nowId, baselineDocName: nowName } };
+  if (!prevId || !nowId || prevId === nowId) return { ops: [remember], entries: [], quiet: true, affected: 0 };
+  /** @type {DbOp[]} */
+  const ops = [remember];
+  /** @type {Record<string, any>[]} */
+  const entries = [];
+  const reverted = (project.clusters || []).filter(c => c.baselineChange && (c.baselineChange.fromDocId === nowId || c.baseDocId === nowId));
+  reverted.forEach(c => { const next = { ...c }; delete next.baselineChange; ops.push({ store: 'clusters', put: next }); });
+  if (reverted.length) entries.push({ kind: 'baseline_rows', category: 'study_order',
+    action: `Study #1 is ${nowName}: ${reverted.length} row(s) are back on the basis they were built on`,
+    detail: `Re-reading flag cleared for: ${reverted.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`, clusterIds: reverted.map(c => c.id) });
+  const affected = (project.clusters || []).filter(c => !reverted.includes(c) && (c.baseDocId === prevId || c.baselineChange));
+  const at = Date.now();
+  affected.forEach(c => {
+    const orig = c.baselineChange;
+    ops.push({ store: 'clusters', put: { ...c, baselineChange: { at, fromDocId: orig ? orig.fromDocId : prevId, fromName: orig ? orig.fromName : prevName, toDocId: nowId, toName: nowName } } });
+  });
+  if (affected.length) entries.push({ kind: 'baseline_rows', category: 'study_order',
+    action: `Study #1 changed: ${affected.length} 3rd Order row(s) established by an earlier #1 need re-reading`,
+    detail: `#1 was ${prevName || 'another study'}; it is now ${nowName}. These rows keep the study that established them`
+      + ' (the other studies were translated into its construct); no judgement was changed. Re-read each row, or make the new #1 its base.'
+      + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
+    fromVal: `#1: ${prevName}`, toVal: `#1: ${nowName}`, clusterIds: affected.map(c => c.id) });
+  return { ops, entries, quiet: false, affected: affected.length };
+}
+// A study removed from the synthesis with its PDF, its constructs and quotes, and the references to it (purgeDocRefs; a row's
+// ◆ base is kept: it tells which rows that study established). refs: what Undo needs to put the references back.
+/** @param {any} project @param {{ docId: string, why: string }} a @param {OpNames} h @returns {(OpResult & { refs: any }) | null} */
+function opRemoveStudy(project, { docId, why }, h) {
+  const doc = docOf(project, docId);
+  if (!doc) return null;
+  const toDel = (project.annotations || []).filter(a => a.docId === docId);
+  const refs = purgeDocRefs(project, docId);
+  const rest = (project.docs || []).filter(d => d.id !== docId);
+  const wasFirst = (project.docs || [])[0] === doc;
+  return {
+    ops: [{ store: 'docs', del: docId }, { store: 'pdf_binaries', del: docId }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refs.ops],
+    entries: [{ kind: 'study_remove', category: 'study_order', rationale: why,
+      action: `Removed Study from the Synthesis: ${h.docName(docId) || 'Study'}${wasFirst ? ' (was the #1 study)' : ''}`,
+      detail: `"${doc.title || doc.name}" was deleted together with ${toDel.length} extracted construct(s)/quote(s).${wasFirst && rest[0] ? ` New #1 study: ${h.docName(rest[0].id) || 'Study'}.` : ''}`,
+      fromVal: `${rest.length + 1} studies`, toVal: `${rest.length} studies` }],
+    refs
+  };
+}
+// The fields of the study info dock (fields: the values as entered; doi already tidied). One entry for each part that
+// changed: subgroup, appraisal / richness, the study overview, the companion paper. nameOf(fields): the study's new name.
+/** @param {any} project @param {{ docId: string, fields: Record<string, any> }} a @param {OpNames & { nameOf?: (d: any) => string }} h @returns {OpResult | null} */
+function opStudyInfo(project, { docId, fields }, h) {
+  const doc = docOf(project, docId);
+  if (!doc) return null;
+  const next = { ...doc, ...fields };
+  const name = h.nameOf ? h.nameOf(next) : (h.docName(docId) || 'Study');
+  const summary = d => `${d.appraisalTool}:${d.quality || 'None'}| Richness:${d.richness || 'None'}`;
+  /** @type {Record<string, any>[]} */
+  const entries = [];
+  if ((doc.group || '') !== (next.group || '')) entries.push({ kind: 'subgroup', category: 'context_appraisal', action: `Set subgroup for ${name}`, fromVal: doc.group || '(none)', toVal: next.group || '(none)' });
+  if (summary(doc) !== summary(next)) entries.push({ kind: 'appraisal', category: 'context_appraisal', action: `Updated Critical Appraisal / Richness for ${name}`,
+    detail: `Setting: ${next.setting || '-'} | Sample: ${next.participants || '-'} | Note: ${next.contextNote || '-'}`, fromVal: summary(doc), toVal: summary(next) });
+  if ((doc.studyOverview || '') !== (next.studyOverview || '')) entries.push({ kind: 'study_overview', category: 'reading_extraction',
+    action: `${doc.studyOverview ? 'Revised' : 'Wrote'} Study Overview / Key Metaphors for ${name}`,
+    detail: 'Phase 3–4: the account read as a whole (storyline, key metaphors and how they relate) before / alongside construct extraction.',
+    fromVal: doc.studyOverview || '(Empty)', toVal: next.studyOverview || '(Empty)' });
+  if ((doc.companionOf || '') !== (next.companionOf || '')) entries.push({ kind: 'companion', category: 'context_appraisal',
+    action: next.companionOf ? `Linked ${name} as a companion paper (same primary study)` : `Unlinked companion paper: ${name}`,
+    detail: next.companionOf ? `Same primary study as ${h.docName(next.companionOf) || 'Study'} (eMERGe item 10).` : '',
+    fromVal: doc.companionOf ? (h.docName(doc.companionOf) || 'Study') : '(separate study)', toVal: next.companionOf ? (h.docName(next.companionOf) || 'Study') : '(separate study)' });
+  if (Object.keys(fields).every(k => stableJson(doc[k]) === stableJson(next[k]))) return null;
+  return { ops: [{ store: 'docs', put: next }], entries };
+}
+// One answer, reason or summary text of an appraisal checklist (field: 'appraisalItems' with a question id, or
+// 'appraisalSummary'; what / detail / from / to: how the entry names it)
+/** @param {any} project @param {{ docId: string, tool: string, field: string, id?: string | null, patch: Record<string, any>, what: string, detail: string, from: string, to: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opAppraisalAnswer(project, { docId, tool, field, id = null, patch, what, detail, from, to }, h) {
+  const doc = docOf(project, docId);
+  if (!doc || (from || '') === (to || '')) return null;
+  const all = doc[field] && typeof doc[field] === 'object' ? doc[field] : {};
+  const cur = all[tool] && typeof all[tool] === 'object' ? all[tool] : {};
+  const part = id ? { ...cur, [id]: { ...(cur[id] || {}), ...patch } } : { ...cur, ...patch };
+  return {
+    ops: [{ store: 'docs', put: { ...doc, [field]: { ...all, [tool]: part } } }],
+    entries: [{ kind: 'appraisal_answer', category: 'context_appraisal', action: `Appraisal (${tool} ${what}) for ${h.docName(docId) || 'Study'}: ${from ? 'changed' : 'recorded'}`,
+      detail, fromVal: from || '', toVal: to || '' }]
+  };
+}
+
 // ======================= Merging and splitting 3rd Order rows (matrix.js) =======================
 // What a merge / split writes, worked out from the project without changing it: the caller writes plan.ops (commitOps) and
 // keeps plan.before / plan.after for Undo. helpers give the names used in the notes and the log: docName(id) (null for a

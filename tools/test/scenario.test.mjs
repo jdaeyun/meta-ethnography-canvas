@@ -17,7 +17,9 @@ vm.runInContext(fs.readFileSync(path.join(ROOT, 'app/js/logic.js'), 'utf8'), ctx
 const L = vm.runInContext(`({ applyOps, checkInvariants, planMergeRows, planSplitRow, planUndoRowMerge, planUndoRowSplit, purgeDocRefs, purgeClusterRefs, rowDeletionOps, revertChange, tidyRefsOps, recordOf,
   putIntoRow, takeOutOfRow, relationIn, rowSecsIn, stableJson, opPlace, opUnplace, opJudge, opEmptyCellStatus, opEmptyCellNote, opSetRowBase,
   opRereadRow, opRowTeamStatus, opRowCerqual, opConfirmSeed, opMoveRow, opNotTranslated, opLinkQuote, opUnlinkQuote, opDeleteConstruct, opDeleteQuote,
-  opAddConceptLink, opRemoveConceptLink, opAddPassage, opRemovePassage, opExtractedText, opConstructTeamStatus, opLabelSource, opWrapQuote })`, ctx);
+  opAddConceptLink, opRemoveConceptLink, opAddPassage, opRemovePassage, opExtractedText, opConstructTeamStatus, opLabelSource, opWrapQuote,
+  opAddMapRelation, opRemoveMapRelation, opAspectUse, opAddTeamModel, opRemoveTeamModel, opWriteupField, opSaveDrawer,
+  opOrderStrategy, opStudyOrder, opBaselineCheck, opRemoveStudy, opStudyInfo, opAppraisalAnswer })`, ctx);
 // The names an operation's entries need (the app passes study names and judgement labels: OP_NAMES, undo-audit.js)
 const H = { docName: id => `Study ${id}`, relLabel: r => `● ${r}` };
 // An operation of logic.js, run as the app runs it (runOperation): its ops applied; null = nothing to do. Returns the result.
@@ -351,6 +353,72 @@ test('operations of Tab 1: links, passages, deletions, wrapping — each says wh
   run(p, L.opDeleteQuote(p, { quoteId: 'q_d3' }, H));
   assert.ok(!sec(p, 'q_d3'));
   assertConsistent(p, 'operations of Tab 1');
+});
+
+test('operations of the drawer: map relations, ◇ marks, team models, write-up and drawer fields', () => {
+  const p = makeProject();
+  assert.equal(L.opAddMapRelation(p, { link: { id: 'x', from: 'r1', to: 'r2', type: 'leads' } }), null, 'the same relation is not added twice');
+  assert.equal(L.opAddMapRelation(p, { link: { id: 'x', from: 'r3', to: 'r2', type: 'reciprocal' } }), null, 'an unknown relation type');
+  run(p, L.opAddMapRelation(p, { link: { id: 'm3', from: 'r3', to: 'r1', type: 'mutual' } }));
+  assert.equal(L.opAddMapRelation(p, { link: { id: 'm4', from: 'r1', to: 'r3', type: 'mutual' } }), null, 'B–A is A–B for a relation without direction');
+  run(p, L.opRemoveMapRelation(p, { linkId: 'm1' }));
+  assert.deepEqual(plain(p.loa.links.map(l => l.id)), ['m2', 'm3']);
+  // A ◇ mark only with a ◇ judgement (a card) or a ◇ empty cell
+  place(p, 's_d2_1', 'r2');
+  assert.equal(L.opAspectUse(p, { rowId: 'r2', docId: 'd2', secId: 's_d2_1', used: true }, H), null, 'not judged ◇');
+  run(p, L.opJudge(p, { secId: 's_d2_1', rowId: 'r2', rel: 'other_aspect' }, H));
+  run(p, L.opAspectUse(p, { rowId: 'r2', docId: 'd2', secId: 's_d2_1', used: true }, H));
+  assert.ok(sec(p, 's_d2_1').aspectUsedInLoa.r2);
+  markEmpty(p, 'r3', 'd3', 'other_aspect');
+  run(p, L.opAspectUse(p, { rowId: 'r3', docId: 'd3', used: true }, H));
+  assert.ok(row(p, 'r3').cellStatus.d3.usedInLoa);
+  assertConsistent(p, '◇ marks');
+  // Team models, write-up fields and the drawer: written only when something changes
+  assert.equal(L.opAddTeamModel(p, { model: { id: 't', reviewer: 'B' }, how: '' }), null, 'an empty model');
+  run(p, L.opAddTeamModel(p, { model: { id: 't1', reviewer: 'B', title: 'B\'s model', links: [] }, how: 'Imported' }));
+  run(p, L.opRemoveTeamModel(p, { modelId: 't1' }));
+  assert.deepEqual(plain(p.loa.teamModels), []);
+  const w = run(p, L.opWriteupField(p, { key: 'reviewQuestion', value: 'How do nurses…?', category: 'aim_question', label: 'Review question (Item 3)' }));
+  assert.equal(w.entries[0].kind, 'review_question');
+  assert.equal(L.opWriteupField(p, { key: 'reviewQuestion', value: 'How do nurses…?', category: 'aim_question', label: '' }), null);
+  const extra = [['alternativeInterpretations', 'x', 'translation_process'], ['teamMergeNote', 'y', 'team_model']];
+  const d = run(p, L.opSaveDrawer(p, { values: { aim: 'Aim', title: 'Model', flow: '', narrative: 'N', relateOutcome: '', alternativeInterpretations: '', teamMergeNote: 'merged' }, projectCode: 'P', extraFields: extra, labels: { teamMergeNote: 'How merged' } }));
+  assert.deepEqual(plain(d.entries.map(e => e.kind)), ['aim', 'line_of_argument', 'team_merge_note']);
+  assert.equal(p.loa.aim, 'Aim');
+  assert.equal(L.opSaveDrawer(p, { values: { aim: 'Aim', title: 'Model', narrative: 'N', teamMergeNote: 'merged' }, projectCode: 'P', extraFields: extra, labels: {} }), null);
+  assertConsistent(p, 'drawer');
+});
+
+test('operations of the studies: order, study #1 and its rows, removal, study info, appraisal', () => {
+  const p = makeProject();
+  const labels = { index: 'Index paper first', chronological: 'Chronological', other: 'Other' };
+  run(p, L.opOrderStrategy(p, { next: 'chronological', rationale: 'by year', labels }));
+  assert.equal(p.loa.orderStrategy, 'chronological');
+  assert.equal(L.opOrderStrategy(p, { next: 'chronological', labels }), null);
+  // Study #1 remembered (bookkeeping), then changed: rows established by the former #1 are marked; moved back, unmarked
+  const first = L.opBaselineCheck(p, H);
+  assert.ok(first.quiet && !first.entries.length); run(p, first);
+  run(p, L.opStudyOrder(p, { ids: ['d2', 'd1', 'd3'] })); p.docs.sort((a, b) => a.order - b.order);
+  const ch = run(p, L.opBaselineCheck(p, H));
+  assert.equal(ch.affected, 3);
+  assert.ok(p.clusters.every(c => c.baselineChange && c.baselineChange.fromDocId === 'd1'));
+  run(p, L.opStudyOrder(p, { ids: ['d1', 'd2', 'd3'] })); p.docs.sort((a, b) => a.order - b.order);
+  run(p, L.opBaselineCheck(p, H));
+  assert.ok(p.clusters.every(c => !c.baselineChange), 'back on the basis they were built on');
+  assert.equal(L.opBaselineCheck(p, H), null);
+  // Removing a study takes its constructs and the references to it
+  const rm = run(p, L.opRemoveStudy(p, { docId: 'd3', why: 'out of scope' }, H));
+  assert.ok(!p.docs.some(d => d.id === 'd3') && !p.annotations.some(a => a.docId === 'd3') && !row(p, 'r1').cellStatus.d3);
+  assert.equal(rm.entries[0].rationale, 'out of scope');
+  assertConsistent(p, 'study removed');
+  // Study info and appraisal: an entry for each part that changed, none when nothing did
+  const info = run(p, L.opStudyInfo(p, { docId: 'd2', fields: { group: 'Nurses', studyOverview: 'The account read whole', appraisalTool: 'CASP' } }, H));
+  assert.deepEqual(plain(info.entries.map(e => e.kind)), ['subgroup', 'appraisal', 'study_overview']);
+  assert.equal(L.opStudyInfo(p, { docId: 'd2', fields: { group: 'Nurses' } }, H), null);
+  run(p, L.opAppraisalAnswer(p, { docId: 'd2', tool: 'CASP', field: 'appraisalItems', id: 'q1', patch: { a: 'yes' }, what: 'Q1', detail: '', from: '', to: 'Yes' }, H));
+  run(p, L.opAppraisalAnswer(p, { docId: 'd2', tool: 'CASP', field: 'appraisalItems', id: 'q1', patch: { note: 'clear aims' }, what: 'Q1 reason', detail: '', from: '', to: 'clear aims' }, H));
+  assert.deepEqual(plain(p.docs.find(d => d.id === 'd2').appraisalItems.CASP.q1), { a: 'yes', note: 'clear aims' });
+  assertConsistent(p, 'studies');
 });
 
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }

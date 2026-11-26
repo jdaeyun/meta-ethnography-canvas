@@ -2995,7 +2995,8 @@ await group('One transaction per change: a record and its audit entry together; 
     await commitOps([{ store: 'meta', put: { ...state.loa, links: [...(state.loa.links || []), link] } }]);
     renderLoaMap();
     const row = [...document.querySelectorAll('#loaLinkList > div')].find(d => d.textContent.includes('smoke'));
-    await row.querySelector('button').onclick();
+    const btn = row.querySelector('[data-action]');
+    await LOA_ACTIONS[btn.dataset.action](btn); // (what a click on it runs: one listener on the drawer)
     const asked = !document.getElementById('choiceModal').classList.contains('hidden');
     const gone = !state.loa.links.some(l => l.id === 'lk_smoke');
     const entry = state.logs[0];
