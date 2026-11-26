@@ -199,8 +199,8 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
 - An operation that one reviewer action makes is worked out in logic.js as `op…(project, args, names)` → `{ ops, entries }` or
   null (nothing changes; no DOM, no `state`) and run with `runOperation(result, { undo })` (undo-audit.js: pending saves first
   when undoable, then `beginChange`, `saveChange`, `finishChange`). Give it a step in tools/test/scenario.test.mjs. In the views
-  that are done (matrix, Tab 1 sidebar, drawer, study list: ARCHITECTURE.md, section 12), a button or menu that changes data carries
-  `data-action` and its code is an entry of `MATRIX_ACTIONS` / `SIDEBAR_ACTIONS` / `LOA_ACTIONS`, run by the view's one listener; do not attach a new
+  that are done (matrix, Tab 1 sidebar, drawer, study list, Compare, Audit Trail: ARCHITECTURE.md, section 12), a button or menu that changes data carries
+  `data-action` and its code is an entry of `MATRIX_ACTIONS` / `SIDEBAR_ACTIONS` / `LOA_ACTIONS` / `COMPARE_ACTIONS` / `AUDIT_ACTIONS`, run by the view's one listener; do not attach a new
   data-changing handler in a render function there. `npm test` runs `node tools/dev/list-operations.mjs --rules` (the one
   save path: no split writes, no change in memory before the write, every entry with a kind, `dbPut` / `recordAuditLog`
   only where `ALLOWED_DIRECT` says why).

@@ -114,9 +114,9 @@ function computePeerAnnotationMatches(cmp) {
     const ld = docMapPeerToLocal[pAnno.docId];
     const m = peerTaken.get(pi);
     if (m) {
-      cmp.matchedPairs.push({ localAnno: m.cand, peerAnno: pAnno, similarity: Math.min(100, Math.round(m.score * 100)), doc: state.docs.find(d => d.id === ld) });
+      cmp.matchedPairs.push({ pi, localAnno: m.cand, peerAnno: pAnno, similarity: Math.min(100, Math.round(m.score * 100)), doc: state.docs.find(d => d.id === ld) });
     } else {
-      cmp.peerOnlyAnnos.push({ peerAnno: pAnno, localDocId: ld || null, doc: ld ? state.docs.find(d => d.id === ld) : undefined, peerDoc: peerData.docs.find(d => d.id === pAnno.docId) });
+      cmp.peerOnlyAnnos.push({ pi, peerAnno: pAnno, localDocId: ld || null, doc: ld ? state.docs.find(d => d.id === ld) : undefined, peerDoc: peerData.docs.find(d => d.id === pAnno.docId) });
     }
   });
   cmp.localOnlyAnnos = state.annotations.filter(a => !localTaken.has(a.id));
@@ -152,7 +152,7 @@ function peerOrderInfo(cmp) {
 function renderCompareStudiesTab(container, cmp) {
   const info = peerOrderInfo(cmp);
   const stratLabel = v => (ORDER_STRATEGIES[v] || ORDER_STRATEGIES.index).label;
-  const nameOfPeer = p => { const lid = cmp.docMapPeerToLocal[p.id]; const l = lid && state.docs.find(d => d.id === lid); return l ? getDisplayName(l) : getDisplayName(p) + ' (not matched)'; };
+  const nameOfPeer = p => peerDocNameHere(cmp, p);
   const orderBox = document.createElement('div');
   orderBox.className = `bg-white p-4 rounded-xl border ${info.firstDiffers || !info.sameOrder ? 'border-amber-300' : 'border-slate-200'} space-y-2`;
   orderBox.innerHTML = `
@@ -172,26 +172,8 @@ function renderCompareStudiesTab(container, cmp) {
         ${info.peerLoa.orderRationale ? `<div class="text-slate-500"><b>Why:</b> ${escapeHtml(info.peerLoa.orderRationale)}</div>` : ''}
       </div>
     </div>
-    ${info.firstDiffers || !info.sameOrder ? `<button type="button" class="cmp-order-memo px-2.5 py-1 text-xs font-semibold rounded border border-amber-400 bg-amber-50 text-amber-900 cursor-pointer hover:bg-amber-100">Record this difference in the Audit Trail…</button>` : ''}`;
-  const memoBtn = orderBox.querySelector('.cmp-order-memo');
-  if (memoBtn) memoBtn.onclick = async () => {
-    const note = await askReason({
-      title: `A different translation order from @${cmp.peerReviewer}`,
-      context: `Mine: ${state.docs.map(d => getDisplayName(d)).join(' ➔ ')}\n@${cmp.peerReviewer}: ${info.peerDocs.map(nameOfPeer).join(' ➔ ')}`,
-      label: 'What does the different starting point / order mean for your readings? (optional)',
-      confirmLabel: 'Record in the Audit Trail', draftKey: 'order-diff'
-    });
-    if (note === null) return;
-    await recordAuditLog({
-      kind: 'order_difference',
-      category: 'concordance',
-      action: `Noted a different translation order from @${cmp.peerReviewer}`,
-      detail: `Mine: ${state.docs.map(d => getDisplayName(d)).join(' ➔ ')}\n@${cmp.peerReviewer}: ${info.peerDocs.map(nameOfPeer).join(' ➔ ')}${note ? '\n' + note : ''}`,
-      fromVal: `#1: ${state.docs[0] ? getDisplayName(state.docs[0]) : '-'}`,
-      toVal: `@${cmp.peerReviewer} #1: ${info.peerDocs[0] ? nameOfPeer(info.peerDocs[0]) : '-'}`
-    });
-    showSnackbar('Recorded in the Audit Trail.');
-  };
+    ${info.firstDiffers || !info.sameOrder ? `<button type="button" data-action="order-memo" class="cmp-order-memo px-2.5 py-1 text-xs font-semibold rounded border border-amber-400 bg-amber-50 text-amber-900 cursor-pointer hover:bg-amber-100">Record this difference in the Audit Trail…</button>` : ''}`;
+  // (recording the difference: COMPARE_ACTIONS['order-memo'])
   container.appendChild(orderBox);
 
   const matchBox = document.createElement('div');
@@ -207,20 +189,13 @@ function renderCompareStudiesTab(container, cmp) {
     const sugg = peerDocSuggestions(pDoc, cmp);
     const row = document.createElement('div');
     row.className = 'flex items-center gap-2 text-xs';
+    row.dataset.peerDoc = String(cmp.peerData.docs.indexOf(pDoc));
     row.innerHTML = `<span class="flex-1 truncate" title="${escapeHtml(pDoc.name || '')}">• ${escapeHtml(getDisplayName(pDoc))}${pDoc.title ? ` <span class="text-slate-400">${escapeHtml(pDoc.title.slice(0, 60))}</span>` : ''}</span>
-      <select class="cmp-doc-pick max-w-[50%] text-xs border border-amber-300 rounded px-1 py-0.5 bg-white text-slate-700">
+      <select data-action="doc-match" class="cmp-doc-pick max-w-[50%] text-xs border border-amber-300 rounded px-1 py-0.5 bg-white text-slate-700">
         <option value="">Not in my project</option>
         ${sugg.map((x, i) => `<option value="${escapeHtml(x.l.id)}">${i === 0 && x.score >= 2 ? '★ ' : ''}Same as: ${escapeHtml(getDisplayName(x.l))}</option>`).join('')}
       </select>`;
-    row.querySelector('select').onchange = e => {
-      const lid = e.target.value;
-      if (!lid) return;
-      cmp.docMapPeerToLocal[pDoc.id] = lid;
-      cmp.unmatchedPeerDocs = cmp.unmatchedPeerDocs.filter(x => x !== pDoc);
-      cmp.matchedStudies.push({ localDoc: state.docs.find(d => d.id === lid), peerDoc: pDoc, how: 'manual' });
-      computePeerAnnotationMatches(cmp);
-      renderComparisonDashboard();
-    };
+    // (connecting it: COMPARE_ACTIONS['doc-match'])
     um.appendChild(row);
   });
   container.appendChild(matchBox);
@@ -350,16 +325,11 @@ function renderComparisonTabContent() {
       const p = item.peerAnno, rec = peerSetAsideRecord(cmp, p);
       const row = document.createElement('div');
       row.className = 'flex items-start justify-between gap-3 bg-white border border-slate-200 rounded px-2.5 py-1.5';
-      const studyName = item.doc ? getDisplayName(item.doc) : (item.peerDoc ? getDisplayName(item.peerDoc) : 'Unknown Study');
+      row.dataset.peerIndex = String(item.pi);
+      const studyName = peerItemStudyName(item);
       row.innerHTML = `<div class="flex-1"><b>${escapeHtml(studyName)}</b> p.${escapeHtml(p.page)} — <i>"${escapeHtml(String(p.text || '').slice(0, 140))}${String(p.text || '').length > 140 ? '…' : ''}"</i>
           <div class="text-[11px] text-slate-400">Set aside ${rec && rec.at ? new Date(rec.at).toLocaleString() : ''}${rec && rec.by ? ' by @' + escapeHtml(rec.by) : ''}</div></div>
-        <button type="button" class="reconsider-btn shrink-0 px-2 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded cursor-pointer">Reconsider</button>`;
-      row.querySelector('.reconsider-btn').onclick = async () => {
-        await runOperation(opPeerSetAside(state, { remove: r => r === rec, action: `Reconsidered a construct from @${cmp.peerReviewer} set aside earlier`, detail: `${studyName} (p.${p.page}): "${String(p.text || '').slice(0, 70)}..."` }));
-        cmp.setAsideAnnos = cmp.setAsideAnnos.filter(x => x !== item);
-        cmp.peerOnlyAnnos.push(item);
-        renderComparisonDashboard();
-      };
+        <button type="button" data-action="reconsider" class="reconsider-btn shrink-0 px-2 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded cursor-pointer">Reconsider</button>`;
       list.appendChild(row);
     });
     container.appendChild(box);
@@ -378,33 +348,19 @@ function renderComparisonTabContent() {
       <div class="text-xs text-teal-900">
         <b>Review &amp; discussion:</b> read the constructs extracted by <b>@${escapeHtml(cmp.peerReviewer)}</b> that are not in your project, one by one: Import & Agree (for now), Import as Discuss, or Set Aside (it stays in the other reviewer's file; nothing is deleted).
       </div>
-      <button id="importAllPeerBtn" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer">
+      <button id="importAllPeerBtn" data-action="import-all" class="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer">
         + Import All as Discuss
       </button>
     `;
-    topAction.querySelector('#importAllPeerBtn').onclick = async (e) => {
-      // In bulk, constructs come in as "Discuss": agreement (for now) is reached by reading each one, not in one click.
-      // The button is off while it runs, and the views are drawn once at the end.
-      const btn = e.currentTarget;
-      if (btn.disabled) return;
-      btn.disabled = true;
-      try {
-        for (const item of [...cmp.peerOnlyAnnos]) await importPeerConstruct(item, 'discuss', { redraw: false });
-      } finally {
-        btn.disabled = false;
-        renderHighlights();
-        updateSidebar();
-        renderComparisonDashboard();
-      }
-    };
     container.appendChild(topAction);
 
-    cmp.peerOnlyAnnos.forEach((item, idx) => {
+    cmp.peerOnlyAnnos.forEach(item => {
       const p = item.peerAnno;
-      const studyName = item.doc ? getDisplayName(item.doc) : (item.peerDoc ? getDisplayName(item.peerDoc) + ' [Will create Study stub]' : 'Unknown Study');
+      const studyName = peerItemStudyName(item, true);
       const isSec = p.type === 'second_order';
       const card = document.createElement('div');
       card.className = 'bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between gap-4';
+      card.dataset.peerIndex = String(item.pi);
       card.innerHTML = `
         <div class="space-y-1.5 flex-1">
           <div class="flex items-center space-x-2 text-xs">
@@ -418,34 +374,17 @@ function renderComparisonTabContent() {
           ${p.concordanceNote ? `<div class="text-[13px] text-indigo-700">Peer Note: ${escapeHtml(p.concordanceNote)}</div>` : ''}
         </div>
         <div class="flex flex-col space-y-1.5 shrink-0">
-          <button class="imp-agree px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1">
+          <button type="button" data-action="import-agree" class="imp-agree px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1">
             <i class="ph ph-download-simple"></i><span>Import & Agree</span>
           </button>
-          <button class="imp-discuss px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1">
+          <button type="button" data-action="import-discuss" class="imp-discuss px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md cursor-pointer flex items-center space-x-1">
             <i class="ph ph-chats-circle"></i><span>Import as Discuss</span>
           </button>
-          <button class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-md cursor-pointer" title="Not imported; the construct stays in the other reviewer's file. Remembered in this project, so a later file from this reviewer does not show it as new again (unless its text has changed).">
+          <button type="button" data-action="set-aside" class="imp-dismiss px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-md cursor-pointer" title="Not imported; the construct stays in the other reviewer's file. Remembered in this project, so a later file from this reviewer does not show it as new again (unless its text has changed).">
             Set Aside
           </button>
         </div>
       `;
-      card.querySelector('.imp-agree').onclick = async () => {
-        await importPeerConstruct(item, 'agreed');
-        renderComparisonDashboard();
-      };
-      card.querySelector('.imp-discuss').onclick = async () => {
-        await importPeerConstruct(item, 'discuss');
-        renderComparisonDashboard();
-      };
-      card.querySelector('.imp-dismiss').onclick = async () => {
-        const at = cmp.peerOnlyAnnos.indexOf(item); // by item, not by the position it had when the list was drawn
-        if (at < 0) return; // already handled (a second click)
-        cmp.peerOnlyAnnos.splice(at, 1);
-        (cmp.setAsideAnnos = cmp.setAsideAnnos || []).push(item);
-        await runOperation(opPeerSetAside(state, { add: { peerId: p.id, reviewer: cmp.peerReviewer, textKey: peerSetAsideKey(p), at: Date.now(), by: state.reviewerId || '' },
-          action: `Set Aside Peer-Only Construct from @${cmp.peerReviewer}`, detail: `${studyName} (p.${p.page}): "${p.text.slice(0, 70)}..."` }));
-        renderComparisonDashboard();
-      };
       container.appendChild(card);
     });
     renderSetAside();
@@ -467,6 +406,8 @@ function renderComparisonTabContent() {
       card.className = differs
         ? 'bg-amber-50/50 p-4 rounded-xl border-2 border-amber-300 shadow-sm space-y-2'
         : 'bg-white/70 p-2.5 rounded-lg border border-slate-200 space-y-1 text-slate-500';
+      card.dataset.peerIndex = String(pair.pi);
+      card.dataset.localId = l.id;
       card.innerHTML = `
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-2 text-xs">
@@ -475,7 +416,7 @@ function renderComparisonTabContent() {
             <span class="text-xs text-slate-500">${l.type === 'second_order' ? '🟩 2nd Order' : '🟦 1st Order'}</span>
           </div>
           <div class="flex items-center space-x-2">
-            <button class="mark-agreed-btn px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded cursor-pointer">
+            <button type="button" data-action="mark-agreed" class="mark-agreed-btn px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded cursor-pointer">
               ${l.concordanceStatus === 'agreed' ? '✓ Already Agreed for now (Adopt Peer Note)' : '✅ Mark Agreed (for now) & Merge Note'}
             </button>
           </div>
@@ -495,12 +436,6 @@ function renderComparisonTabContent() {
         </div>
         ${differs ? '' : '</details>'}
       `;
-      card.querySelector('.mark-agreed-btn').onclick = async () => {
-        await mergePeerAuditLogs();
-        await runOperation(opProvisionalAgreement(state, { secId: l.id, peerNote: p.note, peerReviewer: cmp.peerReviewer }, OP_NAMES));
-        updateSidebar();
-        renderComparisonDashboard();
-      };
       container.appendChild(card);
     });
   };
@@ -514,27 +449,17 @@ function renderComparisonTabContent() {
       const doc = state.docs.find(d => d.id === l.docId);
       const card = document.createElement('div');
       card.className = 'bg-white p-3.5 rounded-xl border border-slate-200 flex items-center justify-between gap-4 text-xs';
+      card.dataset.localId = l.id;
       card.innerHTML = `
         <div>
           <div class="font-bold text-slate-800">${escapeHtml(getDisplayName(doc))} (p.${escapeHtml(l.page)}) — <span class="text-indigo-700">${l.type === 'second_order' ? '🟩 2nd Order' : '🟦 1st Order'}</span></div>
           ${l.note ? `<div class="font-semibold text-slate-700 mt-0.5">${escapeHtml(l.note)}</div>` : ''}
           <div class="italic text-slate-500 mt-0.5">"${escapeHtml(l.text)}"</div>
         </div>
-        <button class="flag-disc px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold rounded border border-amber-300 shrink-0 cursor-pointer">
+        <button type="button" data-action="flag-discussion" class="flag-disc px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold rounded border border-amber-300 shrink-0 cursor-pointer">
           💬 Flag for Discussion
         </button>
       `;
-      card.querySelector('.flag-disc').onclick = async () => {
-        // The reason is added to the team note the construct has (the note is not replaced), and the change is logged
-        const reason = `Extracted only by @${state.reviewerId} (not in @${cmp.peerReviewer}'s JSON).`;
-        const prevNote = l.concordanceNote || '';
-        const note = prevNote.includes(reason) ? prevNote : [prevNote, reason].filter(Boolean).join('\n');
-        await setConstructTeamStatus(l, 'discuss', note, {
-          action: `Flagged for discussion: a construct only @${state.reviewerId} extracted, not in @${cmp.peerReviewer}'s file (${getDisplayName(doc)}, p.${l.page})`
-        });
-        updateSidebar();
-        renderComparisonDashboard();
-      };
       container.appendChild(card);
     });
   };
@@ -579,8 +504,8 @@ function renderComparisonTabContent() {
           <p class="text-[13px] text-slate-500">Compare the two models, keep the peer's as an independent model record, and bring over relations between rows you both have (matched by row title).</p>
         </div>
         <div class="flex flex-col gap-1 shrink-0">
-          <button type="button" class="cmp-keep-both px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded cursor-pointer">📸 Record both as independent models</button>
-          <button type="button" class="cmp-import-rel px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-xs font-bold rounded cursor-pointer">+ Import peer relations (rows matched by title)</button>
+          <button type="button" data-action="keep-both-models" class="cmp-keep-both px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded cursor-pointer">📸 Record both as independent models</button>
+          <button type="button" data-action="import-relations" class="cmp-import-rel px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-xs font-bold rounded cursor-pointer">+ Import peer relations (rows matched by title)</button>
         </div>
       </div>
       ${fieldRows.length ? `<table class="w-full text-xs border border-slate-200"><thead><tr class="bg-slate-50"><th class="p-1.5 text-left w-1/5">Field</th><th class="p-1.5 text-left">👤 Mine (@${escapeHtml(state.reviewerId)})</th><th class="p-1.5 text-left">🤝 Peer (@${escapeHtml(cmp.peerReviewer)})</th></tr></thead><tbody>${fieldRows.map(r => `<tr class="border-t border-slate-200 align-top"><td class="p-1.5 font-semibold">${escapeHtml(r[0])}</td><td class="p-1.5 whitespace-pre-wrap ${String(r[1] || '').trim() !== String(r[2] || '').trim() ? 'bg-rose-50/50' : ''}">${escapeHtml(r[1] || '—')}</td><td class="p-1.5 whitespace-pre-wrap ${String(r[1] || '').trim() !== String(r[2] || '').trim() ? 'bg-rose-50/50' : ''}">${escapeHtml(r[2] || '—')}</td></tr>`).join('')}</tbody></table>` : '<div class="text-xs text-slate-400">Neither file has a line-of-argument model yet.</div>'}
@@ -589,32 +514,6 @@ function renderComparisonTabContent() {
         <div class="p-2 rounded bg-teal-50/40 border border-teal-200"><div class="font-bold text-teal-900 mb-1">Peer relations (${peerModel.links.length})</div>${peerModel.links.map(l => linkLine(l, myKeys.has(teamLinkKey(l)))).join('') || '<div class="text-slate-400">none</div>'}</div>
       </div>
       <div class="text-[11px] text-slate-400">✓ = in both models · ◇ = only in this model</div>`;
-    loaSection.querySelector('.cmp-keep-both').onclick = async () => {
-      const models = Array.isArray(state.loa.teamModels) ? state.loa.teamModels : [];
-      const mine = snapshotCurrentModel(state.reviewerId || 'Reviewer', 'local');
-      if (!modelIsEmpty(mine) && !models.some(m => m.reviewer === mine.reviewer && m.title === mine.title && m.narrative === mine.narrative && m.flow === mine.flow)) {
-        await addTeamModel(mine, 'Snapshot of my model at the time of comparison with @' + cmp.peerReviewer + '.');
-      }
-      if (!modelIsEmpty(peerModel) && !(state.loa.teamModels || []).some(m => m.reviewer === peerModel.reviewer && m.title === peerModel.title && m.narrative === peerModel.narrative && m.flow === peerModel.flow)) {
-        await addTeamModel({ ...peerModel, id: 'tm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }, `Imported from @${cmp.peerReviewer}'s project file via Compare.`);
-      }
-      // Peer files may already hold their own team-model records
-      for (const pm of (Array.isArray(peerLoa.teamModels) ? peerLoa.teamModels : [])) {
-        if (!(state.loa.teamModels || []).some(m => m.id === pm.id)) await addTeamModel({ ...pm }, `Carried over from @${cmp.peerReviewer}'s team-model records.`);
-      }
-      showSnackbar('Independent models recorded. Open "Research Aim & Overall Model" in Tab 2 to compare them side by side and write how they were merged.');
-    };
-    loaSection.querySelector('.cmp-import-rel').onclick = async () => {
-      await mergePeerAuditLogs();
-      const newId = () => 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      const before = (state.loa.links || []).length;
-      const r = opImportPeerRelations(state, { peerLinks: peerModel.links, peerReviewer: cmp.peerReviewer, newId });
-      if (await runOperation(r)) renderLoaMap();
-      const added = (state.loa.links || []).length - before;
-      const skipped = (peerModel.links || []).length - added;
-      showSnackbar(`Imported ${added} relation(s).${skipped ? ` ${skipped} not added (already here, or rows not found here by title — import those rows first).` : ''}`);
-      renderComparisonTabContent();
-    };
     box.appendChild(loaSection);
     const restBox = document.createElement('div');
     restBox.className = 'space-y-4';
@@ -625,7 +524,7 @@ function renderComparisonTabContent() {
           <h4 class="text-xs font-bold text-slate-800">🕒 Merge Audit Trail Logs by Date</h4>
           <p class="text-[13px] text-slate-500">This happens automatically when you adopt anything from @${escapeHtml(cmp.peerReviewer)}. Use this button if you only compared. It merges @${escapeHtml(cmp.peerReviewer)}'s audit trail entries with yours (skipping duplicate IDs) so you have a unified multi-reviewer audit trail.</p>
         </div>
-        <button id="mergePeerLogsBtn" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg cursor-pointer shrink-0">
+        <button type="button" id="mergePeerLogsBtn" data-action="merge-logs" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg cursor-pointer shrink-0">
           Merge Audit Logs
         </button>
       </div>
@@ -635,19 +534,15 @@ function renderComparisonTabContent() {
       </div>
     `;
 
-    restBox.querySelector('#mergePeerLogsBtn').onclick = async () => {
-      const added = await mergePeerAuditLogs();
-      showSnackbar(added ? `Merged ${added} new audit trail entries from @${cmp.peerReviewer}!` : `Nothing new to merge: @${cmp.peerReviewer}'s audit trail entries are already in your trail.`);
-    };
-
     const clList = restBox.querySelector('#peerClustersList');
     if (peerClusters.length === 0) {
       clList.innerHTML = `<div class="text-xs text-slate-400">No 3rd order rows in the other reviewer's file.</div>`;
     } else {
-      peerClusters.forEach(pc => {
+      peerClusters.forEach((pc, ci) => {
         const exists = state.clusters.find(c => c.id === pc.id || sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
         const row = document.createElement('div');
         row.className = 'p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between text-xs';
+        row.dataset.peerRow = String(ci);
         row.innerHTML = `
           <div>
             <div class="font-bold text-slate-800">${escapeHtml(pc.thirdOrderTitle || '(Untitled Row)')} <span class="text-xs font-normal text-slate-500">CERQual: ${escapeHtml(pc.cerqualConfidence || 'Not assessed')}</span></div>
@@ -656,25 +551,8 @@ function renderComparisonTabContent() {
           </div>
           ${exists
             ? `<span class="text-[13px] text-emerald-700 font-semibold px-2 py-1 bg-emerald-50 rounded border border-emerald-200">✓ Already in Matrix</span>`
-            : `<button class="imp-cl px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded cursor-pointer">+ Import Row</button>`}
+            : `<button type="button" data-action="import-row" class="imp-cl px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded cursor-pointer">+ Import Row</button>`}
         `;
-        row.querySelector('.imp-cl')?.addEventListener('click', async () => {
-          await mergePeerAuditLogs();
-          // The peer's study ids become the local ones wherever the row names a study (remapRowDocIds: its base, empty-cell
-          // records, re-reading note); an unmatched one stays as is, so it applies if that study is added later with that id
-          const fromPeer = remapRowDocIds({ ...JSON.parse(JSON.stringify(pc)), baseDocId: ('baseDocId' in pc) ? pc.baseDocId : null }, id => cmp.docMapPeerToLocal[id]);
-          // Its own id where that is safe and free (a foreign file may carry any characters); it goes below the rows here
-          const safeId = pc.id && /^[\w.-]+$/.test(String(pc.id)) && !state.clusters.some(c => c.id === pc.id);
-          // The construct a seeded row came from, by its id here; dropped rather than left pointing nowhere
-          const seededFrom = pc.seededFromId ? peerAnnoMap(cmp)[pc.seededFromId] : undefined;
-          const newCl = normalizeCluster({ ...fromPeer, id: safeId ? pc.id : 'cl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-            by: cmp.peerReviewer, order: state.clusters.length, seededFromId: seededFrom });
-          if (!newCl.baselineChange) delete newCl.baselineChange;
-          if (!newCl.seededFromId) delete newCl.seededFromId;
-          // The row, the constructs that were waiting for it (placed with their judgements) and the entry: one transaction
-          await runOperation(opImportPeerRow(state, { row: newCl, peerRowId: pc.id, peerReviewer: cmp.peerReviewer }));
-          renderComparisonTabContent();
-        });
         clList.appendChild(row);
       });
     }
@@ -682,6 +560,206 @@ function renderComparisonTabContent() {
     container.appendChild(box);
   }
 }
+
+// How the study of a peer item is named: the study here it is matched to, else the peer's (stubNote: say that importing it
+// adds the study)
+function peerItemStudyName(item, stubNote = false) {
+  return item.doc ? getDisplayName(item.doc) : (item.peerDoc ? getDisplayName(item.peerDoc) + (stubNote ? ' [Will create Study stub]' : '') : 'Unknown Study');
+}
+// A study of the peer's file, named as the study here it is matched to
+function peerDocNameHere(cmp, p) {
+  const lid = cmp.docMapPeerToLocal[p.id];
+  const l = lid && state.docs.find(d => d.id === lid);
+  return l ? getDisplayName(l) : getDisplayName(p) + ' (not matched)';
+}
+
+// ======================= What Compare's buttons and menus do =======================
+// The tabs only draw: a button or menu carries data-action, and its card names what it belongs to (data-peer-index: the
+// peer's construct by its place in their file; data-local-id: a construct here; data-peer-row / data-peer-doc: a row / study
+// of the peer's file by its place there). One listener on #compareTabContent runs the action named here with that context.
+function compareActionContext(el) {
+  const cmp = state.peerComparison;
+  const at = (attr, list) => { const c = el.closest(`[${attr}]`); const i = c ? Number(c.getAttribute(attr)) : -1; return (list && i >= 0 && list[i]) || null; };
+  const localCard = el.closest('[data-local-id]');
+  return {
+    el, cmp,
+    peerAnno: cmp ? at('data-peer-index', cmp.peerData.annotations) : null,
+    local: localCard ? state.annotations.find(a => a.id === localCard.dataset.localId) || null : null,
+    peerRow: cmp ? at('data-peer-row', cmp.peerData.clusters) : null,
+    peerDoc: cmp ? at('data-peer-doc', cmp.peerData.docs) : null
+  };
+}
+// The item of a list (peerOnlyAnnos / setAsideAnnos) that holds this peer construct
+const peerItemIn = (list, peerAnno) => (peerAnno && (list || []).find(x => x.peerAnno === peerAnno)) || null;
+async function importPeerItem({ cmp, peerAnno }, status) {
+  const item = peerItemIn(cmp && cmp.peerOnlyAnnos, peerAnno);
+  if (!item) return; // already handled (a second click)
+  await importPeerConstruct(item, status);
+  renderComparisonDashboard();
+}
+/** @type {Record<string, (ctx: any) => any>} */
+const COMPARE_ACTIONS = {
+  // ---- Studies & Order ----
+  'order-memo': async ({ cmp }) => {
+    if (!cmp) return;
+    const info = peerOrderInfo(cmp);
+    const nameOfPeer = p => peerDocNameHere(cmp, p);
+    const note = await askReason({
+      title: `A different translation order from @${cmp.peerReviewer}`,
+      context: `Mine: ${state.docs.map(d => getDisplayName(d)).join(' ➔ ')}\n@${cmp.peerReviewer}: ${info.peerDocs.map(nameOfPeer).join(' ➔ ')}`,
+      label: 'What does the different starting point / order mean for your readings? (optional)',
+      confirmLabel: 'Record in the Audit Trail', draftKey: 'order-diff'
+    });
+    if (note === null) return;
+    await recordAuditLog({
+      kind: 'order_difference',
+      category: 'concordance',
+      action: `Noted a different translation order from @${cmp.peerReviewer}`,
+      detail: `Mine: ${state.docs.map(d => getDisplayName(d)).join(' ➔ ')}\n@${cmp.peerReviewer}: ${info.peerDocs.map(nameOfPeer).join(' ➔ ')}${note ? '\n' + note : ''}`,
+      fromVal: `#1: ${state.docs[0] ? getDisplayName(state.docs[0]) : '-'}`,
+      toVal: `@${cmp.peerReviewer} #1: ${info.peerDocs[0] ? nameOfPeer(info.peerDocs[0]) : '-'}`
+    });
+    showSnackbar('Recorded in the Audit Trail.');
+  },
+  // Which study here a peer study is (only the comparison changes; nothing is stored)
+  'doc-match': ({ cmp, peerDoc, el }) => {
+    const lid = el.value;
+    if (!cmp || !peerDoc || !lid || !cmp.unmatchedPeerDocs.includes(peerDoc)) return;
+    cmp.docMapPeerToLocal[peerDoc.id] = lid;
+    cmp.unmatchedPeerDocs = cmp.unmatchedPeerDocs.filter(x => x !== peerDoc);
+    cmp.matchedStudies.push({ localDoc: state.docs.find(d => d.id === lid), peerDoc, how: 'manual' });
+    computePeerAnnotationMatches(cmp);
+    renderComparisonDashboard();
+  },
+  // ---- Unique extractions ----
+  'import-agree': ctx => importPeerItem(ctx, 'agreed'),
+  'import-discuss': ctx => importPeerItem(ctx, 'discuss'),
+  // In bulk, constructs come in as "Discuss": agreement (for now) is reached by reading each one, not in one click.
+  // The button is off while it runs, and the views are drawn once at the end.
+  'import-all': async ({ cmp, el }) => {
+    if (!cmp || el.disabled) return;
+    el.disabled = true;
+    try {
+      for (const item of [...cmp.peerOnlyAnnos]) await importPeerConstruct(item, 'discuss', { redraw: false });
+    } finally {
+      el.disabled = false;
+      renderHighlights();
+      updateSidebar();
+      renderComparisonDashboard();
+    }
+  },
+  'set-aside': async ({ cmp, peerAnno }) => {
+    const item = peerItemIn(cmp && cmp.peerOnlyAnnos, peerAnno);
+    if (!item) return; // already handled (a second click)
+    const p = item.peerAnno;
+    cmp.peerOnlyAnnos.splice(cmp.peerOnlyAnnos.indexOf(item), 1);
+    (cmp.setAsideAnnos = cmp.setAsideAnnos || []).push(item);
+    await runOperation(opPeerSetAside(state, { add: { peerId: p.id, reviewer: cmp.peerReviewer, textKey: peerSetAsideKey(p), at: Date.now(), by: state.reviewerId || '' },
+      action: `Set Aside Peer-Only Construct from @${cmp.peerReviewer}`, detail: `${peerItemStudyName(item, true)} (p.${p.page}): "${String(p.text || '').slice(0, 70)}..."` }));
+    renderComparisonDashboard();
+  },
+  reconsider: async ({ cmp, peerAnno }) => {
+    const item = peerItemIn(cmp && cmp.setAsideAnnos, peerAnno);
+    if (!item) return;
+    const p = item.peerAnno, rec = peerSetAsideRecord(cmp, p);
+    await runOperation(opPeerSetAside(state, { remove: r => r === rec, action: `Reconsidered a construct from @${cmp.peerReviewer} set aside earlier`,
+      detail: `${peerItemStudyName(item)} (p.${p.page}): "${String(p.text || '').slice(0, 70)}..."` }));
+    cmp.setAsideAnnos = cmp.setAsideAnnos.filter(x => x !== item);
+    cmp.peerOnlyAnnos.push(item);
+    renderComparisonDashboard();
+  },
+  // The reason is added to the team note the construct has (the note is not replaced), and the change is logged
+  'flag-discussion': async ({ cmp, local: l }) => {
+    if (!cmp || !l) return;
+    const doc = state.docs.find(d => d.id === l.docId);
+    const reason = `Extracted only by @${state.reviewerId} (not in @${cmp.peerReviewer}'s JSON).`;
+    const prevNote = l.concordanceNote || '';
+    const note = prevNote.includes(reason) ? prevNote : [prevNote, reason].filter(Boolean).join('\n');
+    await setConstructTeamStatus(l, 'discuss', note, {
+      action: `Flagged for discussion: a construct only @${state.reviewerId} extracted, not in @${cmp.peerReviewer}'s file (${getDisplayName(doc)}, p.${l.page})`
+    });
+    updateSidebar();
+    renderComparisonDashboard();
+  },
+  // ---- Read differently / aligned ----
+  'mark-agreed': async ({ cmp, local: l, peerAnno: p }) => {
+    if (!cmp || !l || !p) return;
+    await mergePeerAuditLogs();
+    await runOperation(opProvisionalAgreement(state, { secId: l.id, peerNote: p.note, peerReviewer: cmp.peerReviewer }, OP_NAMES));
+    updateSidebar();
+    renderComparisonDashboard();
+  },
+  // ---- 3rd Order, Model & Logs ----
+  'keep-both-models': async ({ cmp }) => {
+    if (!cmp) return;
+    const peerLoa = cmp.peerData.loa || {};
+    const peerModel = modelFromPeerLoa(peerLoa, cmp.peerData.clusters || [], cmp.peerReviewer);
+    const models = Array.isArray(state.loa.teamModels) ? state.loa.teamModels : [];
+    const mine = snapshotCurrentModel(state.reviewerId || 'Reviewer', 'local');
+    if (!modelIsEmpty(mine) && !models.some(m => m.reviewer === mine.reviewer && m.title === mine.title && m.narrative === mine.narrative && m.flow === mine.flow)) {
+      await addTeamModel(mine, 'Snapshot of my model at the time of comparison with @' + cmp.peerReviewer + '.');
+    }
+    if (!modelIsEmpty(peerModel) && !(state.loa.teamModels || []).some(m => m.reviewer === peerModel.reviewer && m.title === peerModel.title && m.narrative === peerModel.narrative && m.flow === peerModel.flow)) {
+      await addTeamModel({ ...peerModel, id: 'tm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }, `Imported from @${cmp.peerReviewer}'s project file via Compare.`);
+    }
+    // Peer files may already hold their own team-model records
+    for (const pm of (Array.isArray(peerLoa.teamModels) ? peerLoa.teamModels : [])) {
+      if (!(state.loa.teamModels || []).some(m => m.id === pm.id)) await addTeamModel({ ...pm }, `Carried over from @${cmp.peerReviewer}'s team-model records.`);
+    }
+    showSnackbar('Independent models recorded. Open "Research Aim & Overall Model" in Tab 2 to compare them side by side and write how they were merged.');
+  },
+  'import-relations': async ({ cmp }) => {
+    if (!cmp) return;
+    await mergePeerAuditLogs();
+    const peerModel = modelFromPeerLoa(cmp.peerData.loa || {}, cmp.peerData.clusters || [], cmp.peerReviewer);
+    const newId = () => 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const before = (state.loa.links || []).length;
+    const r = opImportPeerRelations(state, { peerLinks: peerModel.links, peerReviewer: cmp.peerReviewer, newId });
+    if (await runOperation(r)) renderLoaMap();
+    const added = (state.loa.links || []).length - before;
+    const skipped = (peerModel.links || []).length - added;
+    showSnackbar(`Imported ${added} relation(s).${skipped ? ` ${skipped} not added (already here, or rows not found here by title — import those rows first).` : ''}`);
+    renderComparisonTabContent();
+  },
+  'merge-logs': async ({ cmp }) => {
+    if (!cmp) return;
+    const added = await mergePeerAuditLogs();
+    showSnackbar(added ? `Merged ${added} new audit trail entries from @${cmp.peerReviewer}!` : `Nothing new to merge: @${cmp.peerReviewer}'s audit trail entries are already in your trail.`);
+  },
+  'import-row': async ({ cmp, peerRow: pc }) => {
+    if (!cmp || !pc || state.clusters.some(c => c.id === pc.id || sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle))) return; // here already (a second click)
+    await mergePeerAuditLogs();
+    // The peer's study ids become the local ones wherever the row names a study (remapRowDocIds: its base, empty-cell
+    // records, re-reading note); an unmatched one stays as is, so it applies if that study is added later with that id
+    const fromPeer = remapRowDocIds({ ...JSON.parse(JSON.stringify(pc)), baseDocId: ('baseDocId' in pc) ? pc.baseDocId : null }, id => cmp.docMapPeerToLocal[id]);
+    // Its own id where that is safe and free (a foreign file may carry any characters); it goes below the rows here
+    const safeId = pc.id && /^[\w.-]+$/.test(String(pc.id)) && !state.clusters.some(c => c.id === pc.id);
+    // The construct a seeded row came from, by its id here; dropped rather than left pointing nowhere
+    const seededFrom = pc.seededFromId ? peerAnnoMap(cmp)[pc.seededFromId] : undefined;
+    const newCl = normalizeCluster({ ...fromPeer, id: safeId ? pc.id : 'cl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      by: cmp.peerReviewer, order: state.clusters.length, seededFromId: seededFrom });
+    if (!newCl.baselineChange) delete newCl.baselineChange;
+    if (!newCl.seededFromId) delete newCl.seededFromId;
+    // The row, the constructs that were waiting for it (placed with their judgements) and the entry: one transaction
+    await runOperation(opImportPeerRow(state, { row: newCl, peerRowId: pc.id, peerReviewer: cmp.peerReviewer }));
+    renderComparisonTabContent();
+  }
+};
+(() => {
+  const content = document.getElementById('compareTabContent');
+  if (!content) return;
+  // Buttons on click, menus on change
+  const run = (ev, wantChange) => {
+    const el = ev.target && ev.target.closest && ev.target.closest('[data-action]');
+    if (!el || !content.contains(el) || (el.tagName === 'SELECT') !== wantChange) return;
+    const action = COMPARE_ACTIONS[el.dataset.action];
+    if (!action) return;
+    ev.stopPropagation();
+    Promise.resolve(action(compareActionContext(el))).catch(err => console.error('Compare action failed:', err));
+  };
+  content.addEventListener('click', ev => run(ev, false));
+  content.addEventListener('change', ev => run(ev, true));
+})();
 
 // Adds the other reviewer's audit trail entries (skipping ids we already have) so the shared trail shows both reviewers.
 // Called automatically the first time something from that reviewer is adopted, and by the "Merge Audit Logs" button.
@@ -700,18 +778,7 @@ async function mergePeerAuditLogs() {
   return added;
 }
 
-// Peer row id -> local row id (same id, else same title, trimmed and case-insensitive)
-function sameRowTitle(a, b) { return !!(a && b && a.trim().toLowerCase() === b.trim().toLowerCase()); }
-function peerRowMap(cmp) {
-  const map = {};
-  (cmp.peerData.clusters || []).forEach(pc => {
-    const local = state.clusters.find(c => c.id === pc.id) || state.clusters.find(c => sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
-    if (local) map[pc.id] = local.id;
-  });
-  state.clusters.forEach(c => { if (!map[c.id]) map[c.id] = c.id; }); // a local id the peer also uses
-  return map;
-}
-
+// (Peer row id -> local row id: peerRowMapOf, logic.js; two titles naming one row: sameRowTitle)
 // Per-row values a 2nd Order construct carries for each row it is placed in (same list as merge / split in matrix.js)
 // (peerRowPlacementOps: logic.js)
 
@@ -781,16 +848,15 @@ async function importPeerConstruct(item, status, { redraw = true } = {}) {
     throw err;
   }
 }
+// The study and the construct: worked out in logic.js (peerStudyStub, opImportPeerConstruct: id mapping, links waiting on
+// both sides, what placing does in the rows), stored here
 async function importPeerConstructNow(item, status, redraw) {
   await mergePeerAuditLogs();
   const cmp = state.peerComparison;
   // A study connected earlier in this session (by hand, or as a stub for an earlier import) is reused, never added twice
   let targetDocId = item.localDocId || (item.peerDoc && cmp.docMapPeerToLocal[item.peerDoc.id]) || null;
   if (!targetDocId && item.peerDoc) {
-    // The study ids it names become the local ones; "same primary study as" a study not here is dropped (reference graph, logic.js)
-    const named = remapDocRecord({ ...item.peerDoc, hasBinary: false, fpDone: !!item.peerDoc.sha256, order: state.docs.length }, id => cmp.docMapPeerToLocal[id]);
-    // Its within-study relationships wait until both their constructs are imported (setAsideConceptLinks, logic.js)
-    const stub = normalizeDoc(setAsideConceptLinks(dropGoneDocRefs(named, new Set(state.docs.map(d => d.id)))));
+    const stub = peerStudyStub(state, { peerDoc: item.peerDoc, docMap: cmp.docMapPeerToLocal }, OP_NAMES);
     await commitOps([{ store: 'docs', put: stub }]); // (adds it to state.docs)
     targetDocId = stub.id;
     cmp.docMapPeerToLocal[item.peerDoc.id] = stub.id;
@@ -801,87 +867,14 @@ async function importPeerConstructNow(item, status, redraw) {
   }
   if (!targetDocId) return;
 
-  // Peer annotation id -> local annotation id (matched pairs + items already imported in this session)
-  peerAnnoMap(cmp);
-  const raw = JSON.parse(JSON.stringify(item.peerAnno));
-  const peerId = raw.id;
-  // Avoid id collisions with local items (and unsafe characters from foreign files)
-  if (!raw.id || !/^[\w.-]+$/.test(String(raw.id)) || state.annotations.some(a => a.id === raw.id)) {
-    raw.id = 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-  }
-  // Re-point 1st Order parent links to the LOCAL 2nd Order construct; drop links that would dangle
-  if (raw.type === 'first_order') {
-    const peerParents = Array.isArray(raw.parentIds) ? raw.parentIds : [];
-    const okParents = [], waiting = [];
-    peerParents.forEach(pid => {
-      const mappedParent = cmp.peerToLocalAnnoId[pid] || pid;
-      if (state.annotations.some(a => a.id === mappedParent && a.type === 'second_order' && a.docId === targetDocId)) okParents.push(mappedParent);
-      else waiting.push(pid);
-    });
-    raw.parentIds = [...new Set(okParents)];
-    if (waiting.length) raw._peerParentIds = waiting;
-  }
-  // Map the peer's rows to local rows: same id, else same title (the rule that shows "✓ Already in Matrix").
-  // A placement in a row that is not here yet is kept aside (_peerRows) with its judgement, cell note and line-of-argument
-  // mark, and is placed when that row is imported in the "3rd Order, Model & Logs" tab (see peerRowPlacementOps).
-  if (Array.isArray(raw.clusterIds)) {
-    const rowMap = peerRowMap(cmp);
-    const waitingRows = {};
-    raw.clusterIds.forEach(id => {
-      if (rowMap[id] || !id) return;
-      const pRow = (cmp.peerData.clusters || []).find(c => c.id === id);
-      waitingRows[id] = pRow && pRow.thirdOrderTitle ? { _title: pRow.thirdOrderTitle } : {}; // the title lets a row made here later take them in
-      ANNOTATION_ROW_FIELDS.forEach(k => { if (raw[k] && typeof raw[k] === 'object' && id in raw[k]) waitingRows[id][k] = raw[k][id]; });
-    });
-    raw.clusterIds = [...new Set(raw.clusterIds.map(id => rowMap[id]).filter(Boolean))];
-    ANNOTATION_ROW_FIELDS.forEach(k => {
-      if (!raw[k] || typeof raw[k] !== 'object') return;
-      const out = {};
-      Object.keys(raw[k]).forEach(id => { if (rowMap[id] && !(rowMap[id] in out)) out[rowMap[id]] = raw[k][id]; });
-      raw[k] = out;
-    });
-    if (Object.keys(waitingRows).length) raw._peerRows = waitingRows; else delete raw._peerRows;
-  }
-  if (raw.type === 'second_order' && targetDocId === state.docs[0]?.id) raw.indexSeeded = true;
-
-  const imported = normalizeAnnotation({
-    ...raw,
-    docId: targetDocId,
-    by: item.peerAnno.by || cmp.peerReviewer,
-    concordanceStatus: status,
-    // The peer's own team-discussion note comes along, after where it came from
-    concordanceNote: `Imported from @${cmp.peerReviewer} via JSON Diff/Merge.` + (String(item.peerAnno.concordanceNote || '').trim() ? `\n@${cmp.peerReviewer}'s note: ${String(item.peerAnno.concordanceNote).trim()}` : '')
-  });
-  cmp.peerToLocalAnnoId[peerId] = imported.id;
-  (cmp.importedPeerIds = cmp.importedPeerIds || {})[peerId] = imported.id; // kept when the pairs are worked out again
-  // If this is a 2nd Order construct, the peer's quotes of the same study imported earlier and waiting for it are linked to it
-  // (copies, written in the same transaction as the construct)
-  /** @type {DbOp[]} */
-  const waitingQuoteOps = [];
-  if (imported.type === 'second_order') {
-    for (const a of state.annotations) {
-      const waiting = a._peerParentIds || [];
-      if (a.type !== 'first_order' || a.docId !== targetDocId || !waiting.includes(peerId)) continue;
-      const q = { ...a, parentIds: [...quoteParentIds(a)] };
-      linkQuote(q, imported.id);
-      q._peerParentIds = waiting.filter(x => x !== peerId);
-      if (!q._peerParentIds.length) delete q._peerParentIds;
-      waitingQuoteOps.push({ store: 'annotations', put: q });
-    }
-  }
-
-  // The construct and what its placements change in those rows (base not set yet, an empty-cell note), together
-  // A within-study relationship of the peer's that was waiting for this construct (and its other end) joins the study
-  const targetDoc = state.docs.find(d => d.id === targetDocId);
-  const withLinks = imported.type === 'second_order' && targetDoc ? attachWaitingConceptLinks(targetDoc, peerId, imported.id) : null;
-  // (adds it to state.annotations; the rows change as copies: placementOpsFor)
-  await saveChange([{ store: 'annotations', put: imported }, ...placementOpsFor(state, [imported]), ...waitingQuoteOps, ...(withLinks ? [{ store: 'docs', put: withLinks }] : [])], auditEntry({
-    kind: 'peer_import',
-    category: 'concordance',
-    action: `Imported Peer Construct from @${cmp.peerReviewer} as ${status.toUpperCase()} (${getDisplayName(targetDoc)}, p.${imported.page})`,
-    detail: `"${imported.text.slice(0, 80)}..."`,
-    toVal: `${imported.type === 'second_order' ? '2nd Order' : '1st Order'} [${status.toUpperCase()}]`
-  }));
+  const r = opImportPeerConstruct(state, { peerAnno: item.peerAnno, docId: targetDocId, status, peerReviewer: cmp.peerReviewer,
+    annoMap: peerAnnoMap(cmp), peerClusters: cmp.peerData.clusters || [],
+    newId: () => 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) }, OP_NAMES);
+  if (!r) return;
+  // (adds it to state.annotations; the rows, the waiting quotes and the study change as copies)
+  await runOperation(r);
+  peerAnnoMap(cmp)[r.peerId] = r.id;
+  (cmp.importedPeerIds = cmp.importedPeerIds || {})[r.peerId] = r.id; // kept when the pairs are worked out again
 
   if (redraw && state.activeDocId === targetDocId) {
     renderHighlights();

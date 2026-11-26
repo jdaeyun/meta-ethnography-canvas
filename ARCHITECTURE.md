@@ -52,11 +52,11 @@ All files are classic `<script>`s sharing one global scope (so `file://` works).
 `extraction.js`, `matrix.js`, `audit-view.js`, `compare.js`, `export.js`, `backup.js`, `demo.js`. Any file may call any
 function at run time; only top-level code is limited to what was loaded before it.
 
-**The important fact about this structure:** the feature files have no separate "operations" layer. A view's render
-function also contains the code that changes data when its buttons are used. `renderMatrixTable` (matrix.js) builds rows
-lazily, and the row builder `buildRowBody` holds about a dozen such handlers; `updateSidebar` (extraction.js) and
-`renderComparisonTabContent` (compare.js) are the same shape. Every one of those handlers stores its change through the
-same path (section 6), so the rules for storing live in one place; where the handlers live is the next step (section 12).
+**The important fact about this structure:** a view's render function only draws. What a change does is worked out in
+logic.js (`op…()`, section 6), and the buttons and menus that change data carry `data-action`: one listener per view runs
+the action of that name (`MATRIX_ACTIONS`, `SIDEBAR_ACTIONS`, `LOA_ACTIONS`, `COMPARE_ACTIONS`, `AUDIT_ACTIONS`). Every
+change is stored through the same path (section 6), so the rules for storing live in one place. What is still written in
+the views is listed in section 12.
 
 ## 3. Files
 
@@ -200,10 +200,14 @@ with the kinds of entry each writes and where it is run from, is at the end of `
 
 ### Views only draw: `data-action` and one listener
 
-The matrix (`#matrixTable`) and the Tab 1 sidebar (`#annotationsList`) do not attach a handler to each button or menu that
-changes data. The element carries `data-action="…"`; one listener per view (click for buttons, change for menus) finds
-what it belongs to (`matrixActionContext` / `sidebarActionContext`: the row, the card, the construct, the study of an
-empty cell) and runs the action of that name in `MATRIX_ACTIONS` / `SIDEBAR_ACTIONS`. A text box commits through the same
+The matrix (`#matrixTable`), the Tab 1 sidebar (`#annotationsList`), the drawer (`#loaDrawer`), Compare
+(`#compareTabContent`) and the Audit Trail (`#auditView`) do not attach a handler to each button or menu that changes
+data. The element carries `data-action="…"`; one listener per view (click for buttons, change for menus) finds what it
+belongs to (`matrixActionContext` / `sidebarActionContext` / `compareActionContext` / `auditActionContext`: the row, the
+card, the construct, the study of an empty cell, the peer's item, the trail entry) and runs the action of that name in
+`MATRIX_ACTIONS` / `SIDEBAR_ACTIONS` / `LOA_ACTIONS` / `COMPARE_ACTIONS` / `AUDIT_ACTIONS`. A Compare card names the peer's
+item by its place in the peer's file (`data-peer-index`, `data-peer-row`, `data-peer-doc`: that file does not change during
+a comparison, and a foreign file's ids need not be unique) and a construct here by its id (`data-local-id`). A text box commits through the same
 action (`bindPendingCommit(el, () => MATRIX_ACTIONS['row-team'](…))`). Buttons that only change the view (sub-tabs, folding,
 editors opening) keep their own small handlers.
 
@@ -257,7 +261,7 @@ that Ctrl+Z undoes does not ask first.
 
 ### What the inventory shows now
 
-From `docs/operations-inventory.md` (89 units that write, log or record an Undo step):
+From `docs/operations-inventory.md` (88 units that write, log or record an Undo step):
 
 | | Units |
 |---|---|
@@ -344,11 +348,11 @@ map positions is intended.
 | View | Operations in logic.js | `data-action` + one listener | Still written in the view (one path: `saveChange`) |
 |---|---|---|---|
 | Tab 2 matrix (matrix.js) | row team status, seed confirmed, row base, re-read, CERQual, empty cell (status, note), judgement, place, unplace, not translated, move row | yes (`MATRIX_ACTIONS`) | create / delete a row, merge / split (pure plans already: `planMergeRows` …), auto-placement, row texts (`bindTextField`) |
-| Tab 1 sidebar (extraction.js) | link / unlink a quote, label source, extracted text, team status, within-study relationships, delete a construct / quote, add / remove a passage, wrap a quote | yes (`SIDEBAR_ACTIONS`) | absorb / split off a passage, 1st ⇄ 2nd switch, manual entry, labels and notes (`bindTextField`) |
+| Tab 1 sidebar (extraction.js) | link / unlink a quote, label source, extracted text, team status, within-study relationships, delete a construct / quote, add / remove a passage, absorb a construct as a passage / split it off (`opAbsorbPassage` / `opSplitPassage`), wrap a quote | yes (`SIDEBAR_ACTIONS`; absorbing is a drag onto the card) | 1st ⇄ 2nd switch, manual entry, labels and notes (`bindTextField`) |
 | Drawer and write-up fields (loa.js) | map relations (add, remove), ◇ used by the line of argument, team models (add, remove), a write-up field, the drawer's fields saved together | yes (`LOA_ACTIONS`, on `#loaDrawer`) | map layout and box positions (layout, not logged) |
 | Studies (studies-pdf.js) | order strategy, order of studies, study #1 and its rows (`opBaselineCheck`), removing a study, the study info dock, appraisal answers | the study list's 🗑 (`study-remove` on `#studyList`) | adding PDFs and their fingerprints (bookkeeping), a new extraction from the PDF, sorting (builds the order, then `persistDocOrder`) |
-| Compare (compare.js) | provisional agreement, set aside / reconsidered, the other reviewer's map relations, a row of theirs (with the constructs waiting for it: `peerRowPlacementOps`), their trail, waiting constructs placed in a row of the same title | — (each card's buttons hold the peer item they belong to) | importing a construct or a study (`importPeerConstructNow`: id mapping, waiting links), team models (`addTeamModel`) |
-| Audit trail (audit-view.js) | a reason added later (with its history), deleting an entry | — | a memo (an entry on its own: `recordAuditLog`) |
+| Compare (compare.js) | provisional agreement, set aside / reconsidered, the other reviewer's map relations, a row of theirs (with the constructs waiting for it: `peerRowPlacementOps`), their trail, waiting constructs placed in a row of the same title, importing a construct (`opImportPeerConstruct`: id mapping, links waiting on both sides) and the study it needs (`peerStudyStub`) | yes (`COMPARE_ACTIONS`, on `#compareTabContent`) | team models (`addTeamModel`), a note on a different translation order (an entry on its own: `recordAuditLog`) |
+| Audit trail (audit-view.js) | a reason added later (with its history), deleting an entry | yes (`AUDIT_ACTIONS`, on `#auditView`; the reason box commits through `AUDIT_ACTIONS['entry-reason']`) | a memo (an entry on its own: `recordAuditLog`) |
 | Setup (app.js) | the reviewer of an item, re-attributing all items of an ID, the project code / aim / question | — | — |
 | Backup (backup.js) | — | — | clean restore and merge (built on copies, tidied with `tidyRefsOps`, one `saveChange`), reset |
 

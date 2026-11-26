@@ -1587,6 +1587,18 @@ await group('Compare remembers what was set aside; the text sketch can be writte
   check('the same construct in the next file is not shown as new, but listed as set aside earlier', !r.again && r.listedApart && r.box, JSON.stringify(r));
   check('a construct whose text changed since is shown again', r.changedBack);
   check('Reconsider takes it back into the list', r.reconsidered);
+  // Compare's cards only draw: each button or menu that does something carries data-action, run by the one listener on the tab
+  const cmpWiring = await p.evaluate(() => {
+    const out = {};
+    for (const t of ['studies', 'unique', 'divergent', 'aligned', 'clusters_logs']) {
+      setCompareTab(t); renderComparisonTabContent();
+      const all = [...document.querySelectorAll('#compareTabContent button, #compareTabContent select')];
+      out[t] = { n: all.length, own: all.filter(e => e.onclick || e.onchange).length, noAction: all.filter(e => !e.dataset.action || !COMPARE_ACTIONS[e.dataset.action]).map(e => e.className.split(' ')[0]) };
+    }
+    return out;
+  });
+  check('Compare: every button and menu runs a COMPARE_ACTIONS entry, none has a handler of its own',
+    Object.values(cmpWiring).every(x => x.own === 0 && x.noAction.length === 0) && cmpWiring.clusters_logs.n > 0, JSON.stringify(cmpWiring));
   // Text sketch from the map
   await tab(p, 'matrix'); await settle(p);
   await p.click('#toggleLoaDrawerBtn'); await settle(p);
@@ -1853,6 +1865,12 @@ await group('Review fixes 6: flow by every directed relation, row deletion leave
   });
   check('deleting a construct in Tab 1 is logged', tr.logged, JSON.stringify(tr));
   check('entries about the trail itself have no delete button', tr.noDelBtn);
+  // The timeline only draws: its buttons carry data-action, run by the one listener on the Audit Trail view
+  const auditWiring = await p.evaluate(() => {
+    const all = [...document.querySelectorAll('#auditTimelineList button'), document.getElementById('addMemoBtn')];
+    return { n: all.length, own: all.filter(e => e.onclick).length, noAction: all.filter(e => !e.dataset.action || !AUDIT_ACTIONS[e.dataset.action]).length };
+  });
+  check('Audit Trail: every button runs an AUDIT_ACTIONS entry, none has a handler of its own', auditWiring.n > 2 && auditWiring.own === 0 && auditWiring.noAction === 0, JSON.stringify(auditWiring));
   check('an audit entry deleted and restored with Ctrl+Z does not reach Appendix A (key decisions)', !tr.inAppendix);
   // A reason being typed in the timeline is not interrupted by a redraw
   const rs = await p.evaluate(async () => {
@@ -3037,7 +3055,9 @@ await group('One transaction per change: a record and its audit entry together; 
     const card = [...document.querySelectorAll('.flag-disc')].map(b => b.closest('div.bg-white')).find(c => c && c.textContent.includes((sec.note || sec.text).slice(0, 20)));
     if (!card) return { skip: true };
     const before = state.logs.length;
-    await card.querySelector('.flag-disc').onclick();
+    // (the button's action, as the one listener on the tab runs it: COMPARE_ACTIONS)
+    const btn = card.querySelector('.flag-disc');
+    await COMPARE_ACTIONS[btn.dataset.action](compareActionContext(btn));
     return { status: sec.concordanceStatus, kept: sec.concordanceNote.includes('Our own note from the team meeting'), reason: /Extracted only by @/.test(sec.concordanceNote),
       logged: state.logs.length === before + 1 && state.logs[0].kind === 'construct_team' && /^Flagged for discussion/.test(state.logs[0].action) };
   });

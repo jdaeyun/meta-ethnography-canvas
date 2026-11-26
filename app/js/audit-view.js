@@ -25,37 +25,6 @@ function clusterTitleHistory(cluster) {
   return titles;
 }
 
-document.getElementById('addMemoBtn').addEventListener('click', async () => {
-  const subType = document.getElementById('memoSubType').value;
-  // The option's value is unique (rows and studies by id: two rows may share a title); the entry names it by its label
-  const refOpt0 = document.getElementById('memoTargetRef').selectedOptions[0];
-  const targetRef = refOpt0 && refOpt0.value ? refOpt0.dataset.ref : '';
-  const content = document.getElementById('memoContentInput').value.trim();
-  if (!content) { showSnackbar('Write the memo first.'); return; }
-
-  const cat = subType === 'Team Perspectives Meeting' ? 'concordance' : // (category key kept: older entries use it)
-              subType === 'GRADE-CERQual Rationale' ? 'cerqual' :
-              subType === 'Line of Argument' ? 'line_of_argument' : 'reflexive_memo';
-
-  const refOpt = document.getElementById('memoTargetRef').selectedOptions[0];
-  // The box is emptied at once, so a second click finds nothing to add; it gets the text back if the memo could not be saved
-  const box = document.getElementById('memoContentInput');
-  box.value = '';
-  try {
-    await recordAuditLog({
-      kind: 'memo',
-      category: cat,
-      action: `[${subType}] ${targetRef ? '— ' + targetRef : ''}`,
-      detail: content,
-      clusterIds: refOpt && refOpt.dataset.clusterId ? [refOpt.dataset.clusterId] : null
-    });
-  } catch (err) {
-    if (!box.value) box.value = content;
-    throw err;
-  }
-  // (recordAuditLog has drawn the trail again)
-});
-
 function renderAuditView() {
   const refSel = document.getElementById('memoTargetRef');
   const currentVal = refSel.value;
@@ -177,6 +146,7 @@ function renderAuditTimeline() {
     const dateStr = new Date(log.timestamp).toLocaleString();
     const revTag = log.reviewer || 'Unknown';
     const card = document.createElement('div');
+    card.dataset.auditEntry = log.id;
     card.className = `p-3.5 rounded-lg border ${log.category === 'reflexive_memo' ? 'bg-amber-50/40 border-amber-200' : 'bg-white border-slate-200'} shadow-sm text-xs space-y-1.5`;
 
     let diffHtml = '';
@@ -196,12 +166,12 @@ function renderAuditTimeline() {
           <span class="text-xs font-bold px-2 py-0.5 rounded border flex items-center space-x-1 ${meta.cls}">
             <i class="ph ${meta.icon}"></i><span>${meta.label}</span>
           </span>
-          <button type="button" class="log-rev-btn text-xs font-mono font-bold bg-slate-100 hover:bg-indigo-100 border border-slate-300 text-slate-700 px-1.5 py-px rounded cursor-pointer" title="Click to change reviewer for this log entry">@${escapeHtml(revTag)}</button>
+          <button type="button" data-action="entry-reviewer" class="log-rev-btn text-xs font-mono font-bold bg-slate-100 hover:bg-indigo-100 border border-slate-300 text-slate-700 px-1.5 py-px rounded cursor-pointer" title="Click to change reviewer for this log entry">@${escapeHtml(revTag)}</button>
           <span class="font-bold text-slate-800">${escapeHtml(log.action)}</span>
         </div>
         <div class="flex items-center space-x-2">
           <span class="text-xs text-slate-400 font-mono">${escapeHtml(dateStr)}</span>
-          ${log.category === 'audit_edit' ? '' : '<button class="del-log text-slate-300 hover:text-rose-500 cursor-pointer" title="Delete log entry"><i class="ph ph-trash"></i></button>'}
+          ${log.category === 'audit_edit' ? '' : '<button type="button" data-action="entry-delete" class="del-log text-slate-300 hover:text-rose-500 cursor-pointer" title="Delete log entry"><i class="ph ph-trash"></i></button>'}
         </div>
       </div>
       ${log.detail ? `<div class="text-slate-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(log.detail)}</div>` : ''}
@@ -212,42 +182,19 @@ function renderAuditTimeline() {
       </div>
     `;
 
-    card.querySelector('.log-rev-btn').onclick = () => promptReassignItemReviewer(log, 'logs', renderAuditTimeline);
-
     const rationaleEl = card.querySelector('.rationale-input');
     rationaleEl.dataset.logId = log.id;
-    bindPendingCommit(rationaleEl, async () => {
-      const next = rationaleEl.value.trim();
-      const prev = (log.rationale || '').trim();
-      // What is saved is now the box's reference text: an edit after this one also holds a redraw back (renderAuditTimeline)
-      rationaleEl.defaultValue = next;
-      if (next === prev) return;
-      // A reason written later is not the same as one written at the time: it keeps when it was written and every earlier
-      // wording (opTrailReason, logic.js; the entry in memory changes once stored)
-      await runOperation(opTrailReason(state, { logId: log.id, reason: next, at: Date.now() }));
-      const stamp = card.querySelector('.rationale-stamp');
-      if (stamp) { stamp.textContent = rationaleStampText(log); stamp.classList.remove('hidden'); }
-    });
-
-    // Entries about the trail itself (a deletion, a restored entry, a changed attribution) cannot be deleted: the trail keeps its own history
-    if (card.querySelector('.del-log')) card.querySelector('.del-log').onclick = async () => {
-      // Keep the trail honest: the deletion itself is recorded (with the removed entry's content), in the same transaction
-      // (opDeleteTrailEntry, logic.js). Undoable: a reason typed into the entry a moment ago is saved first (runOperation), so
-      // the copy Ctrl+Z brings back has it
-      await runOperation(project => opDeleteTrailEntry(project, { logId: log.id, when: new Date(log.timestamp).toLocaleString(), categoryLabel: getCategoryMeta(log.category).label }), {
-        undo: { label: `Audit Log (${log.action.slice(0, 30)})`, undoLogs: [{ kind: 'trail_restore', targetId: log.id, category: 'audit_edit',
-          action: `Restored a deleted audit trail entry (Undo): ${log.action}`, detail: '', clusterIds: log.clusterIds || null }] } });
-      showUndoSnackbar('Deleted the audit trail entry (the deletion itself is recorded)');
-    };
+    // The reason commits through the same action as the buttons (AUDIT_ACTIONS['entry-reason'])
+    bindPendingCommit(rationaleEl, () => AUDIT_ACTIONS['entry-reason'](auditActionContext(rationaleEl)));
 
     container.appendChild(card);
   });
   if (total > auditShownCount) {
     const more = document.createElement('button');
     more.type = 'button';
+    more.dataset.action = 'show-more';
     more.className = 'audit-show-more w-full py-2 text-xs font-semibold text-indigo-700 bg-white border border-slate-200 rounded-lg hover:bg-indigo-50 cursor-pointer';
     more.textContent = `Show ${Math.min(AUDIT_PAGE, total - auditShownCount)} more (${total - auditShownCount} not shown)`;
-    more.onclick = () => { auditShownCount += AUDIT_PAGE; renderAuditTimeline(); };
     container.appendChild(more);
   }
   if (keep) {
@@ -255,3 +202,79 @@ function renderAuditTimeline() {
     if (box) { box.focus({ preventScroll: true }); try { box.setSelectionRange(keep.start, keep.end); } catch (e) { /* not a text box */ } }
   }
 }
+
+// ======================= What the Audit Trail's buttons do =======================
+// The timeline only draws: a button carries data-action, and its card names the entry (data-audit-entry). One listener on the
+// Audit Trail view runs the action named here (the memo form's button too).
+function auditActionContext(el) {
+  const card = el.closest('[data-audit-entry]');
+  return { el, log: card ? state.logs.find(l => l.id === card.dataset.auditEntry) || null : null, card };
+}
+/** @type {Record<string, (ctx: any) => any>} */
+const AUDIT_ACTIONS = {
+  'add-memo': async () => {
+    const subType = document.getElementById('memoSubType').value;
+    // The option's value is unique (rows and studies by id: two rows may share a title); the entry names it by its label
+    const refOpt = document.getElementById('memoTargetRef').selectedOptions[0];
+    const targetRef = refOpt && refOpt.value ? refOpt.dataset.ref : '';
+    const content = document.getElementById('memoContentInput').value.trim();
+    if (!content) { showSnackbar('Write the memo first.'); return; }
+
+    const cat = subType === 'Team Perspectives Meeting' ? 'concordance' : // (category key kept: older entries use it)
+                subType === 'GRADE-CERQual Rationale' ? 'cerqual' :
+                subType === 'Line of Argument' ? 'line_of_argument' : 'reflexive_memo';
+
+    // The box is emptied at once, so a second click finds nothing to add; it gets the text back if the memo could not be saved
+    const box = document.getElementById('memoContentInput');
+    box.value = '';
+    try {
+      await recordAuditLog({
+        kind: 'memo',
+        category: cat,
+        action: `[${subType}] ${targetRef ? '— ' + targetRef : ''}`,
+        detail: content,
+        clusterIds: refOpt && refOpt.dataset.clusterId ? [refOpt.dataset.clusterId] : null
+      });
+    } catch (err) {
+      if (!box.value) box.value = content;
+      throw err;
+    }
+    // (recordAuditLog has drawn the trail again)
+  },
+  'entry-reviewer': ({ log }) => log && promptReassignItemReviewer(log, 'logs', renderAuditTimeline),
+  // A reason written later is not the same as one written at the time: it keeps when it was written and every earlier
+  // wording (opTrailReason, logic.js; the entry in memory changes once stored)
+  'entry-reason': async ({ el, log, card }) => {
+    const next = el.value.trim();
+    // What is saved is now the box's reference text: an edit after this one also holds a redraw back (renderAuditTimeline)
+    el.defaultValue = next;
+    if (!log || next === (log.rationale || '').trim()) return;
+    await runOperation(opTrailReason(state, { logId: log.id, reason: next, at: Date.now() }));
+    const stamp = card && card.querySelector('.rationale-stamp');
+    if (stamp) { stamp.textContent = rationaleStampText(log); stamp.classList.remove('hidden'); }
+  },
+  // Keep the trail honest: the deletion itself is recorded (with the removed entry's content), in the same transaction
+  // (opDeleteTrailEntry, logic.js). Undoable: a reason typed into the entry a moment ago is saved first (runOperation), so
+  // the copy Ctrl+Z brings back has it. Entries about the trail itself (a deletion, a restored entry, a changed
+  // attribution) have no delete button: the trail keeps its own history.
+  'entry-delete': async ({ log }) => {
+    if (!log || log.category === 'audit_edit') return;
+    await runOperation(project => opDeleteTrailEntry(project, { logId: log.id, when: new Date(log.timestamp).toLocaleString(), categoryLabel: getCategoryMeta(log.category).label }), {
+      undo: { label: `Audit Log (${log.action.slice(0, 30)})`, undoLogs: [{ kind: 'trail_restore', targetId: log.id, category: 'audit_edit',
+        action: `Restored a deleted audit trail entry (Undo): ${log.action}`, detail: '', clusterIds: log.clusterIds || null }] } });
+    showUndoSnackbar('Deleted the audit trail entry (the deletion itself is recorded)');
+  },
+  'show-more': () => { auditShownCount += AUDIT_PAGE; renderAuditTimeline(); }
+};
+(() => {
+  const view = document.getElementById('auditView');
+  if (!view) return;
+  view.addEventListener('click', ev => {
+    const el = ev.target && ev.target.closest && ev.target.closest('[data-action]');
+    if (!el || !view.contains(el) || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return;
+    const action = AUDIT_ACTIONS[el.dataset.action];
+    if (!action) return;
+    ev.stopPropagation();
+    Promise.resolve(action(auditActionContext(el))).catch(err => console.error('Audit Trail action failed:', err));
+  });
+})();

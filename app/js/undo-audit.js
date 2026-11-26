@@ -216,7 +216,9 @@ async function runOperation(work, { undo = null } = {}) {
 // The names an operation's entries need (logic.js: OpNames)
 const OP_NAMES = {
   docName: id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : null; },
-  relLabel: rel => getCellRelationMeta(rel).label
+  relLabel: rel => getCellRelationMeta(rel).label,
+  normAnno: a => normalizeAnnotation(a),
+  normDoc: d => normalizeDoc(d)
 };
 // Writes one audit entry on its own. Returns it (null for a minor operation that is not logged).
 async function recordAuditLog(args) {

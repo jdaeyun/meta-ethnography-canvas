@@ -444,15 +444,11 @@ async function deleteSecondOrder(sec) {
   renderHighlights();
   showUndoSnackbar(`Deleted the 2nd Order construct${linked.length ? ` (${linked.length} quote(s) unlinked)` : ''}`);
 }
-// An undoable change of constructs / quotes (passages): begun before they change, finished (finishChange) once written.
+// The Undo of a change of constructs / quotes (passages), for runOperation.
 // Its undoing belongs to the history of the rows the constructs are placed in.
 function annoUndo(label, annos) {
   const rows = [...new Set(annos.flatMap(a => (a.type === 'second_order' && a.clusterIds) || []))];
   return { label, undoLogs: [{ kind: 'undo_extraction', category: 'reading_extraction', action: `Undid: ${label}`, detail: '', clusterIds: rows }] };
-}
-function beginAnnoChange(label, annos) {
-  const u = annoUndo(label, annos);
-  return beginChange(label, annos.map(a => ({ store: 'annotations', id: a.id })), { undoLogs: u.undoLogs });
 }
 function secShortLabel(s) { return s.note || ('"' + (s.text || '').slice(0, 40) + '…"'); }
 
@@ -479,8 +475,8 @@ async function addSelectionAsPassage(secId) {
 }
 
 // From an existing construct (tagged separately before): make it a passage of another construct of the same study
+// (opAbsorbPassage, logic.js: its quotes, both constructs and the entry in one transaction; Ctrl+Z undoes it)
 async function absorbAsPassage(source, target) {
-  normalizeAnnotation(source); normalizeAnnotation(target);
   const doc = state.docs.find(d => d.id === target.docId);
   const ok = await askChoice({
     title: `The same interpretation, stated elsewhere in ${getDisplayName(doc)}?`,
@@ -491,90 +487,26 @@ async function absorbAsPassage(source, target) {
     cancelLabel: 'No, keep them separate'
   });
   if (!ok) return;
-  const children = quotesOf(source.id);
-  const change = beginAnnoChange(`Passage attach: "${secShortLabel(source)}" → "${secShortLabel(target)}"`, [target, source, ...children]);
-
-  const addedClusterIds = source.clusterIds.filter(cid => !target.clusterIds.includes(cid));
-  const movedQuoteIds = children.filter(f => !isQuoteLinkedTo(f, target.id)).map(f => f.id);
-  // The detached construct is kept whole inside the passage so that "Split off" can restore it exactly
-  const sourceSnapshot = JSON.parse(JSON.stringify(source));
-  const ownPassages = sourceSnapshot.passages || [];
-  sourceSnapshot.passages = [];
-  // Built on copies: the constructs and quotes in memory change once all of it is stored
-  const tgt = { ...target, clusterIds: [...(target.clusterIds || [])], passages: [...(target.passages || [])] };
-  tgt.passages.push({
-    id: newPassageId(),
-    text: source.text, page: source.page,
-    firstPage: source.firstPage || parseInt(source.page, 10) || null,
-    rectsMap: source.rectsMap || null,
-    by: source.by, addedAt: new Date().toISOString(),
-    // ownPassageIds: its own further passages, listed after it in the target; "Split off" takes them back with it
-    absorbed: { snapshot: sourceSnapshot, addedClusterIds, movedQuoteIds, ownPassageIds: ownPassages.map(x => x.id) }
-  }, ...ownPassages);
-
-  addedClusterIds.forEach(cid => putIntoRow(tgt, cid, rowFieldsOf(source, cid))); // with the source's judgement, note and mark there
-  // (Its within-study relationships (Appendix C) stay on the study under its id: hidden while it is a passage, back when split off)
-  /** @type {DbOp[]} */
-  const ops = children.map(f => { const q = { ...f, parentIds: [...quoteParentIds(f)] }; unlinkQuote(q, source.id); linkQuote(q, target.id); return { store: 'annotations', put: q }; });
-  ops.push({ store: 'annotations', put: tgt }, { store: 'annotations', del: source.id });
-  // Its quotes, both constructs and the entry in one transaction
-  await saveChange(ops, auditEntry({
-    kind: 'passage_absorb',
-    category: 'reading_extraction',
-    action: `Recorded p.${source.page} as a further passage of 2nd Order construct "${secShortLabel(target)}" (${getDisplayName(doc)})`,
-    detail: `The authors state the same interpretation in several places. Former separate construct: ${secShortLabel(source)}. ` +
-      `${children.length} linked quote(s) and ${addedClusterIds.length} matrix placement(s) moved with it.`,
-    fromVal: `${secShortLabel(target)} + ${secShortLabel(source)}`,
-    toVal: `${secShortLabel(target)} (${tgt.passages.length} passages)`
-  }));
-  finishChange(change);
+  const label = `Passage attach: "${secShortLabel(source)}" → "${secShortLabel(target)}"`;
+  const done = await runOperation(project => opAbsorbPassage(project, { sourceId: source.id, targetId: target.id, passageId: newPassageId(), at: new Date().toISOString() }, OP_NAMES),
+    { undo: annoUndo(label, [target, source]) });
+  if (!done) return;
   updateSidebar();
   renderHighlights();
   if (!divMatrix.classList.contains('hidden')) renderMatrixView();
-  showSnackbar(`Now one construct with ${tgt.passages.length} passages — Ctrl+Z to undo`);
+  const now = state.annotations.find(a => a.id === target.id);
+  showSnackbar(`Now one construct with ${now ? now.passages.length : 0} passages — Ctrl+Z to undo`);
 }
 
-// The passage turns out to be a different interpretation: make it its own construct again
+// The passage turns out to be a different interpretation: make it its own construct again (opSplitPassage, logic.js: both
+// constructs, the quotes that go back with it, what placing does in its rows and the entry in one transaction; Ctrl+Z also
+// removes the re-created construct)
 async function splitOffPassage(sec, pid) {
   const p = sec.passages.find(x => x.id === pid);
   if (!p) return;
-  const affectedQuotes = (p.absorbed?.movedQuoteIds || []).map(id => state.annotations.find(a => a.id === id)).filter(Boolean);
-  const change = beginAnnoChange(`Split off p.${p.page} from "${secShortLabel(sec)}"`, [sec, ...affectedQuotes]);
-  // Built on copies: the constructs and quotes in memory change once all of it is stored
-  const kept = { ...sec, passages: sec.passages.filter(x => x.id !== pid) };
-  let restored;
-  /** @type {any[]} */
-  let quotes = [];
-  if (p.absorbed?.snapshot) {
-    restored = normalizeAnnotation(JSON.parse(JSON.stringify(p.absorbed.snapshot)));
-    if (state.annotations.some(a => a.id === restored.id)) restored.id = 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-    // Give back the matrix rows it brought with it (only those the target did not have already)
-    (p.absorbed.addedClusterIds || []).forEach(cid => takeOutOfRow(kept, cid));
-    dropGoneLinks(restored); // placements in rows deleted since it was absorbed do not come back
-    // Its own further passages (absorbed with it) go back with it, if they are still there
-    const own = new Set(p.absorbed.ownPassageIds || []);
-    restored.passages = [...(restored.passages || []), ...kept.passages.filter(x => own.has(x.id))];
-    kept.passages = kept.passages.filter(x => !own.has(x.id));
-    quotes = affectedQuotes.map(f => ({ ...f, parentIds: [...new Set([...quoteParentIds(f).filter(id => id !== sec.id), restored.id])] }));
-  } else {
-    restored = normalizeAnnotation({
-      id: 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-      docId: sec.docId, type: 'second_order', origin: 'author_passage', noteSource: 'author',
-      by: p.by || state.reviewerId || 'Reviewer',
-      text: p.text, page: p.page, firstPage: p.firstPage, rectsMap: p.rectsMap,
-      note: '', nuanceNote: '', concordanceStatus: 'pending', concordanceNote: '',
-      clusterIds: [], clusterComments: {}, clusterRelations: {}, passages: []
-    });
-  }
-  // Both constructs, the quotes that go back with it and the entry in one transaction; Undo also removes the re-created
-  // construct. Back in its rows, it does there what placing does (an empty-cell record made for its study meanwhile goes)
-  await saveChange([...[kept, restored, ...quotes].map(a => ({ store: 'annotations', put: a })), ...placementOpsFor(state, [restored])], auditEntry({
-    kind: 'passage_split',
-    category: 'reading_extraction',
-    action: `Split p.${p.page} off "${secShortLabel(sec)}" as a separate 2nd Order construct (${studyNameOf(sec)})`,
-    detail: 'On re-reading, this passage expresses a different interpretation of the authors.'
-  }));
-  finishChange(change, [{ store: 'annotations', id: restored.id }]);
+  const done = await runOperation(project => opSplitPassage(project, { secId: sec.id, passageId: pid, reviewer: state.reviewerId || 'Reviewer',
+    newId: () => 'a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) }, OP_NAMES), { undo: annoUndo(`Split off p.${p.page} from "${secShortLabel(sec)}"`, [sec]) });
+  if (!done) return;
   updateSidebar();
   renderHighlights();
   if (!divMatrix.classList.contains('hidden')) renderMatrixView();

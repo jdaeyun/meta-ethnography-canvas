@@ -684,7 +684,8 @@ function tidyRefsOps(project, ops) {
 // nothing changes. Nothing in the project is changed: the browser writes the result (runOperation: one transaction, then
 // memory follows), and the scenario tests apply it (applyOps) and check the project's rules after it.
 /** @typedef {{ ops: DbOp[], entries: Record<string, any>[] }} OpResult */
-/** @typedef {{ docName: (id: any) => (string | null), relLabel: (rel: string) => string }} OpNames */
+// (normAnno / normDoc: how a record brought in or back is shaped as the app stores it; optional)
+/** @typedef {{ docName: (id: any) => (string | null), relLabel: (rel: string) => string, normAnno?: (a: any) => any, normDoc?: (d: any) => any }} OpNames */
 // An empty cell (no construct of this study in this row) can say the study was checked: not addressed, or a different aspect
 const EMPTY_CELL_STATUS = {
   absent: { symbol: '—', label: 'Checked: not addressed in this study' },
@@ -1015,7 +1016,9 @@ function opDeleteConstruct(project, { secId }, h) {
   if (!sec) return null;
   const quotes = (project.annotations || []).filter(a => a.type === 'first_order' && (a.parentIds || []).includes(secId));
   const doc = (project.docs || []).find(d => d.id === sec.docId);
-  const gone = ((doc && doc.conceptLinks) || []).filter(l => l.from === secId || l.to === secId);
+  // (also those of the constructs absorbed in it as passages, kept under their ids until split off)
+  const ids = new Set([secId, ...absorbedIdsOf(sec.passages)]);
+  const gone = ((doc && doc.conceptLinks) || []).filter(l => ids.has(l.from) || ids.has(l.to));
   /** @type {DbOp[]} */
   const ops = quotes.map(f => ({ store: 'annotations', put: { ...f, parentIds: f.parentIds.filter(id => id !== secId) } }));
   if (gone.length) ops.push({ store: 'docs', put: { ...doc, conceptLinks: doc.conceptLinks.filter(l => !gone.includes(l)) } });
@@ -1038,6 +1041,9 @@ function opDeleteQuote(project, { quoteId }, h) {
       detail: `"${String(f.text || '').slice(0, 80)}..."` }]
   };
 }
+// The ids of the constructs absorbed in these passages (their within-study relationships wait under those ids)
+/** @param {any} passages @returns {string[]} */
+const absorbedIdsOf = passages => (Array.isArray(passages) ? passages : []).map(p => p && p.absorbed && p.absorbed.snapshot && p.absorbed.snapshot.id).filter(Boolean);
 // A further passage of the same author interpretation, added to a construct / removed from it
 /** @param {any} project @param {{ secId: string, passage: any }} a @param {OpNames} h @returns {OpResult | null} */
 function opAddPassage(project, { secId, passage }, h) {
@@ -1047,7 +1053,7 @@ function opAddPassage(project, { secId, passage }, h) {
   return {
     ops: [{ store: 'annotations', put: { ...sec, passages: [...(sec.passages || []), passage] } }],
     entries: [{ kind: 'passage_add', category: 'reading_extraction',
-      action: `Added a further passage (p.${passage.page}) to 2nd Order construct "${sec.note || '"' + String(sec.text || '').slice(0, 40) + '…"'}" (${h.docName(sec.docId) || 'Study'})`,
+      action: `Added a further passage (p.${passage.page}) to 2nd Order construct "${passageSecLabel(sec)}" (${h.docName(sec.docId) || 'Study'})`,
       detail: `Same author interpretation stated elsewhere in the paper: "${t.slice(0, 120)}${t.length > 120 ? '…' : ''}"`, isMinorOp: true }]
   };
 }
@@ -1057,11 +1063,130 @@ function opRemovePassage(project, { secId, passageId }, h) {
   const p = sec && (sec.passages || []).find(x => x.id === passageId);
   if (!p) return null;
   const t = String(p.text || '');
+  /** @type {DbOp[]} */
+  const ops = [{ store: 'annotations', put: { ...sec, passages: sec.passages.filter(x => x.id !== passageId) } }];
+  // A construct absorbed in it goes for good: its within-study relationships go with it
+  const gone = new Set(absorbedIdsOf([p]));
+  const doc = gone.size ? (project.docs || []).find(d => d.id === sec.docId) : null;
+  const links = (doc && Array.isArray(doc.conceptLinks)) ? doc.conceptLinks : [];
+  if (links.some(l => gone.has(l.from) || gone.has(l.to))) ops.push({ store: 'docs', put: { ...doc, conceptLinks: links.filter(l => !gone.has(l.from) && !gone.has(l.to)) } });
   return {
-    ops: [{ store: 'annotations', put: { ...sec, passages: sec.passages.filter(x => x.id !== passageId) } }],
+    ops,
     entries: [{ kind: 'passage_remove', category: 'reading_extraction',
-      action: `Removed a further passage (p.${p.page}) from 2nd Order construct "${sec.note || '"' + String(sec.text || '').slice(0, 40) + '…"'}" (${h.docName(sec.docId) || 'Study'})`,
+      action: `Removed a further passage (p.${p.page}) from 2nd Order construct "${passageSecLabel(sec)}" (${h.docName(sec.docId) || 'Study'})`,
       detail: `"${t.slice(0, 120)}${t.length > 120 ? '…' : ''}"`, clusterIds: liveRowsOf(project, sec) }]
+  };
+}
+// A record brought in or brought back, shaped as the app stores it (h.normAnno / h.normDoc: normalizeAnnotation /
+// normalizeDoc, core.js; without them, as given)
+/** @param {OpNames} h @param {any} a */
+const normAnnoBy = (h, a) => (h && h.normAnno ? h.normAnno(a) : a);
+/** @param {Partial<OpNames> | undefined} h @param {any} d */
+const normDocBy = (h, d) => (h && h.normDoc ? h.normDoc(d) : d);
+/** @param {any} f @param {string} remove @param {string} add */
+const relinkQuote = (f, remove, add) => ({ ...f, parentIds: [...new Set([...(Array.isArray(f.parentIds) ? f.parentIds : []).filter(id => id !== remove), add])] });
+// How a construct is named in the entries about its passages
+/** @param {any} s */
+const passageSecLabel = s => s.note || '"' + String(s.text || '').slice(0, 40) + '…"';
+/** @param {any} project @param {string} secId */
+const quotesIn = (project, secId) => (project.annotations || []).filter(a => a && a.type === 'first_order' && Array.isArray(a.parentIds) && a.parentIds.includes(secId));
+// A construct's placements in rows that are not here (deleted since) taken out, with what it had there (a copy)
+/** @param {any} project @param {any} a */
+function withoutGoneRows(project, a) {
+  const live = new Set((project.clusters || []).map(c => c.id));
+  const out = { ...a };
+  (Array.isArray(a.clusterIds) ? a.clusterIds : []).filter(id => !live.has(id)).forEach(id => takeOutOfRow(out, id));
+  ANNOTATION_ROW_FIELDS.forEach(k => {
+    if (out[k] && typeof out[k] === 'object' && Object.keys(out[k]).some(id => !live.has(id))) out[k] = Object.fromEntries(Object.entries(out[k]).filter(([id]) => live.has(id)));
+  });
+  return out;
+}
+// Another construct of the same study recorded as a further passage of this one (the authors state the same interpretation
+// in several places): its quotes and its placements in rows the target is not in move to the target (with its judgement,
+// cell note and mark there), and it is kept whole inside the passage so that "Split off" can bring it back exactly. Its own
+// further passages follow it in the target. (Its within-study relationships stay on the study under its id: hidden while it
+// is a passage, back when split off.) passageId, at: the new passage's id and time (ISO).
+/** @param {any} project @param {{ sourceId: string, targetId: string, passageId: string, at: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opAbsorbPassage(project, { sourceId, targetId, passageId, at }, h) {
+  const source = secOf(project, sourceId), target = secOf(project, targetId);
+  if (!source || !target || source.id === target.id || source.docId !== target.docId) return null;
+  const children = quotesIn(project, source.id);
+  const targetRows = Array.isArray(target.clusterIds) ? target.clusterIds : [];
+  const addedClusterIds = (Array.isArray(source.clusterIds) ? source.clusterIds : []).filter(cid => !targetRows.includes(cid));
+  const movedQuoteIds = children.filter(f => !f.parentIds.includes(target.id)).map(f => f.id);
+  const sharedQuoteIds = children.filter(f => f.parentIds.includes(target.id)).map(f => f.id); // linked to both already
+  const snapshot = deepCopy(source);
+  const ownPassages = Array.isArray(snapshot.passages) ? snapshot.passages : [];
+  snapshot.passages = [];
+  const tgt = { ...target, clusterIds: [...targetRows], passages: [...(Array.isArray(target.passages) ? target.passages : [])] };
+  tgt.passages.push({
+    id: passageId,
+    text: source.text, page: source.page,
+    firstPage: source.firstPage || parseInt(source.page, 10) || null,
+    rectsMap: source.rectsMap || null,
+    by: source.by, addedAt: at,
+    // ownPassageIds: its own further passages, listed after it in the target; "Split off" takes them back with it.
+    // sharedQuoteIds (optional; absent in passages absorbed before 1.4.15): its quotes that were linked to the target too
+    absorbed: { snapshot, addedClusterIds, movedQuoteIds, sharedQuoteIds, ownPassageIds: ownPassages.map(x => x.id) }
+  }, ...ownPassages);
+  addedClusterIds.forEach(cid => putIntoRow(tgt, cid, rowFieldsOf(source, cid)));
+  /** @type {DbOp[]} */
+  const ops = children.map(f => ({ store: 'annotations', put: relinkQuote(f, source.id, target.id) }));
+  ops.push({ store: 'annotations', put: tgt }, { store: 'annotations', del: source.id });
+  const srcName = passageSecLabel(source), tgtName = passageSecLabel(target);
+  return {
+    ops,
+    entries: [{ kind: 'passage_absorb', category: 'reading_extraction',
+      action: `Recorded p.${source.page} as a further passage of 2nd Order construct "${tgtName}" (${h.docName(target.docId) || 'Study'})`,
+      detail: `The authors express the same interpretation in several places. Former separate construct: ${srcName}. ` +
+        `${children.length} linked quote(s) and ${addedClusterIds.length} matrix placement(s) moved with it.`,
+      fromVal: `${tgtName} + ${srcName}`,
+      toVal: `${tgtName} (${tgt.passages.length} passages)` }]
+  };
+}
+// A passage that turns out to be a different interpretation: its own construct again. A construct absorbed earlier comes
+// back as it was (its quotes, its own further passages, and the rows it brought, which the construct it joined leaves; rows
+// deleted since stay out); a passage added from the PDF becomes a new construct. Back in its rows, it does there what placing
+// does (placementOpsFor). newId: an id for the construct when its own is taken (or it never had one); reviewer: who split it
+// off (for a passage without a reviewer of its own).
+/** @param {any} project @param {{ secId: string, passageId: string, newId: () => string, reviewer?: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opSplitPassage(project, { secId, passageId, newId, reviewer = '' }, h) {
+  const sec = secOf(project, secId);
+  const p = sec && (sec.passages || []).find(x => x.id === passageId);
+  if (!p) return null;
+  const kept = { ...sec, passages: sec.passages.filter(x => x.id !== passageId) };
+  let restored;
+  /** @type {any[]} */
+  let quotes = [];
+  if (p.absorbed && p.absorbed.snapshot) {
+    restored = normAnnoBy(h, deepCopy(p.absorbed.snapshot));
+    if (!restored.id || annoOf(project, restored.id)) restored.id = newId();
+    // The rows it brought with it go back with it (only those the construct it joined did not have already)
+    (p.absorbed.addedClusterIds || []).forEach(cid => takeOutOfRow(kept, cid));
+    restored = withoutGoneRows(project, restored);
+    // Its own further passages (absorbed with it) go back with it, if they are still there
+    const own = new Set(p.absorbed.ownPassageIds || []);
+    restored.passages = [...(Array.isArray(restored.passages) ? restored.passages : []), ...kept.passages.filter(x => own.has(x.id))];
+    kept.passages = kept.passages.filter(x => !own.has(x.id));
+    // Its quotes go back to it: those it brought leave the construct it joined, those linked to both stay linked to both
+    const back = (ids, keepTarget) => (ids || []).map(id => annoOf(project, id)).filter(f => f && f.type === 'first_order' && f.docId === restored.docId)
+      .map(f => relinkQuote(f, keepTarget ? '' : sec.id, restored.id));
+    quotes = [...back(p.absorbed.movedQuoteIds, false), ...back(p.absorbed.sharedQuoteIds, true)];
+  } else {
+    restored = normAnnoBy(h, {
+      id: newId(),
+      docId: sec.docId, type: 'second_order', origin: 'author_passage', noteSource: 'author',
+      by: p.by || reviewer || 'Reviewer',
+      text: p.text, page: p.page, firstPage: p.firstPage, rectsMap: p.rectsMap,
+      note: '', nuanceNote: '', concordanceStatus: 'pending', concordanceNote: '',
+      clusterIds: [], clusterComments: {}, clusterRelations: {}, passages: []
+    });
+  }
+  return {
+    ops: [...[kept, restored, ...quotes].map(a => ({ store: 'annotations', put: a })), ...placementOpsFor(project, [restored])],
+    entries: [{ kind: 'passage_split', category: 'reading_extraction',
+      action: `Split p.${p.page} off "${passageSecLabel(sec)}" as a separate 2nd Order construct (${h.docName(sec.docId) || 'Study'})`,
+      detail: 'On re-reading, this passage expresses a different interpretation of the authors.' }]
   };
 }
 // A quote with no construct of its own, wrapped by the reviewer in a new 2nd Order construct (construct: the new record)
@@ -1432,6 +1557,112 @@ function opPeerPlacement(project, { peerRowId, rowId, peerReviewer, peerTitle })
     ops,
     entries: [{ kind: 'peer_placement', clusterIds: [rowId], category: 'concordance', action: `Placed ${count} construct(s) imported from @${peerReviewer} in "${rowName(row)}"`,
       detail: `The row matches @${peerReviewer}'s row "${peerTitle || ''}"; their judgements and cell notes came with them.` }]
+  };
+}
+
+// Two row titles that name the same row (trimmed, case-insensitive; an empty title names none)
+/** @param {any} a @param {any} b */
+function sameRowTitle(a, b) { return !!(a && b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase()); }
+// The other reviewer's row id → the row here: same id, else same title (the rule that shows "✓ Already in Matrix"); a local
+// row id the peer's file also uses maps to itself
+/** @param {any} project @param {any[]} peerClusters @returns {Record<string, string>} */
+function peerRowMapOf(project, peerClusters) {
+  const rows = project.clusters || [];
+  /** @type {Record<string, string>} */
+  const map = {};
+  (peerClusters || []).forEach(pc => {
+    if (!pc) return;
+    const local = rows.find(c => c.id === pc.id) || rows.find(c => sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
+    if (local) map[pc.id] = local.id;
+  });
+  rows.forEach(c => { if (!map[c.id]) map[c.id] = c.id; });
+  return map;
+}
+// A study of the other reviewer's file added here (without its PDF), as it will be stored: the study ids it names become the
+// local ones (docMap: peer id → local id), "same primary study as" a study not here is dropped, and its within-study
+// relationships wait until both their constructs are imported (setAsideConceptLinks)
+/** @param {any} project @param {{ peerDoc: any, docMap: Record<string, string> }} a @param {Partial<OpNames>} [h] */
+function peerStudyStub(project, { peerDoc, docMap }, h) {
+  const docs = project.docs || [];
+  const named = remapDocRecord({ ...deepCopy(peerDoc), hasBinary: false, fpDone: !!peerDoc.sha256, order: docs.length }, id => docMap[id]);
+  return normDocBy(h, setAsideConceptLinks(dropGoneDocRefs(named, new Set(docs.map(d => d.id)))));
+}
+// A construct or quote of the other reviewer's file imported into study docId, with the team status chosen (status). Its links
+// become links here: a quote's 2nd Order constructs through annoMap (peer construct id → id here; one not here yet is kept in
+// _peerParentIds), a construct's rows through the peer's rows (peerClusters: same id, else same title; a row not here yet is
+// kept in _peerRows with the judgement, cell note, mark and the row's title, see peerRowPlacementOps). What waited for it comes
+// along in the same transaction: the peer's quotes of this study waiting for this construct, and a within-study relationship
+// waiting for it (attachWaitingConceptLinks). Its placements do in the rows what placing does (placementOpsFor). newId: an id
+// when the peer's is taken or unsafe. Returns also id (the construct's id here) and peerId (its id in the peer's file).
+/** @param {any} project @param {{ peerAnno: any, docId: string, status: string, peerReviewer: string, annoMap?: Record<string, string>, peerClusters?: any[], newId: () => string }} a @param {OpNames} h @returns {(OpResult & { id: string, peerId: string }) | null} */
+function opImportPeerConstruct(project, { peerAnno, docId, status, peerReviewer, annoMap = {}, peerClusters = [], newId }, h) {
+  const targetDoc = (project.docs || []).find(d => d.id === docId);
+  if (!peerAnno || !targetDoc) return null;
+  const raw = deepCopy(peerAnno);
+  const peerId = raw.id;
+  // Its own id where that is safe and free (a foreign file may carry any characters)
+  if (!raw.id || !/^[\w.-]+$/.test(String(raw.id)) || annoOf(project, raw.id)) raw.id = newId();
+  if (raw.type === 'first_order') {
+    const ok = [], waiting = [];
+    (Array.isArray(raw.parentIds) ? raw.parentIds : []).forEach(pid => {
+      const mapped = annoMap[pid] || pid;
+      const sec = secOf(project, mapped);
+      if (sec && sec.docId === docId) ok.push(mapped); else waiting.push(pid);
+    });
+    raw.parentIds = [...new Set(ok)];
+    if (waiting.length) raw._peerParentIds = waiting; else delete raw._peerParentIds;
+  }
+  if (Array.isArray(raw.clusterIds)) {
+    const rowMap = peerRowMapOf(project, peerClusters);
+    /** @type {Record<string, any>} */
+    const waitingRows = {};
+    raw.clusterIds.forEach(id => {
+      if (!id || rowMap[id]) return;
+      const pRow = (peerClusters || []).find(c => c && c.id === id);
+      waitingRows[id] = pRow && pRow.thirdOrderTitle ? { _title: pRow.thirdOrderTitle } : {}; // the title lets a row made here later take them in
+      ANNOTATION_ROW_FIELDS.forEach(k => { if (raw[k] && typeof raw[k] === 'object' && id in raw[k]) waitingRows[id][k] = raw[k][id]; });
+    });
+    raw.clusterIds = [...new Set(raw.clusterIds.map(id => rowMap[id]).filter(Boolean))];
+    ANNOTATION_ROW_FIELDS.forEach(k => {
+      if (!raw[k] || typeof raw[k] !== 'object') return;
+      const out = {};
+      Object.keys(raw[k]).forEach(id => { if (rowMap[id] && !(rowMap[id] in out)) out[rowMap[id]] = raw[k][id]; });
+      raw[k] = out;
+    });
+    if (Object.keys(waitingRows).length) raw._peerRows = waitingRows; else delete raw._peerRows;
+  }
+  if (raw.type === 'second_order' && docId === ((project.docs || [])[0] || {}).id) raw.indexSeeded = true;
+  const peerNote = String(peerAnno.concordanceNote || '').trim();
+  const imported = normAnnoBy(h, {
+    ...raw,
+    docId,
+    by: peerAnno.by || peerReviewer,
+    concordanceStatus: status,
+    // The peer's own team-discussion note comes along, after where it came from
+    concordanceNote: `Imported from @${peerReviewer} via JSON Diff/Merge.` + (peerNote ? `\n@${peerReviewer}'s note: ${peerNote}` : '')
+  });
+  /** @type {DbOp[]} */
+  const ops = [{ store: 'annotations', put: imported }, ...placementOpsFor(project, [imported])];
+  if (imported.type === 'second_order') {
+    // The peer's quotes of this study imported earlier and waiting for this construct are linked to it
+    (project.annotations || []).forEach(a => {
+      const waiting = Array.isArray(a._peerParentIds) ? a._peerParentIds : [];
+      if (a.type !== 'first_order' || a.docId !== docId || !waiting.includes(peerId)) return;
+      const q = { ...a, parentIds: [...new Set([...(Array.isArray(a.parentIds) ? a.parentIds : []), imported.id])], _peerParentIds: waiting.filter(x => x !== peerId) };
+      if (!q._peerParentIds.length) delete q._peerParentIds;
+      ops.push({ store: 'annotations', put: q });
+    });
+    const withLinks = attachWaitingConceptLinks(targetDoc, peerId, imported.id);
+    if (withLinks) ops.push({ store: 'docs', put: withLinks });
+  }
+  const label = String(status || '').toUpperCase();
+  return {
+    id: imported.id, peerId,
+    ops,
+    entries: [{ kind: 'peer_import', category: 'concordance',
+      action: `Imported Peer Construct from @${peerReviewer} as ${label} (${h.docName(docId) || 'Study'}, p.${imported.page})`,
+      detail: `"${String(imported.text || '').slice(0, 80)}..."`,
+      toVal: `${imported.type === 'second_order' ? '2nd Order' : '1st Order'} [${label}]` }]
   };
 }
 
