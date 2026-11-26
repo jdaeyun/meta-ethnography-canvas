@@ -133,14 +133,12 @@ function peerSetAsideRecord(cmp, pAnno) {
   const list = Array.isArray(state.loa.peerSetAside) ? state.loa.peerSetAside : [];
   return list.find(r => r.peerId === pAnno.id && r.reviewer === cmp.peerReviewer && r.textKey === peerSetAsideKey(pAnno)) || null;
 }
-async function savePeerSetAside(list) {
-  state.loa = { ...state.loa, id: 'loa_main', peerSetAside: list, updatedAt: Date.now() };
-  await dbPut('meta', state.loa);
-}
+
+
 
 // ---- Translation order of both reviewers: a different #1 or order can lead to a different reading (to discuss, not an error) ----
 function peerOrderInfo(cmp) {
-  const peerDocs = cmp.peerData.docs.slice().sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  const peerDocs = sortStudies(cmp.peerData.docs.slice());
   const peerLoa = cmp.peerData.loa || {};
   const mine = state.docs.map(d => d.id);
   const theirs = peerDocs.map(p => cmp.docMapPeerToLocal[p.id] || null);
@@ -185,6 +183,7 @@ function renderCompareStudiesTab(container, cmp) {
     });
     if (note === null) return;
     await recordAuditLog({
+      kind: 'order_difference',
       category: 'concordance',
       action: `Noted a different translation order from @${cmp.peerReviewer}`,
       detail: `Mine: ${state.docs.map(d => getDisplayName(d)).join(' ➔ ')}\n@${cmp.peerReviewer}: ${info.peerDocs.map(nameOfPeer).join(' ➔ ')}${note ? '\n' + note : ''}`,
@@ -269,7 +268,7 @@ async function processPeerJsonFile(file) {
     computePeerAnnotationMatches(state.peerComparison);
     await reattachWaitingByTitle(state.peerComparison);
     // Start on the Studies & Order tab when there is something to settle or discuss there
-    const firstDiffers = (peerData.docs[0] && state.docs[0]) && docMapPeerToLocal[(peerData.docs.slice().sort((a, b) => (a.order ?? 999) - (b.order ?? 999))[0] || {}).id] !== state.docs[0].id;
+    const firstDiffers = (peerData.docs[0] && state.docs[0]) && docMapPeerToLocal[(sortStudies(peerData.docs.slice())[0] || {}).id] !== state.docs[0].id;
     if (unmatchedPeerDocs.length || firstDiffers) setCompareTab('studies');
 
     state.teamMode = true;
@@ -356,10 +355,9 @@ function renderComparisonTabContent() {
           <div class="text-[11px] text-slate-400">Set aside ${rec && rec.at ? new Date(rec.at).toLocaleString() : ''}${rec && rec.by ? ' by @' + escapeHtml(rec.by) : ''}</div></div>
         <button type="button" class="reconsider-btn shrink-0 px-2 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded cursor-pointer">Reconsider</button>`;
       row.querySelector('.reconsider-btn').onclick = async () => {
-        await savePeerSetAside((state.loa.peerSetAside || []).filter(r => r !== rec));
+        await runOperation(opPeerSetAside(state, { remove: r => r === rec, action: `Reconsidered a construct from @${cmp.peerReviewer} set aside earlier`, detail: `${studyName} (p.${p.page}): "${String(p.text || '').slice(0, 70)}..."` }));
         cmp.setAsideAnnos = cmp.setAsideAnnos.filter(x => x !== item);
         cmp.peerOnlyAnnos.push(item);
-        await recordAuditLog({ category: 'concordance', action: `Reconsidered a construct from @${cmp.peerReviewer} set aside earlier`, detail: `${studyName} (p.${p.page}): "${String(p.text || '').slice(0, 70)}..."` });
         renderComparisonDashboard();
       };
       list.appendChild(row);
@@ -444,13 +442,8 @@ function renderComparisonTabContent() {
         if (at < 0) return; // already handled (a second click)
         cmp.peerOnlyAnnos.splice(at, 1);
         (cmp.setAsideAnnos = cmp.setAsideAnnos || []).push(item);
-        const list = Array.isArray(state.loa.peerSetAside) ? state.loa.peerSetAside : [];
-        await savePeerSetAside([...list, { peerId: p.id, reviewer: cmp.peerReviewer, textKey: peerSetAsideKey(p), at: Date.now(), by: state.reviewerId || '' }]);
-        await recordAuditLog({
-          category: 'concordance',
-          action: `Set Aside Peer-Only Construct from @${cmp.peerReviewer}`,
-          detail: `${studyName} (p.${p.page}): "${p.text.slice(0, 70)}..."`
-        });
+        await runOperation(opPeerSetAside(state, { add: { peerId: p.id, reviewer: cmp.peerReviewer, textKey: peerSetAsideKey(p), at: Date.now(), by: state.reviewerId || '' },
+          action: `Set Aside Peer-Only Construct from @${cmp.peerReviewer}`, detail: `${studyName} (p.${p.page}): "${p.text.slice(0, 70)}..."` }));
         renderComparisonDashboard();
       };
       container.appendChild(card);
@@ -504,19 +497,7 @@ function renderComparisonTabContent() {
       `;
       card.querySelector('.mark-agreed-btn').onclick = async () => {
         await mergePeerAuditLogs();
-        l.concordanceStatus = 'agreed';
-        if (p.note && !l.note) l.note = p.note;
-        else if (p.note && p.note !== l.note && !l.concordanceNote.includes(p.note)) {
-          l.concordanceNote = `[Peer @${cmp.peerReviewer} label: ${p.note}] ${l.concordanceNote}`.trim();
-        }
-        await dbPut('annotations', l);
-        await recordAuditLog({
-          kind: 'provisional_agreement',
-          category: 'concordance',
-          action: `Recorded provisional agreement (for now) with @${cmp.peerReviewer} (${dName}, p.${l.page})`,
-          detail: `"${l.text.slice(0, 75)}..."`,
-          toVal: 'Agreed (for now)'
-        });
+        await runOperation(opProvisionalAgreement(state, { secId: l.id, peerNote: p.note, peerReviewer: cmp.peerReviewer }, OP_NAMES));
         updateSidebar();
         renderComparisonDashboard();
       };
@@ -544,9 +525,13 @@ function renderComparisonTabContent() {
         </button>
       `;
       card.querySelector('.flag-disc').onclick = async () => {
-        l.concordanceStatus = 'discuss';
-        l.concordanceNote = `Extracted only by @${state.reviewerId} (not in @${cmp.peerReviewer}'s JSON).`;
-        await dbPut('annotations', l);
+        // The reason is added to the team note the construct has (the note is not replaced), and the change is logged
+        const reason = `Extracted only by @${state.reviewerId} (not in @${cmp.peerReviewer}'s JSON).`;
+        const prevNote = l.concordanceNote || '';
+        const note = prevNote.includes(reason) ? prevNote : [prevNote, reason].filter(Boolean).join('\n');
+        await setConstructTeamStatus(l, 'discuss', note, {
+          action: `Flagged for discussion: a construct only @${state.reviewerId} extracted, not in @${cmp.peerReviewer}'s file (${getDisplayName(doc)}, p.${l.page})`
+        });
         updateSidebar();
         renderComparisonDashboard();
       };
@@ -621,23 +606,13 @@ function renderComparisonTabContent() {
     };
     loaSection.querySelector('.cmp-import-rel').onclick = async () => {
       await mergePeerAuditLogs();
-      const byTitle = t => state.clusters.find(c => (c.thirdOrderTitle || '').trim().toLowerCase() === String(t || '').trim().toLowerCase());
-      let added = 0, skipped = 0;
-      for (const l of peerModel.links) {
-        const f = byTitle(l.from), t = byTitle(l.to);
-        if (!f || !t || f.id === t.id) { skipped++; continue; }
-        const dup = (state.loa.links || []).some(x => x.type === l.type && ((x.from === f.id && x.to === t.id) || (!isDirectedLink(l.type) && x.from === t.id && x.to === f.id)));
-        if (dup) continue;
-        state.loa.links = [...(state.loa.links || []), { id: 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from: f.id, to: t.id, type: l.type, note: (l.note ? l.note + ' ' : '') + `[from @${cmp.peerReviewer}]` }];
-        added++;
-      }
-      if (added) {
-        state.loa.updatedAt = Date.now();
-        await dbPut('meta', state.loa);
-        await recordAuditLog({ category: 'team_model', action: `Imported ${added} concept relation(s) from @${cmp.peerReviewer}'s model`, detail: skipped ? `${skipped} relation(s) skipped: the rows were not found here by title (import those rows first).` : '' });
-        renderLoaMap();
-      }
-      showSnackbar(`Imported ${added} relation(s).${skipped ? ` ${skipped} skipped (rows not found here by title — import those rows first).` : ''}`);
+      const newId = () => 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const before = (state.loa.links || []).length;
+      const r = opImportPeerRelations(state, { peerLinks: peerModel.links, peerReviewer: cmp.peerReviewer, newId });
+      if (await runOperation(r)) renderLoaMap();
+      const added = (state.loa.links || []).length - before;
+      const skipped = (peerModel.links || []).length - added;
+      showSnackbar(`Imported ${added} relation(s).${skipped ? ` ${skipped} not added (already here, or rows not found here by title — import those rows first).` : ''}`);
       renderComparisonTabContent();
     };
     box.appendChild(loaSection);
@@ -696,16 +671,8 @@ function renderComparisonTabContent() {
             by: cmp.peerReviewer, order: state.clusters.length, seededFromId: seededFrom });
           if (!newCl.baselineChange) delete newCl.baselineChange;
           if (!newCl.seededFromId) delete newCl.seededFromId;
-          await dbPut('clusters', newCl);
-          state.clusters.push(newCl);
-          const placed = await reattachPeerRowPlacements(pc.id, newCl.id);
-          await recordAuditLog({
-            clusterIds: [newCl.id],
-            category: 'concordance',
-            action: `Imported 3rd Order Row from @${cmp.peerReviewer}`,
-            toVal: newCl.thirdOrderTitle || '(Untitled)',
-            detail: placed ? `${placed} construct(s) imported earlier from @${cmp.peerReviewer} placed in this row, with their judgements and cell notes.` : ''
-          });
+          // The row, the constructs that were waiting for it (placed with their judgements) and the entry: one transaction
+          await runOperation(opImportPeerRow(state, { row: newCl, peerRowId: pc.id, peerReviewer: cmp.peerReviewer }));
           renderComparisonTabContent();
         });
         clList.appendChild(row);
@@ -724,20 +691,12 @@ async function mergePeerAuditLogs() {
   let added = 0;
   // Once merged, a comparison does not merge again (bulk import calls this per construct); ids looked up in a Set
   if (cmp.logsMerged) return 0;
-  const have = new Set(state.logs.map(l => l.id));
-  const entries = [];
-  for (const pl of (cmp.peerData.logs || [])) {
-    if (!pl || !pl.id || have.has(pl.id)) continue;
-    have.add(pl.id);
-    entries.push({ ...pl, reviewer: pl.reviewer || cmp.peerReviewer });
-  }
-  await commitOps(entries.map(e => ({ store: 'logs', put: e }))); // all of them in one transaction (and in the trail, newest first)
-  added = entries.length;
+  // All of them and the entry about them in one transaction (and in the trail, newest first)
+  const r = opMergePeerLogs(state, { logs: cmp.peerData.logs || [], peerReviewer: cmp.peerReviewer });
+  added = r ? r.ops.length : 0;
+  await runOperation(r);
   cmp.logsMerged = true;
-  if (added) {
-    await recordAuditLog({ kind: 'peer_logs', category: 'concordance', action: `Merged ${added} audit trail entries from @${cmp.peerReviewer}`, detail: 'Both reviewers\' decisions now appear in one trail.', isMinorOp: false });
-    updateAuditBadge();
-  }
+  if (added) updateAuditBadge();
   return added;
 }
 
@@ -754,29 +713,7 @@ function peerRowMap(cmp) {
 }
 
 // Per-row values a 2nd Order construct carries for each row it is placed in (same list as merge / split in matrix.js)
-// A peer row that is here now (imported after its constructs, or a local row with the same title): place the constructs
-// that were waiting for it, with their judgements. peerRowId = the row's id in the peer's file; localRowId = the row here.
-async function reattachPeerRowPlacements(peerRowId, localRowId = peerRowId) {
-  const ops = [], placed = [];
-  for (const a of state.annotations) {
-    const w = a.type === 'second_order' && a._peerRows && a._peerRows[peerRowId];
-    if (!w) continue;
-    // With the peer's judgement, note and mark there; what the construct already has in that row here is kept
-    const peerFields = {};
-    ANNOTATION_ROW_FIELDS.forEach(k => { if (k in w) peerFields[k] = w[k]; });
-    // (a copy: the construct in memory changes once it is stored)
-    const c = { ...a, clusterIds: [...(a.clusterIds || [])], _peerRows: { ...a._peerRows } };
-    putIntoRow(c, localRowId, { ...peerFields, ...rowFieldsOf(a, localRowId) });
-    delete c._peerRows[peerRowId];
-    if (!Object.keys(c._peerRows).length) delete c._peerRows;
-    ops.push({ store: 'annotations', put: c });
-    placed.push(c);
-  }
-  // As a placement made here: the row's base if not set yet, and no empty-cell note for this study (placementOpsFor)
-  ops.push(...placementOpsFor(state, placed));
-  await commitOps(ops); // the constructs and what they change in the rows, together
-  return ops.filter(o => o.store === 'annotations').length;
-}
+// (peerRowPlacementOps: logic.js)
 
 // Constructs waiting for a peer row that is now here under the same title (a row made here, not imported): placed when a
 // file is compared and when the "3rd Order, Model & Logs" tab is opened. Never from inside a render; one run at a time.
@@ -789,10 +726,10 @@ async function reattachWaitingByTitle(cmp) {
       if (!state.annotations.some(a => a._peerRows && a._peerRows[pc.id])) continue;
       const local = state.clusters.find(c => c.id === pc.id || sameRowTitle(c.thirdOrderTitle, pc.thirdOrderTitle));
       if (!local) continue;
-      const placed = await reattachPeerRowPlacements(pc.id, local.id);
-      if (!placed) continue;
-      total += placed;
-      await recordAuditLog({ clusterIds: [local.id], category: 'concordance', action: `Placed ${placed} construct(s) imported from @${cmp.peerReviewer} in "${local.thirdOrderTitle || 'Untitled Row'}"`, detail: `The row matches @${cmp.peerReviewer}'s row "${pc.thirdOrderTitle || ''}"; their judgements and cell notes came with them.` });
+      const r = opPeerPlacement(state, { peerRowId: pc.id, rowId: local.id, peerReviewer: cmp.peerReviewer, peerTitle: pc.thirdOrderTitle });
+      if (!r) continue;
+      total += r.ops.filter(o => o.store === 'annotations').length;
+      await runOperation(r);
     }
   } finally { cmp.reattaching = false; }
   if (total) showSnackbar(`Placed ${total} construct(s) from @${cmp.peerReviewer} in rows that are here now.`);
@@ -805,10 +742,17 @@ async function reattachWaitingForRow(cluster) {
   if (!cluster || !cluster.thirdOrderTitle) return 0;
   const peerIds = new Set();
   state.annotations.forEach(a => Object.entries(a._peerRows || {}).forEach(([pid, w]) => { if (w && sameRowTitle(w._title, cluster.thirdOrderTitle)) peerIds.add(pid); }));
+  // One peer row after the other (the next reads the constructs as the last left them); the entry goes with the last write
+  const pids = [...peerIds];
   let total = 0;
-  for (const pid of peerIds) total += await reattachPeerRowPlacements(pid, cluster.id);
+  for (const [i, pid] of pids.entries()) {
+    const r = peerRowPlacementOps(state, pid, cluster.id);
+    total += r.count;
+    await saveChange(r.ops, i === pids.length - 1 && total ? auditEntry({ kind: 'peer_placement', clusterIds: [cluster.id], category: 'concordance',
+      action: `Placed ${total} construct(s) imported from another reviewer in "${cluster.thirdOrderTitle}"`,
+      detail: 'They were imported in Compare before a row of this title was here; their judgements and cell notes came with them.' }) : []);
+  }
   if (total) {
-    await recordAuditLog({ clusterIds: [cluster.id], category: 'concordance', action: `Placed ${total} construct(s) imported from another reviewer in "${cluster.thirdOrderTitle}"`, detail: 'They were imported in Compare before a row of this title was here; their judgements and cell notes came with them.' });
     showSnackbar(`Placed ${total} imported construct(s) waiting for a row called "${cluster.thirdOrderTitle}".`);
   }
   return total;
@@ -879,7 +823,7 @@ async function importPeerConstructNow(item, status, redraw) {
   }
   // Map the peer's rows to local rows: same id, else same title (the rule that shows "✓ Already in Matrix").
   // A placement in a row that is not here yet is kept aside (_peerRows) with its judgement, cell note and line-of-argument
-  // mark, and is placed when that row is imported in the "3rd Order, Model & Logs" tab (see reattachPeerRowPlacements).
+  // mark, and is placed when that row is imported in the "3rd Order, Model & Logs" tab (see peerRowPlacementOps).
   if (Array.isArray(raw.clusterIds)) {
     const rowMap = peerRowMap(cmp);
     const waitingRows = {};
@@ -930,16 +874,14 @@ async function importPeerConstructNow(item, status, redraw) {
   // A within-study relationship of the peer's that was waiting for this construct (and its other end) joins the study
   const targetDoc = state.docs.find(d => d.id === targetDocId);
   const withLinks = imported.type === 'second_order' && targetDoc ? attachWaitingConceptLinks(targetDoc, peerId, imported.id) : null;
-  await commitOps([{ store: 'annotations', put: imported }, ...placementRowOps([imported]), ...waitingQuoteOps, ...(withLinks ? [{ store: 'docs', put: withLinks }] : [])]); // (adds it to state.annotations)
-
-  const doc = state.docs.find(d => d.id === targetDocId);
-  await recordAuditLog({
+  // (adds it to state.annotations; the rows change as copies: placementOpsFor)
+  await saveChange([{ store: 'annotations', put: imported }, ...placementOpsFor(state, [imported]), ...waitingQuoteOps, ...(withLinks ? [{ store: 'docs', put: withLinks }] : [])], auditEntry({
     kind: 'peer_import',
     category: 'concordance',
-    action: `Imported Peer Construct from @${cmp.peerReviewer} as ${status.toUpperCase()} (${getDisplayName(doc)}, p.${imported.page})`,
+    action: `Imported Peer Construct from @${cmp.peerReviewer} as ${status.toUpperCase()} (${getDisplayName(targetDoc)}, p.${imported.page})`,
     detail: `"${imported.text.slice(0, 80)}..."`,
     toVal: `${imported.type === 'second_order' ? '2nd Order' : '1st Order'} [${status.toUpperCase()}]`
-  });
+  }));
 
   if (redraw && state.activeDocId === targetDocId) {
     renderHighlights();

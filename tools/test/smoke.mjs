@@ -1329,7 +1329,8 @@ await group('Reasons are asked in a multi-line dialog; undoable deletions show U
   await p.waitForSelector('#reasonModal:not(.hidden)');
   check('the #1 change offers "Record without a reason", not Cancel', (await p.innerText('#reasonModalSecondaryBtn')).includes('without a reason'));
   await p.keyboard.press('Escape'); await pending; await settle(p);
-  check('Escape records the #1 change without a reason', await p.evaluate(() => /#1 Study/.test(state.logs.find(l => l.category === 'study_order').action)));
+  // (the decision is logged first, then what it causes: rows marked for re-reading)
+  check('Escape records the #1 change without a reason', await p.evaluate(() => { const l = state.logs.find(x => /^Changed the #1 Study/.test(x.action)); return !!l && !l.rationale && Date.now() - l.timestamp < 60000; }));
   // A second question while one is open: the first caller goes on (cancelled), it does not hang
   const both = await p.evaluate(async () => {
     const a = askReason({ title: 'first' }); const b = askReason({ title: 'second' });
@@ -1919,8 +1920,8 @@ await group('Review fixes 7: undo logs of constructs, manual entry kept on failu
     openManualAddDrawer('first_order');
     document.getElementById('manualAddPageInput').value = '3';
     document.getElementById('manualAddTextInput').value = 'A quote typed by hand from a scanned page';
-    const orig = window.dbPut; window.dbPut = async (store, item, o) => { if (store === 'annotations') throw new Error('QuotaExceededError (simulated)'); return orig(store, item, o); };
-    try { await submitManualAddForm(); } finally { window.dbPut = orig; }
+    const orig = window.dbBatch; window.dbBatch = async (ops, o) => { if (ops.some(x => x.store === 'annotations')) throw new Error('QuotaExceededError (simulated)'); return orig(ops, o); };
+    try { await submitManualAddForm(); } finally { window.dbBatch = orig; }
     return { text: document.getElementById('manualAddTextInput').value, open: !document.getElementById('manualAddDrawer').classList.contains('hidden'), notice: !document.getElementById('choiceModal').classList.contains('hidden') || true };
   });
   check('a manual entry that could not be saved is back in the form', m.text === 'A quote typed by hand from a scanned page' && m.open, JSON.stringify(m));
@@ -2133,7 +2134,7 @@ await group('Audit entries carry their kind: Appendix A does not depend on the w
     kinds: Object.keys(LOG_KINDS)
   }));
   await p.context().close();
-  // Each recordAuditLog({ … }) call in the app (balanced braces) and each entry an Undo will write (undoLogs: [{ … }] of
+  // Each recordAuditLog({ … }) / auditEntry({ … }) call in the app (balanced braces) and each entry an Undo will write (undoLogs: [{ … }] of
   // beginChange), its action literals (${a ? 'P' : 'Q'} read both ways, other
   // ${…} as "1") and the kinds it names
   const expand = t => {
@@ -2144,7 +2145,8 @@ await group('Audit entries carry their kind: Appendix A does not depend on the w
   const calls = [];
   for (const f of fs.readdirSync(path.join(ROOT, 'app/js'))) {
     const src = fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8');
-    const starts = [...src.matchAll(/recordAuditLog\(\{|undoLogs: \[\{/g)].map(m => m.index + m[0].length - 1); // at the '{'
+    // (and each entry an operation of logic.js returns: entries: [{ … }] / entries.push({ … }))
+    const starts = [...src.matchAll(/(?:recordAuditLog|auditEntry)\(\{|undoLogs: \[\{|entries: \[\{|entries\.push\(\{/g)].map(m => m.index + m[0].length - 1); // at the '{'
     for (const i of starts) {
       let depth = 0, j = i;
       for (; j < src.length; j++) { if (src[j] === '{') depth++; else if (src[j] === '}' && --depth === 0) break; }
@@ -2509,7 +2511,9 @@ await group('Review fixes 11: history count without a second rebuild, peer rows,
     const row = normalizeCluster({ id: 'cl_peer_test', thirdOrderTitle: 'Peer row', baseDocId: '', cellStatus: { [sec.docId]: { status: 'absent', note: '' } }, order: state.clusters.length });
     await dbPut('clusters', row); state.clusters.push(row);
     sec._peerRows = { peer_row: { clusterRelations: 'reciprocal' } }; await dbPut('annotations', sec);
-    const n = await reattachPeerRowPlacements('peer_row', row.id);
+    const r = peerRowPlacementOps(state, 'peer_row', row.id);
+    await saveChange(r.ops);
+    const n = r.count;
     const stored = await dbGet('clusters', row.id);
     return { n, base: stored.baseDocId === sec.docId, cleared: !(stored.cellStatus || {})[sec.docId], placed: sec.clusterIds.includes(row.id) };
   });
@@ -2565,7 +2569,7 @@ await group('Review fixes 12: memos on rows that share a title, the last study d
   await settle(p);
   const sel = p.locator(`#matrixTable tr[data-cluster-id="${nb.id}"] .cl-base-select`);
   const shownUnset = await sel.evaluate(s => s.selectedOptions[0].value === '__unset');
-  await sel.evaluate(s => { s.value = ''; s.dispatchEvent(new Event('change')); }); // (the selector sits in the row's ⋯ tools)
+  await sel.evaluate(s => { s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true })); }); // (the selector sits in the row's ⋯ tools)
   await settle(p);
   const nbr = await p.evaluate(async ({ id, was }) => { const c = state.clusters.find(x => x.id === id); const r = c.baseDocId; c.baseDocId = was; await dbPut('clusters', c); return r; }, nb);
   check('a row whose base is not set yet says so, and "No single base" chosen there is stored', shownUnset && nbr === null, JSON.stringify({ shownUnset, nbr }));
@@ -2669,8 +2673,10 @@ await group('One save path for text boxes (bindTextField): a draft while typing,
     const tr = document.querySelector('#matrixTable tr[data-cluster-id]');
     const c = state.clusters.find(x => x.id === tr.dataset.clusterId);
     const box = tr.querySelector('.cluster-trans');
-    window.__sp = { id: c.id, before: state.logs.length, puts: [], orig: window.dbPut };
+    // (drafts are written with dbPut; the commit, with its audit entry, in one transaction: dbBatch)
+    window.__sp = { id: c.id, before: state.logs.length, puts: [], orig: window.dbPut, origBatch: window.dbBatch };
     window.dbPut = function (st, item) { if (st === 'clusters' && item && item.id === c.id) window.__sp.puts.push(item.translationSummary); return window.__sp.orig.apply(this, arguments); };
+    window.dbBatch = function (ops) { ops.forEach(o => { if (o.store === 'clusters' && o.put && o.put.id === c.id) window.__sp.puts.push(o.put.translationSummary); }); return window.__sp.origBatch.apply(this, arguments); };
     box.value = (c.translationSummary || '') + ' read again  ';
     box.dispatchEvent(new Event('input', { bubbles: true }));
   });
@@ -2686,7 +2692,7 @@ await group('One save path for text boxes (bindTextField): a draft while typing,
   });
   await settle(p);
   const r = await p.evaluate(async () => {
-    const sp = window.__sp; window.dbPut = sp.orig;
+    const sp = window.__sp; window.dbPut = sp.orig; window.dbBatch = sp.origBatch;
     const stored = (await dbGet('clusters', sp.id)).translationSummary;
     return { draftSaved: true, putsAfterDraft: sp.puts.length - 1, trimmed: stored === stored.trim() && /and once more$/.test(stored), entries: state.logs.length - sp.before };
   });
@@ -2838,8 +2844,11 @@ await group('Review fixes 10: saves still running are waited for, a refused save
   const sv = await p.evaluate(async () => {
     const el = document.createElement('input'); document.body.appendChild(el);
     let stored = '', fail = true, done = false;
-    const run = bindTextField(el, { get: () => stored, set: () => {}, save: () => new Promise((res, rej) => setTimeout(() => {
-      if (fail) { fail = false; rej(new Error('refused')); } else { stored = el.value.trim(); done = true; res(); } }, 150)) });
+    // The commit's write (one transaction: dbBatch) takes a moment and is refused the first time (a record of no project store)
+    const orig = window.dbBatch;
+    window.dbBatch = ops => ops.some(o => o.put && o.put.id === '__field_test') ? new Promise((res, rej) => setTimeout(() => {
+      if (fail) { fail = false; rej(new Error('refused')); } else { stored = el.value.trim(); done = true; res(); } }, 150)) : orig(ops);
+    const run = bindTextField(el, { get: () => stored, set: () => {}, record: () => ({ store: 'meta', put: { id: '__field_test' } }) });
     el.value = 'first'; el.dispatchEvent(new Event('input'));
     await run().catch(() => {});
     const retried = pendingSaveCleanups.has(run); // the refused commit is pending again
@@ -2848,6 +2857,7 @@ await group('Review fixes 10: saves still running are waited for, a refused save
     const f = flushAllPendingSaves(); // e.g. a deletion right after: it waits for the commit already running
     await f;
     el.remove();
+    window.dbBatch = orig;
     return { retried, waited: f !== null && done && stored === 'second' };
   });
   check('a commit whose save was refused stays pending and is tried again', sv.retried, JSON.stringify(sv));
@@ -2866,7 +2876,7 @@ await group('Review fixes 10: saves still running are waited for, a refused save
   await p.evaluate(({ id, rid }) => {
     const card = document.querySelector(`tr[data-cluster-id="${rid}"] .matrix-cell-card[data-sec-card="${id}"]`) || document.querySelector(`[data-cluster-id="${rid}"] [data-sec-card="${id}"]`);
     const sel = card && card.querySelector('.rel-select');
-    if (sel) { sel.value = 'reciprocal'; sel.dispatchEvent(new Event('change')); }
+    if (sel) { sel.value = 'reciprocal'; sel.dispatchEvent(new Event('change', { bubbles: true })); }
   }, mk);
   await settle(p);
   const mark = await p.evaluate(({ id, rid }) => { const a = state.annotations.find(x => x.id === id); return { rel: a.clusterRelations[rid], mark: !!(a.aspectUsedInLoa || {})[rid] }; }, mk);
@@ -2943,6 +2953,123 @@ await group('An older, partly damaged backup: clean restore works out row bases,
   await p.setInputFiles('#jsonFileInput', { name: 'old.json', mimeType: 'application/json', buffer: Buffer.from(built.json) }); await settle(p, { quiet: 300 });
   check('merged into a project: still consistent', await p.evaluate(() => checkInvariants(state).length === 0));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
+  await p.context().close();
+});
+
+await group('One transaction per change: a record and its audit entry together; deletions that Ctrl+Z undoes; merge restore', async () => {
+  const p = await openDemo();
+  await settle(p);
+  // A refused write changes nothing in memory either (the change and its entry are stored together, or neither)
+  const rf = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && a.docId === state.activeDocId);
+    const sel = document.querySelector(`[data-sidebar-anno="${CSS.escape(sec.id)}"] .sec-notesrc`) || [...document.querySelectorAll('.sec-notesrc')][0];
+    if (!sel) return { skip: true };
+    const card = sel.closest('[data-sidebar-anno]');
+    const target = state.annotations.find(a => a.id === card.dataset.sidebarAnno);
+    const before = { src: target.noteSource, logs: state.logs.length };
+    const orig = window.dbBatch;
+    window.dbBatch = async () => { throw new Error('simulated failure'); };
+    sel.value = target.noteSource === 'author' ? 'reviewer' : 'author';
+    let threw = false;
+    try { await sel.onchange({ target: sel }); } catch (e) { threw = true; } finally { window.dbBatch = orig; }
+    return { threw, same: target.noteSource === before.src, noEntry: state.logs.length === before.logs };
+  });
+  if (!rf.skip) check('a refused write leaves the record and the trail in memory as they were', rf.threw && rf.same && rf.noEntry, JSON.stringify(rf));
+  await p.evaluate(() => updateSidebar()); await settle(p);
+  // Removing a further passage is logged (adding one is) and undoable
+  const ps = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order');
+    await commitOps([{ store: 'annotations', put: { ...sec, passages: [...(sec.passages || []), { id: 'p_smoke', text: 'The same reading, stated again in the discussion', page: '9' }] } }]);
+    await removePassage(sec, 'p_smoke');
+    const entry = state.logs[0];
+    const gone = !(sec.passages || []).some(x => x.id === 'p_smoke');
+    await performUndo();
+    return { gone, kind: entry.kind, action: entry.action, back: (sec.passages || []).some(x => x.id === 'p_smoke') };
+  });
+  check('removing a further passage writes an audit entry, and Ctrl+Z brings it back', ps.gone && ps.kind === 'passage_remove' && /^Removed a further passage/.test(ps.action) && ps.back, JSON.stringify(ps));
+  await settle(p);
+  // A map relation and a within-study relationship: removed without a question, undone with Ctrl+Z
+  const mr = await p.evaluate(async () => {
+    const [a, b] = state.clusters;
+    const link = { id: 'lk_smoke', from: a.id, to: b.id, type: 'leads', note: 'smoke' };
+    await commitOps([{ store: 'meta', put: { ...state.loa, links: [...(state.loa.links || []), link] } }]);
+    renderLoaMap();
+    const row = [...document.querySelectorAll('#loaLinkList > div')].find(d => d.textContent.includes('smoke'));
+    const btn = row.querySelector('[data-action]');
+    await LOA_ACTIONS[btn.dataset.action](btn); // (what a click on it runs: one listener on the drawer)
+    const asked = !document.getElementById('choiceModal').classList.contains('hidden');
+    const gone = !state.loa.links.some(l => l.id === 'lk_smoke');
+    const entry = state.logs[0];
+    await performUndo();
+    const back = state.loa.links.some(l => l.id === 'lk_smoke');
+    const restored = state.logs[0];
+    await commitOps([{ store: 'meta', put: { ...state.loa, links: state.loa.links.filter(l => l.id !== 'lk_smoke') } }]);
+    return { asked, gone, kind: entry.kind, back, restoredKind: restored.kind };
+  });
+  check('a map relation is removed without asking first, logged, and Ctrl+Z brings it back', !mr.asked && mr.gone && mr.kind === 'map_relation' && mr.back && mr.restoredKind === 'map_relation', JSON.stringify(mr));
+  const wl = await p.evaluate(async () => {
+    const doc = state.docs.find(d => state.annotations.filter(a => a.type === 'second_order' && a.docId === d.id).length >= 2);
+    const [x, y] = state.annotations.filter(a => a.type === 'second_order' && a.docId === doc.id);
+    await switchStudy(doc.id);
+    await commitOps([{ store: 'docs', put: { ...doc, conceptLinks: [...(doc.conceptLinks || []), { id: 'cl_smoke', from: x.id, to: y.id, type: 'leads', note: '' }] } }]);
+    updateSidebar();
+    const btn = document.querySelector('.study-links .del-link[data-id="cl_smoke"]');
+    await SIDEBAR_ACTIONS[btn.dataset.action](sidebarActionContext(btn)); // (what a click on it runs: one listener on the list)
+    const asked = !document.getElementById('choiceModal').classList.contains('hidden');
+    const gone = !doc.conceptLinks.some(l => l.id === 'cl_smoke');
+    const kind = state.logs[0].kind;
+    await performUndo();
+    const back = doc.conceptLinks.some(l => l.id === 'cl_smoke');
+    await commitOps([{ store: 'docs', put: { ...doc, conceptLinks: doc.conceptLinks.filter(l => l.id !== 'cl_smoke') } }]);
+    return { asked, gone, kind, back };
+  });
+  check('a within-study relationship is removed without asking first, logged, and Ctrl+Z brings it back', !wl.asked && wl.gone && wl.kind === 'within_study_unlink' && wl.back, JSON.stringify(wl));
+  await settle(p);
+  // Compare: "Flag for Discussion" adds its reason to the construct's team note (the note stays) and is logged
+  const fd = await p.evaluate(async () => {
+    const sec = state.annotations.find(a => a.type === 'second_order' && !state.annotations.some(q => (q.parentIds || []).includes(a.id)));
+    await commitOps([{ store: 'annotations', put: { ...sec, concordanceNote: 'Our own note from the team meeting' } }]);
+    const peer = JSON.parse(JSON.stringify({ docs: state.docs, annotations: state.annotations.filter(a => a.id !== sec.id), clusters: state.clusters, logs: [], loa: state.loa, projectCode: state.projectCode, reviewerId: 'Peer' }));
+    document.getElementById('compareJsonModalBtn').click();
+    await processPeerJsonFile(new File([JSON.stringify(peer)], 'peer.json'));
+    state.activeCompareTab = 'unique';
+    renderComparisonDashboard();
+    const card = [...document.querySelectorAll('.flag-disc')].map(b => b.closest('div.bg-white')).find(c => c && c.textContent.includes((sec.note || sec.text).slice(0, 20)));
+    if (!card) return { skip: true };
+    const before = state.logs.length;
+    await card.querySelector('.flag-disc').onclick();
+    return { status: sec.concordanceStatus, kept: sec.concordanceNote.includes('Our own note from the team meeting'), reason: /Extracted only by @/.test(sec.concordanceNote),
+      logged: state.logs.length === before + 1 && state.logs[0].kind === 'construct_team' && /^Flagged for discussion/.test(state.logs[0].action) };
+  });
+  if (!fd.skip) check('"Flag for Discussion" keeps the construct\'s team note, adds the reason and is logged', fd.status === 'discuss' && fd.kept && fd.reason && fd.logged, JSON.stringify(fd));
+  else check('the local-only construct is listed in Compare', false, JSON.stringify(fd));
+  await p.evaluate(() => { document.getElementById('closeCompareModalBtn').click(); state.peerComparison = null; });
+  await settle(p);
+  // Merge restore: a refused write merges nothing (one transaction), and the same file then merges in full
+  const backup = await p.evaluate(() => {
+    const d = JSON.parse(JSON.stringify({ formatVersion: PROJECT_FORMAT, docs: state.docs, annotations: state.annotations, clusters: state.clusters, logs: state.logs, loa: state.loa, projectCode: state.projectCode }));
+    d.annotations.push({ ...d.annotations.find(a => a.type === 'second_order'), id: 'merge_atomic_1', clusterIds: [], clusterRelations: {}, clusterComments: {}, aspectUsedInLoa: {}, passages: [], text: 'Only in this backup (atomic merge)' });
+    d.clusters.push({ ...d.clusters[0], id: 'merge_atomic_row', thirdOrderTitle: 'Row only in this backup' });
+    d.logs.push({ id: 'merge_atomic_log', timestamp: 1, reviewer: 'B', category: 'memo', action: '[Memo] only in this backup', detail: '' });
+    return JSON.stringify(d);
+  });
+  p.choiceAnswer = 'merge';
+  await p.evaluate(() => { const o = window.dbBatch; window.__restoreBatch = o; window.dbBatch = async (ops, op) => { if (ops.some(x => x.put && x.put.id === 'merge_atomic_1')) throw new Error('simulated failure'); return o(ops, op); }; });
+  await p.setInputFiles('#jsonFileInput', { name: 'atomic.json', mimeType: 'application/json', buffer: Buffer.from(backup) }); await settle(p, { quiet: 300 });
+  const m1 = await p.evaluate(async () => {
+    window.dbBatch = window.__restoreBatch;
+    return { mem: ['merge_atomic_1'].some(id => state.annotations.some(a => a.id === id)) || state.clusters.some(c => c.id === 'merge_atomic_row') || state.logs.some(l => l.id === 'merge_atomic_log'),
+      db: !!(await dbGet('annotations', 'merge_atomic_1')) || !!(await dbGet('clusters', 'merge_atomic_row')) || !!(await dbGet('logs', 'merge_atomic_log')) };
+  });
+  check('a merge whose write is refused adds nothing (in memory or stored)', !m1.mem && !m1.db, JSON.stringify(m1));
+  await p.setInputFiles('#jsonFileInput', { name: 'atomic.json', mimeType: 'application/json', buffer: Buffer.from(backup) }); await settle(p, { quiet: 300 });
+  const m2 = await p.evaluate(async () => ({
+    all: !!(await dbGet('annotations', 'merge_atomic_1')) && !!(await dbGet('clusters', 'merge_atomic_row')) && !!(await dbGet('logs', 'merge_atomic_log')),
+    entry: state.logs.some(l => l.kind === 'restore' && /^Merged a JSON backup/.test(l.action)), consistent: checkInvariants(state).length === 0
+  }));
+  check('the same file then merges in one go, with its entry', m2.all && m2.entry && m2.consistent, JSON.stringify(m2));
+  p.choiceAnswer = null;
+  check('no page errors', p.pageErrors.filter(e => !/simulated failure/.test(e)).length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });
 

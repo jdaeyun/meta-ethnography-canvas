@@ -62,18 +62,11 @@ document.querySelectorAll('.loa-op-btn').forEach(btn => {
   btn.addEventListener('click', () => insertTextIntoLoaFlow(btn.dataset.op));
 });
 
-const LINK_TYPES = {
-  leads: { sym: '➔', label: 'leads to', color: '#6d28d9', dash: '' },
-  mutual: { sym: '⇄', label: 'is mutually related to', color: '#0f766e', dash: '' },
-  contradicts: { sym: '⚡', label: 'is in tension with', color: '#be123c', dash: '6 4' },
-  encompasses: { sym: '⊃', label: 'encompasses', color: '#b45309', dash: '' },
-  metaphor: { sym: '≈', label: 'is understood through the metaphor of', color: '#0369a1', dash: '2 3' }
-};
+// (LINK_TYPES, clusterLabel: logic.js)
 function getLoaLinks() {
   const ids = new Set(state.clusters.map(c => c.id));
   return (Array.isArray(state.loa.links) ? state.loa.links : []).filter(l => ids.has(l.from) && ids.has(l.to));
 }
-function clusterLabel(c) { return (c && c.thirdOrderTitle && c.thirdOrderTitle.trim()) || '(Untitled row)'; }
 function getLoaMapLayout() { return state.loa && state.loa.mapLayout === 'flow' ? 'flow' : 'circle'; }
 // Where the reviewer has dragged the boxes (optional, one set per layout, in map units):
 // state.loa.mapPositions = { circle: { rowId: { x, y } }, flow: { ... } }. A box without one keeps its computed place;
@@ -274,10 +267,7 @@ document.addEventListener('click', async ev => {
   const lb = ev.target && ev.target.closest && ev.target.closest('.loa-layout-btn');
   if (lb) {
     const layout = lb.dataset.layout === 'flow' ? 'flow' : 'circle';
-    if (getLoaMapLayout() !== layout) {
-      state.loa.mapLayout = layout;
-      await dbPut('meta', state.loa);
-    }
+    if (getLoaMapLayout() !== layout) await commitOps([{ store: 'meta', put: { ...state.loa, mapLayout: layout } }]); // (layout: not logged)
     renderLoaMap();
     return;
   }
@@ -306,33 +296,10 @@ function renderLoaAspects() {
     return;
   }
   box.innerHTML = cells.map((x, i) => `<label class="flex items-start gap-1.5 cursor-pointer">
-      <input type="checkbox" class="loa-aspect-use mt-0.5 cursor-pointer" data-i="${i}" ${x.used ? 'checked' : ''} title="The line of argument draws on this">
+      <input type="checkbox" data-action="aspect-use" data-row="${escapeHtml(x.cluster.id)}" data-doc="${escapeHtml(x.doc.id)}" data-sec="${x.sec ? escapeHtml(x.sec.id) : ''}" class="loa-aspect-use mt-0.5 cursor-pointer" ${x.used ? 'checked' : ''} title="The line of argument draws on this">
       <span><b>◇ ${escapeHtml(getDisplayName(x.doc))}</b> — ${x.sec ? 'placed in row' : 'beside row'} <button type="button" class="loa-aspect-jump font-semibold text-sky-800 hover:underline cursor-pointer" data-cid="${escapeHtml(x.cluster.id)}">${escapeHtml(clusterLabel(x.cluster))}</button>${x.note ? `: <span class="text-slate-700">${escapeHtml(x.note)}</span>` : ' <span class="text-slate-400 italic">(no note)</span>'}</span>
     </label>`).join('');
-  box.querySelectorAll('.loa-aspect-use').forEach(cb => cb.onchange = async () => {
-    const x = cells[+cb.dataset.i];
-    if (x.sec) {
-      if (secRelation(x.sec, x.cluster.id) !== 'other_aspect') { renderLoaAspects(); return; }
-      x.sec.aspectUsedInLoa = { ...(x.sec.aspectUsedInLoa || {}) };
-      if (cb.checked) x.sec.aspectUsedInLoa[x.cluster.id] = true; else delete x.sec.aspectUsedInLoa[x.cluster.id];
-      await dbPut('annotations', x.sec);
-    } else {
-      const v = x.cluster.cellStatus && x.cluster.cellStatus[x.doc.id];
-      if (!v || v.status !== 'other_aspect') { renderLoaAspects(); return; }
-      if (cb.checked) v.usedInLoa = true; else delete v.usedInLoa;
-      await dbPut('clusters', x.cluster);
-    }
-    await recordAuditLog({
-      clusterIds: [x.cluster.id],
-      category: 'line_of_argument',
-      // (a card placed in the row and judged ◇, or an empty cell marked ◇ beside it)
-      action: cb.checked ? `Line of argument draws on a different aspect: ${getDisplayName(x.doc)} (${x.sec ? 'in' : 'beside'} "${clusterLabel(x.cluster)}")`
-        : `Line of argument no longer draws on: ${getDisplayName(x.doc)} (${x.sec ? 'in' : 'beside'} "${clusterLabel(x.cluster)}")`,
-      detail: x.note,
-      fromVal: cb.checked ? 'Not used' : 'Used in the line of argument',
-      toVal: cb.checked ? 'Used in the line of argument' : 'Not used'
-    });
-  });
+  // (ticking one: LOA_ACTIONS['aspect-use'])
   box.querySelectorAll('.loa-aspect-jump').forEach(btn => btn.onclick = e => {
     e.preventDefault();
     const tr = document.querySelector(`#matrixTable tr[data-cluster-id="${CSS.escape(btn.dataset.cid)}"]`);
@@ -357,19 +324,7 @@ function renderLoaMap() {
     const m = LINK_TYPES[l.type] || LINK_TYPES.leads;
     const row = document.createElement('div');
     row.className = 'flex items-start justify-between gap-1 border border-slate-200 rounded px-1.5 py-1 bg-white';
-    row.innerHTML = `<div><b>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.from)))}</b> <span style="color:${m.color}; font-weight:bold;">${m.sym}</span> <b>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.to)))}</b>${l.note ? `<div class="text-slate-500">${escapeHtml(l.note)}</div>` : ''}</div><button type="button" class="text-slate-400 hover:text-rose-600 cursor-pointer" title="Remove relation">✕</button>`;
-    row.querySelector('button').onclick = async () => {
-      state.loa.links = (state.loa.links || []).filter(x => x.id !== l.id);
-      state.loa.updatedAt = Date.now();
-      await dbPut('meta', state.loa);
-      await recordAuditLog({
-        clusterIds: [l.from, l.to],
-        category: 'line_of_argument',
-        action: `Removed relation: "${clusterLabel(state.clusters.find(c => c.id === l.from))}" ${m.sym} "${clusterLabel(state.clusters.find(c => c.id === l.to))}"`,
-        detail: l.note || ''
-      });
-      renderLoaMap();
-    };
+    row.innerHTML = `<div><b>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.from)))}</b> <span style="color:${m.color}; font-weight:bold;">${m.sym}</span> <b>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.to)))}</b>${l.note ? `<div class="text-slate-500">${escapeHtml(l.note)}</div>` : ''}</div><button type="button" data-action="relation-remove" data-link="${escapeHtml(l.id)}" class="text-slate-400 hover:text-rose-600 cursor-pointer" title="Remove relation">✕</button>`;
     list.appendChild(row);
   });
   const svg = drawLoaMapBox();
@@ -488,35 +443,63 @@ async function resetLoaMapLayout() {
   const layout = getLoaMapLayout();
   const before = mapPositionsCopy(layout);
   if (!before) return;
-  state.loa.mapPositions = { ...(state.loa.mapPositions || {}) };
-  delete state.loa.mapPositions[layout];
-  await dbPut('meta', state.loa);
+  const mapPositions = { ...(state.loa.mapPositions || {}) };
+  delete mapPositions[layout];
+  await commitOps([{ store: 'meta', put: { ...state.loa, mapPositions } }]); // (layout: not logged)
   pushMapLayoutUndo(layout, before, 'Reset the map layout');
   drawLoaMapBox();
   showUndoSnackbar('The boxes are back in their computed places');
 }
-document.addEventListener('click', async (ev) => {
-  if (!ev.target || ev.target.id !== 'loaLinkAddBtn') return;
-  const from = document.getElementById('loaLinkFrom').value, to = document.getElementById('loaLinkTo').value;
-  const type = document.getElementById('loaLinkType').value;
-  const note = document.getElementById('loaLinkNote').value.trim();
-  if (!from || !to || from === to) { showSnackbar('Choose two different 3rd Order rows.'); return; }
-  const dup = (state.loa.links || []).some(l => l.type === type && ((l.from === from && l.to === to) || (!isDirectedLink(type) && l.from === to && l.to === from)));
-  if (dup) { showSnackbar('This relation already exists.'); return; }
-  const link = { id: 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, type, note };
-  state.loa.links = [...(state.loa.links || []), link];
-  state.loa.updatedAt = Date.now();
-  await dbPut('meta', state.loa);
-  const m = LINK_TYPES[type];
-  await recordAuditLog({
-    clusterIds: [from, to],
-    category: 'line_of_argument',
-    action: `Added relation: "${clusterLabel(state.clusters.find(c => c.id === from))}" ${m.sym} "${clusterLabel(state.clusters.find(c => c.id === to))}"`,
-    detail: `${m.label}${note ? ' — ' + note : ''}`
-  });
-  document.getElementById('loaLinkNote').value = '';
-  renderLoaMap();
-});
+// (adding a relation: LOA_ACTIONS['relation-add'])
+
+// ======================= What the drawer's buttons do =======================
+// The map's relation list, the ◇ list and the team models only draw: a button or box carries data-action, and one listener
+// on the drawer runs the action named here (each runs an operation of logic.js: runOperation).
+/** @type {Record<string, (el: any) => any>} */
+const LOA_ACTIONS = {
+  'relation-add': async () => {
+    const link = { id: 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from: document.getElementById('loaLinkFrom').value,
+      to: document.getElementById('loaLinkTo').value, type: document.getElementById('loaLinkType').value, note: document.getElementById('loaLinkNote').value.trim() };
+    if (!link.from || !link.to || link.from === link.to) { showSnackbar('Choose two different 3rd Order rows.'); return; }
+    if (!(await runOperation(opAddMapRelation(state, { link })))) { showSnackbar('This relation already exists.'); return; }
+    document.getElementById('loaLinkNote').value = '';
+    renderLoaMap();
+  },
+  // Undoable (Ctrl+Z), so it does not ask first
+  'relation-remove': async el => {
+    const l = (state.loa.links || []).find(x => x.id === el.dataset.link);
+    if (!l) return;
+    const what = relationText(state, l);
+    await runOperation(project => opRemoveMapRelation(project, { linkId: l.id }), { undo: { label: `Relation ${what}`,
+      undoLogs: [{ kind: 'map_relation', clusterIds: [l.from, l.to], category: 'line_of_argument', action: `Restored relation (Undo): ${what}`, detail: l.note || '' }] } });
+    renderLoaMap();
+    showUndoSnackbar('Relation removed');
+  },
+  'aspect-use': async el => {
+    await runOperation(opAspectUse(state, { rowId: el.dataset.row, docId: el.dataset.doc, secId: el.dataset.sec || null, used: el.checked }, OP_NAMES));
+    renderLoaAspects();
+  },
+  'team-model-remove': async el => {
+    const m = (state.loa.teamModels || []).find(x => x.id === el.dataset.model);
+    if (!m) return;
+    if (!(await askChoice({ title: `Remove @${m.reviewer}'s model record?`, body: 'The removal is recorded in the Audit Trail; it cannot be undone with Ctrl+Z.', choices: [{ value: 'remove', tone: 'danger', label: 'Remove the model record' }] }))) return;
+    if (await runOperation(opRemoveTeamModel(state, { modelId: m.id }))) renderTeamModels();
+  }
+};
+(() => {
+  const drawer = document.getElementById('loaDrawer');
+  if (!drawer) return;
+  const run = (ev, wantChange) => {
+    const el = ev.target && ev.target.closest && ev.target.closest('[data-action]');
+    if (!el || !drawer.contains(el) || (el.tagName === 'INPUT' || el.tagName === 'SELECT') !== wantChange) return;
+    const action = LOA_ACTIONS[el.dataset.action];
+    if (!action) return;
+    ev.stopPropagation();
+    Promise.resolve(action(el)).catch(err => console.error('Drawer action failed:', err));
+  };
+  drawer.addEventListener('click', ev => run(ev, false));
+  drawer.addEventListener('change', ev => run(ev, true));
+})();
 
 // ========================================================
 // TEAM MODELS: independent models per reviewer, compared and merged (Atkins et al., 2008)
@@ -551,16 +534,9 @@ function modelFromPeerLoa(peerLoa, peerClusters, reviewer) {
 function modelIsEmpty(m) { return !(m.title || m.flow || m.narrative || (m.links && m.links.length)); }
 async function addTeamModel(model, how) {
   if (modelIsEmpty(model)) { showSnackbar('This model is empty (no title, sketch, narrative or relations).'); return false; }
-  state.loa.teamModels = [...(Array.isArray(state.loa.teamModels) ? state.loa.teamModels : []), model];
-  state.loa.updatedAt = Date.now();
-  await dbPut('meta', state.loa);
-  await recordAuditLog({
-    category: 'team_model',
-    action: `Recorded independent model of @${model.reviewer}${model.title ? ': "' + model.title + '"' : ''}`,
-    detail: `${how}\n${model.flow ? 'Flow: ' + model.flow + '\n' : ''}${model.links.length ? 'Relations: ' + model.links.map(l => `${l.from} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${l.to}`).join('; ') + '\n' : ''}${model.narrative ? 'Narrative: ' + model.narrative : ''}`
-  });
-  renderTeamModels();
-  return true;
+  const ok = await runOperation(opAddTeamModel(state, { model, how }));
+  if (ok) renderTeamModels();
+  return ok;
 }
 function teamLinkKey(l) {
   const a = l.from.toLowerCase().trim(), b = l.to.toLowerCase().trim();
@@ -591,7 +567,7 @@ function renderTeamModels() {
         <span class="font-bold text-orange-900">@${escapeHtml(m.reviewer)} <span class="font-normal text-slate-400">${m.source === 'peer' ? '(from peer JSON)' : ''} ${escapeHtml(new Date(m.capturedAt).toLocaleDateString())}</span></span>
         <span class="flex items-center gap-1 shrink-0">
           <button type="button" class="tm-adopt text-[10.5px] px-1.5 py-0.5 border border-purple-300 text-purple-800 rounded hover:bg-purple-50 cursor-pointer" title="Copy this model's title / flow / narrative into the working fields below (then edit and Save)">Use as draft</button>
-          <button type="button" class="tm-del text-slate-400 hover:text-rose-600 cursor-pointer" title="Remove this model record">✕</button>
+          <button type="button" data-action="team-model-remove" data-model="${escapeHtml(m.id)}" class="tm-del text-slate-400 hover:text-rose-600 cursor-pointer" title="Remove this model record">✕</button>
         </span>
       </div>
       <div class="font-semibold text-slate-800">${escapeHtml(m.title || '(untitled model)')}</div>
@@ -610,14 +586,6 @@ function renderTeamModels() {
       document.getElementById('loaNarrativeInput').value = m.narrative || '';
       markLoaDrawerDirty();
       showSnackbar(`Loaded @${m.reviewer}'s model as a draft. It is saved when you leave the drawer.`);
-    };
-    card.querySelector('.tm-del').onclick = async () => {
-      if (!(await askChoice({ title: `Remove @${m.reviewer}'s model record?`, body: 'The removal is recorded in the Audit Trail; it cannot be undone with Ctrl+Z.', choices: [{ value: 'remove', tone: 'danger', label: 'Remove the model record' }] }))) return;
-      state.loa.teamModels = models.filter(x => x.id !== m.id);
-      state.loa.updatedAt = Date.now();
-      await dbPut('meta', state.loa);
-      await recordAuditLog({ category: 'team_model', action: `Removed independent model record of @${m.reviewer}${m.title ? ': "' + m.title + '"' : ''}`, detail: '' });
-      renderTeamModels();
     };
     grid.appendChild(card);
   });
@@ -688,18 +656,7 @@ WRITEUP_FIELDS.forEach(([key, id, category]) => {
   const el = document.getElementById(id);
   if (!el) return;
   bindPendingCommit(el, async () => {
-    const oldVal = state.loa[key] || '';
-    const newVal = (el.value || '').trim();
-    if (oldVal === newVal) return;
-    state.loa = { ...state.loa, id: 'loa_main', [key]: newVal, updatedAt: Date.now() };
-    await dbPut('meta', state.loa);
-    await recordAuditLog({
-      kind: key === 'reviewQuestion' ? 'review_question' : 'writeup', targetLabel: key,
-      category,
-      action: `Updated ${LOA_FIELD_LABELS[key]}`,
-      fromVal: oldVal ? writeupFieldText(key, oldVal) : '(empty)',
-      toVal: newVal ? writeupFieldText(key, newVal) : '(cleared)'
-    });
+    await runOperation(opWriteupField(state, { key, value: (el.value || '').trim(), category, label: LOA_FIELD_LABELS[key], show: v => writeupFieldText(key, v) }));
     if (!divPub.classList.contains('hidden')) renderPublicationView();
   });
 });
@@ -753,65 +710,13 @@ document.getElementById('saveLoaBtn').addEventListener('click', async () => {
 async function saveLoaDrawer({ quiet = false } = {}) {
   const ids = { aim: 'loaAimInput', title: 'loaTitleInput', flow: 'loaFlowInput', narrative: 'loaNarrativeInput', relateOutcome: 'loaRelateOutcomeInput' };
   LOA_EXTRA_FIELDS.forEach(([k, id]) => { ids[k] = id; });
-  const oldV = {}, newV = {};
-  Object.keys(ids).forEach(k => { oldV[k] = state.loa[k] || ''; newV[k] = (document.getElementById(ids[k])?.value || '').trim(); });
-  const aimChanged = oldV.aim !== newV.aim;
-  const loaChanged = ['title', 'flow', 'narrative'].some(k => oldV[k] !== newV[k]);
-  const relChanged = oldV.relateOutcome !== newV.relateOutcome;
-  const extraChanged = LOA_EXTRA_FIELDS.filter(([k]) => oldV[k] !== newV[k]);
-
-  if (!aimChanged && !loaChanged && !relChanged && extraChanged.length === 0) {
+  const values = Object.fromEntries(Object.entries(ids).map(([k, id]) => [k, (document.getElementById(id)?.value || '').trim()]));
+  // The drawer's fields and one audit entry per part that changed, in one transaction (opSaveDrawer, logic.js)
+  const saved = await runOperation(opSaveDrawer(state, { values, projectCode: state.projectCode || '', extraFields: LOA_EXTRA_FIELDS, labels: LOA_FIELD_LABELS }));
+  if (!saved) {
     if (!quiet) showSnackbar('No changes in the Aim, Item 12 or the line of argument to save.');
     return;
   }
-
-  state.loa = { ...state.loa, id: 'loa_main', projectCode: state.projectCode || '', ...newV, updatedAt: Date.now() };
-  await dbPut('meta', state.loa);
   populateLoaInputs();
   updateHeaderProjectUI();
-
-  if (aimChanged) {
-    await recordAuditLog({
-      kind: 'aim',
-      category: 'aim_question',
-      action: 'Updated Phase 1 Research Aim',
-      detail: newV.aim || '(cleared)',
-      fromVal: oldV.aim ? oldV.aim.slice(0, 90) : '(none)',
-      toVal: newV.aim ? newV.aim.slice(0, 90) : '(cleared)'
-    });
-  }
-  if (loaChanged) {
-    await recordAuditLog({
-      kind: 'line_of_argument',
-      category: 'line_of_argument',
-      action: `Updated Line of Argument Synthesis${newV.title ? ': "' + newV.title + '"' : ''}`,
-      detail: `${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
-      fromVal: oldV.title || oldV.flow || oldV.narrative ? `${oldV.title || '(Untitled)'} — ${(oldV.narrative || oldV.flow).slice(0, 70)}...` : '(Initial Draft)',
-      toVal: `${newV.title || '(Untitled)'} — ${(newV.narrative || newV.flow).slice(0, 70)}...`
-    });
-  }
-  // One audit entry per section that changed (alternative interpretations, Item 16, team merge)
-  const byCat = {};
-  extraChanged.forEach(([k, , cat]) => { (byCat[cat] = byCat[cat] || []).push(k); });
-  for (const cat of Object.keys(byCat)) {
-    const keys = byCat[cat];
-    await recordAuditLog({
-      kind: keys.length === 1 ? ({ alternativeInterpretations: 'alternative_interpretations', modelContext: 'model_context' })[keys[0]] : undefined, targetLabel: keys.join(' / '),
-      category: cat,
-      action: `Updated ${keys.map(k => LOA_FIELD_LABELS[k]).join(' / ')}`,
-      detail: keys.map(k => `${LOA_FIELD_LABELS[k]}: ${newV[k] || '(cleared)'}`).join('\n'),
-      fromVal: keys.map(k => oldV[k]).filter(Boolean).join(' | ').slice(0, 90) || '(Initial Draft)',
-      toVal: keys.map(k => newV[k]).filter(Boolean).join(' | ').slice(0, 90) || '(cleared)'
-    });
-  }
-  if (relChanged) {
-    await recordAuditLog({
-      kind: 'relate_outcome',
-      category: 'relating_studies',
-      action: 'Updated Phase 4: Outcome of Relating Studies (eMERGe item 12)',
-      detail: newV.relateOutcome ? 'Outcome: ' + newV.relateOutcome : '(cleared)',
-      fromVal: oldV.relateOutcome ? `${oldV.relateOutcome.slice(0, 70)}...` : '(Initial Draft)',
-      toVal: newV.relateOutcome ? `${newV.relateOutcome.slice(0, 70)}...` : '(cleared)'
-    });
-  }
 }

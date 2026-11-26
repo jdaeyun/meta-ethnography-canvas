@@ -222,37 +222,21 @@ function renderAuditTimeline() {
       // What is saved is now the box's reference text: an edit after this one also holds a redraw back (renderAuditTimeline)
       rationaleEl.defaultValue = next;
       if (next === prev) return;
-      // A reason written later is not the same as one written at the time: keep when it was written and every earlier wording
-      if (prev) {
-        if (!Array.isArray(log.rationaleHistory)) log.rationaleHistory = [];
-        log.rationaleHistory.push({ text: prev, at: log.rationaleAt || log.timestamp });
-      }
-      log.rationale = next;
-      log.rationaleAt = Date.now();
-      await dbPut('logs', log);
+      // A reason written later is not the same as one written at the time: it keeps when it was written and every earlier
+      // wording (opTrailReason, logic.js; the entry in memory changes once stored)
+      await runOperation(opTrailReason(state, { logId: log.id, reason: next, at: Date.now() }));
       const stamp = card.querySelector('.rationale-stamp');
       if (stamp) { stamp.textContent = rationaleStampText(log); stamp.classList.remove('hidden'); }
     });
 
     // Entries about the trail itself (a deletion, a restored entry, a changed attribution) cannot be deleted: the trail keeps its own history
     if (card.querySelector('.del-log')) card.querySelector('.del-log').onclick = async () => {
-      // A reason typed into the entry a moment ago is saved first, so the copy Ctrl+Z brings back has it
-      await flushAllPendingSaves();
-      const change = beginChange(`Audit Log (${log.action.slice(0, 30)})`, [{ store: 'logs', id: log.id }], { undoLogs: [{
-        kind: 'trail_restore', targetId: log.id, category: 'audit_edit', action: `Restored a deleted audit trail entry (Undo): ${log.action}`,
-        detail: '', clusterIds: log.clusterIds || null }] });
-      await commitOps([{ store: 'logs', del: log.id }]);
-      finishChange(change);
-      // Keep the trail honest: the deletion itself is recorded (with the removed entry's content)
-      await recordAuditLog({
-        kind: 'trail_delete', targetId: log.id,
-        category: 'audit_edit',
-        action: `Deleted an audit trail entry: ${log.action}`,
-        detail: `Original entry (${new Date(log.timestamp).toLocaleString()}, @${log.reviewer || 'Unknown'}, ${getCategoryMeta(log.category).label})${log.detail ? ':\n' + log.detail : ''}`,
-        fromVal: log.fromVal || '',
-        toVal: log.toVal || '',
-        clusterIds: log.clusterIds || null // so a row's history shows that one of its entries was deleted
-      }); // (recordAuditLog updates the badge and redraws the Audit Trail)
+      // Keep the trail honest: the deletion itself is recorded (with the removed entry's content), in the same transaction
+      // (opDeleteTrailEntry, logic.js). Undoable: a reason typed into the entry a moment ago is saved first (runOperation), so
+      // the copy Ctrl+Z brings back has it
+      await runOperation(project => opDeleteTrailEntry(project, { logId: log.id, when: new Date(log.timestamp).toLocaleString(), categoryLabel: getCategoryMeta(log.category).label }), {
+        undo: { label: `Audit Log (${log.action.slice(0, 30)})`, undoLogs: [{ kind: 'trail_restore', targetId: log.id, category: 'audit_edit',
+          action: `Restored a deleted audit trail entry (Undo): ${log.action}`, detail: '', clusterIds: log.clusterIds || null }] } });
       showUndoSnackbar('Deleted the audit trail entry (the deletion itself is recorded)');
     };
 

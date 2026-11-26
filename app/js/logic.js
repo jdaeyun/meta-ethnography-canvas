@@ -34,9 +34,18 @@ const LOG_KINDS = {
   judgement: { changedKey: true },
   trail_delete: { key: true },
   trail_restore: { key: true },
-  undo_extraction: { routine: true }
+  undo_extraction: { routine: true },
+  // Kinds of entries that were matched by category alone before (each keeps the meaning it had in Appendix A then)
+  team_merge_note: { key: true },
+  row_create: { key: true }, row_delete: { key: true }, row_restore: { key: true }, row_base: { key: true }, row_reread: { key: true },
+  row_merge: { key: true }, row_split: { key: true }, row_undo: { key: true }, seed_choice: { key: true }, seed_confirm: { key: true },
+  aspect_use: { key: true }, map_relation: { key: true }, team_model: { key: true }, peer_relations: { key: true },
+  order_strategy: { key: true }, study_order: { key: true }, study_remove: { key: true }, study_restore: { key: true }, baseline_rows: { key: true },
+  order_difference: { key: true }, peer_set_aside: { key: true }, peer_row_import: { key: true }, reviewer_bulk: { key: true }, peer_placement: { key: true }, project_setup: { key: true }, restore: { key: true },
+  empty_cell: { routine: true }, // empty-cell statuses are shown in Table 2b
+  undo_placement: { routine: true }
 };
-['quote_link', 'quote_unlink', 'order_switch', 'wrap', 'label_source', 'construct_label', 'place', 'unplace', 'passage_add', 'passage_absorb',
+['quote_link', 'quote_unlink', 'order_switch', 'wrap', 'label_source', 'construct_label', 'place', 'unplace', 'passage_add', 'passage_remove', 'passage_absorb',
   'passage_split', 'within_study_link', 'within_study_unlink', 'extract_edit', 'study_overview', 'quote_delete', 'quote_restore', 'peer_import',
   'peer_logs', 'provisional_agreement', 'construct_team', 'row_reorder', 'cell_note', 'not_translated', 'subgroup', 'appraisal_answer',
   'appraisal', 'companion', 'reviewer_change'].forEach(k => { LOG_KINDS[k] = { routine: true }; });
@@ -392,7 +401,7 @@ function takeOutOfRow(a, rowId) {
   return had;
 }
 // Into the row, with exactly the given fields: anything left there from an earlier placement does not come back (a new
-// placement starts unjudged). What it changes in the row itself (base, empty-cell note): placementRowOps.
+// placement starts unjudged). What it changes in the row itself (base, empty-cell note): placementOpsFor.
 function putIntoRow(a, rowId, fields = {}) {
   if (!Array.isArray(a.clusterIds)) a.clusterIds = [];
   if (!a.clusterIds.includes(rowId)) a.clusterIds.push(rowId);
@@ -472,8 +481,8 @@ function applyPlacementToRow(row, docId) {
 }
 
 // What placing constructs does in their rows, as copies of the rows it changes ([{ store, put }], each row once): the
-// constructs given as they will be written. Nothing in the project is changed (core.js placementRowOps changes the rows in
-// memory instead, for the paths that write those rows again in the same batch).
+// constructs given as they will be written. Nothing in the project is changed: every path that places a construct (placing,
+// Compare import, split off a passage, Undo through tidyRefsOps) writes these with it.
 /** @param {any} project @param {any[]} annos */
 function placementOpsFor(project, annos) {
   const rows = new Map();
@@ -668,6 +677,832 @@ function tidyRefsOps(project, ops) {
   return { ops: out, dropped: [...new Set(dropped)] };
 }
 
+// ======================= Operations: one change each, worked out on the project (run by runOperation, undo-audit.js) =======================
+// Each takes the project ({ docs, annotations, clusters, loa }), what the reviewer chose, and the names the entries need (h:
+// docName(id) → a study's display name or null, relLabel(rel) → a judgement's label such as '🤝 Reciprocal'). It returns
+// { ops, entries } — the records to write, as copies, and the audit entries about them (auditEntry arguments) — or null when
+// nothing changes. Nothing in the project is changed: the browser writes the result (runOperation: one transaction, then
+// memory follows), and the scenario tests apply it (applyOps) and check the project's rules after it.
+/** @typedef {{ ops: DbOp[], entries: Record<string, any>[] }} OpResult */
+/** @typedef {{ docName: (id: any) => (string | null), relLabel: (rel: string) => string }} OpNames */
+// An empty cell (no construct of this study in this row) can say the study was checked: not addressed, or a different aspect
+const EMPTY_CELL_STATUS = {
+  absent: { symbol: '—', label: 'Checked: not addressed in this study' },
+  other_aspect: { symbol: '◇', label: 'Addresses a different aspect of the topic' }
+};
+// "STATUS (note)": how a team status reads in the trail (constructs and rows)
+/** @param {any} status @param {any} note */
+function teamStatusText(status, note) { return `${String(status || 'pending').toUpperCase()}${note ? ' (' + note + ')' : ''}`; }
+/** @param {any} project @param {any} id */
+const rowOf = (project, id) => (project.clusters || []).find(c => c && c.id === id) || null;
+/** @param {any} project @param {any} id */
+const secOf = (project, id) => (project.annotations || []).find(a => a && a.id === id && a.type === 'second_order') || null;
+/** @param {any} row */
+const rowName = row => (row && row.thirdOrderTitle) || 'Untitled Row';
+/** @param {any} sec */
+const secShort = (sec, n = 60) => sec.note || '"' + String(sec.text || '').slice(0, n) + '..."';
+
+// A row's team status and discussion note
+/** @param {any} project @param {{ rowId: string, status: string, note: string }} a @returns {OpResult | null} */
+function opRowTeamStatus(project, { rowId, status, note }) {
+  const row = rowOf(project, rowId);
+  if (!row || (row.concordanceStatus === status && (row.concordanceNote || '') === note)) return null;
+  return {
+    ops: [{ store: 'clusters', put: { ...row, concordanceStatus: status, concordanceNote: note } }],
+    entries: [{ kind: 'row_team', targetLabel: rowName(row), clusterIds: [row.id], category: 'concordance',
+      action: `3rd Order Team Perspective Updated ("${rowName(row)}")`,
+      detail: note ? `Team Discussion Note: ${note}` : 'Updated team status.',
+      fromVal: teamStatusText(row.concordanceStatus, row.concordanceNote), toVal: teamStatusText(status, note) }]
+  };
+}
+// A row seeded from study #1, confirmed by the reviewer as a working 3rd Order construct
+/** @param {any} project @param {{ rowId: string }} a @returns {OpResult | null} */
+function opConfirmSeed(project, { rowId }) {
+  const row = rowOf(project, rowId);
+  if (!row || row.seedConfirmed) return null;
+  return {
+    ops: [{ store: 'clusters', put: { ...row, seedConfirmed: true } }],
+    entries: [{ kind: 'seed_confirm', clusterIds: [row.id], category: 'third_order',
+      action: `Confirmed auto-placed row as a working 3rd Order construct: "${rowName(row)}"`,
+      detail: 'The row was seeded from an Index Paper 2nd order construct and has been reviewed by the researcher.' }]
+  };
+}
+// The study that established a row (null: no single base). Choosing the current study #1 clears the re-reading note.
+/** @param {any} project @param {{ rowId: string, docId: any, extraDetail?: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opSetRowBase(project, { rowId, docId, extraDetail = '' }, h) {
+  const row = rowOf(project, rowId);
+  // Compared with what is stored: "No single base" (null) chosen for a row whose base is not set yet ('') is a change
+  if (!row || (docId || null) === row.baseDocId) return null;
+  const prevId = rowBaseIn(project, row);
+  const nameOf = id => (id && h.docName(id)) || 'No single base';
+  const next = { ...row, baseDocId: docId || null };
+  const first = (project.docs || [])[0];
+  const clearedFlag = !!(row.baselineChange && docId && first && docId === first.id);
+  if (clearedFlag) delete next.baselineChange;
+  return {
+    ops: [{ store: 'clusters', put: next }],
+    entries: [{ kind: 'row_base', clusterIds: [row.id], category: 'third_order',
+      action: `Changed the study that established "${rowName(row)}"`,
+      detail: [
+        prevId ? `${nameOf(prevId)} is now translated into the row: judge its cards here (Reciprocal / Refutational).` : '',
+        docId ? `${nameOf(docId)}'s own Reciprocal / Refutational judgements in this row are kept but not shown while it is the base.` : 'Every study in the row is now judged against the row.',
+        clearedFlag ? 'The row is now based on the current study #1, so the re-reading note is cleared.' : '',
+        extraDetail
+      ].filter(Boolean).join(' '),
+      fromVal: row.baseDocId === '' ? 'Not set yet' : nameOf(prevId), toVal: nameOf(docId) }]
+  };
+}
+// A row marked for re-reading (study #1 changed) has been re-read
+/** @param {any} project @param {{ rowId: string, why: string }} a @returns {OpResult | null} */
+function opRereadRow(project, { rowId, why }) {
+  const row = rowOf(project, rowId);
+  const bc = row && row.baselineChange;
+  if (!bc) return null;
+  const next = { ...row };
+  delete next.baselineChange;
+  return {
+    ops: [{ store: 'clusters', put: next }],
+    entries: [{ kind: 'row_reread', clusterIds: [row.id], category: 'third_order',
+      action: `Re-read row after study #1 changed: "${rowName(row)}"`,
+      detail: `#1 changed from ${bc.fromName || 'another study'} to ${bc.toName}.`, rationale: why }]
+  };
+}
+// The GRADE-CERQual assessment of a row (its four components, their notes, the overall confidence and its explanation)
+const CERQUAL_FIELDS = ['cerqualLimitations', 'cerqualCoherence', 'cerqualAdequacy', 'cerqualRelevance', 'cerqualConfidence',
+  'cerqualExplanation', 'cerqualLimNote', 'cerqualCohNote', 'cerqualAdeqNote', 'cerqualRelNote'];
+/** @param {any} project @param {{ rowId: string, values: Record<string, string> }} a @returns {OpResult | null} */
+function opRowCerqual(project, { rowId, values }) {
+  const row = rowOf(project, rowId);
+  if (!row) return null;
+  const next = { ...row };
+  CERQUAL_FIELDS.forEach(k => { if (k in values) next[k] = String(values[k] || '').trim(); });
+  if (CERQUAL_FIELDS.every(k => next[k] === row[k])) return null;
+  const summary = c => `${c.cerqualConfidence} [L:${c.cerqualLimitations}, C:${c.cerqualCoherence}, A:${c.cerqualAdequacy}, R:${c.cerqualRelevance}]`;
+  return {
+    ops: [{ store: 'clusters', put: next }],
+    entries: [{ kind: 'row_cerqual', targetLabel: rowName(row), clusterIds: [row.id], category: 'cerqual',
+      action: `Updated GRADE-CERQual Assessment for "${rowName(row)}"`,
+      detail: [
+        next.cerqualLimNote && `Methodological limitations — ${next.cerqualLimNote}`,
+        next.cerqualCohNote && `Coherence — ${next.cerqualCohNote}`,
+        next.cerqualAdeqNote && `Adequacy — ${next.cerqualAdeqNote}`,
+        next.cerqualRelNote && `Relevance — ${next.cerqualRelNote}`,
+        next.cerqualExplanation && `Overall — ${next.cerqualExplanation}`
+      ].filter(Boolean).join('\n') || 'Updated component ratings.',
+      fromVal: summary(row), toVal: summary(next) }]
+  };
+}
+// An empty cell's status: '' (not yet checked), 'absent' (— not addressed) or 'other_aspect' (◇); its note is kept
+/** @param {any} project @param {{ rowId: string, docId: string, status: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opEmptyCellStatus(project, { rowId, docId, status }, h) {
+  const row = rowOf(project, rowId);
+  if (!row || (status && !EMPTY_CELL_STATUS[status])) return null;
+  // Only an empty cell: a study with a construct in the row has no empty-cell record there (checkInvariants)
+  if (rowSecsIn(project, rowId).some(a => a.docId === docId)) return null;
+  const prev = (row.cellStatus || {})[docId];
+  if ((prev ? prev.status : '') === status) return null;
+  const cellStatus = { ...(row.cellStatus || {}) };
+  if (status) cellStatus[docId] = { status, note: prev ? prev.note || '' : '' };
+  else delete cellStatus[docId];
+  const label = st => st && EMPTY_CELL_STATUS[st] ? EMPTY_CELL_STATUS[st].label : 'Not yet checked';
+  return {
+    ops: [{ store: 'clusters', put: { ...row, cellStatus } }],
+    entries: [{ kind: 'empty_cell', clusterIds: [row.id], category: 'relating_studies',
+      action: `${h.docName(docId) || 'Study'} in "${rowName(row)}": ${status ? EMPTY_CELL_STATUS[status].label : 'not yet checked'}`,
+      fromVal: label(prev && prev.status), toVal: label(status) }]
+  };
+}
+// The note of an empty cell that has a status
+/** @param {any} project @param {{ rowId: string, docId: string, note: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opEmptyCellNote(project, { rowId, docId, note }, h) {
+  const row = rowOf(project, rowId);
+  const cur = row && (row.cellStatus || {})[docId];
+  if (!cur || (cur.note || '') === note) return null;
+  return {
+    ops: [{ store: 'clusters', put: { ...row, cellStatus: { ...row.cellStatus, [docId]: { ...cur, note } } } }],
+    entries: [{ kind: 'empty_cell', clusterIds: [row.id], category: 'relating_studies',
+      action: `Note on ${h.docName(docId) || 'Study'} in "${rowName(row)}" (${(EMPTY_CELL_STATUS[cur.status] || { label: cur.status }).label})`,
+      fromVal: cur.note || '', toVal: note }]
+  };
+}
+// How a placed construct relates to the row (unjudged / reciprocal / refutational / other_aspect). Judged other than ◇, its
+// line-of-argument mark in the row goes (judged ◇ again later, it is not shown as used until the reviewer ticks it again).
+/** @param {any} project @param {{ secId: string, rowId: string, rel: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opJudge(project, { secId, rowId, rel }, h) {
+  const sec = secOf(project, secId), row = rowOf(project, rowId);
+  if (!sec || !row || !(sec.clusterIds || []).includes(rowId) || !CELL_RELATIONS.includes(rel)) return null;
+  const prevRel = relationIn(project, sec, rowId);
+  if (prevRel === rel || prevRel === 'baseline') return null;
+  const next = { ...sec, clusterRelations: { ...(sec.clusterRelations || {}), [rowId]: rel } };
+  const markGone = rel !== 'other_aspect' && !!(sec.aspectUsedInLoa && sec.aspectUsedInLoa[rowId]);
+  if (markGone) { next.aspectUsedInLoa = { ...sec.aspectUsedInLoa }; delete next.aspectUsedInLoa[rowId]; }
+  return {
+    ops: [{ store: 'annotations', put: next }],
+    entries: [{ kind: 'judgement', clusterIds: [row.id], category: 'third_order',
+      action: `Judged construct as ${h.relLabel(rel).replace(/^\S+\s/, '')} in "${rowName(row)}"`,
+      detail: `${h.docName(sec.docId) || 'Study'} (p.${sec.page}): ${secShort(sec, 65)}` + (markGone ? '\nIt is no longer marked as used by the line of argument.' : ''),
+      fromVal: h.relLabel(prevRel), toVal: h.relLabel(rel) }]
+  };
+}
+// A construct placed in a row: it starts unjudged (nothing left from an earlier placement there comes back), and the row
+// changes as a placement changes it (its base if not set yet, no empty-cell record for the study: placementOpsFor)
+/** @param {any} project @param {{ secId: string, rowId: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opPlace(project, { secId, rowId }, h) {
+  const sec = secOf(project, secId), row = rowOf(project, rowId);
+  if (!sec || !row || (sec.clusterIds || []).includes(rowId)) return null;
+  const placed = putIntoRow({ ...sec, clusterIds: [...(sec.clusterIds || [])] }, rowId);
+  const prev = (row.cellStatus || {})[sec.docId];
+  const name = h.docName(sec.docId) || 'Study';
+  /** @type {Record<string, any>[]} */
+  const entries = [];
+  if (prev && EMPTY_CELL_STATUS[prev.status]) {
+    entries.push({ kind: 'empty_cell', clusterIds: [row.id], category: 'relating_studies',
+      action: `Cleared "${EMPTY_CELL_STATUS[prev.status].label}" for ${name} in "${rowName(row)}": a construct was placed there`,
+      detail: prev.note || '', fromVal: EMPTY_CELL_STATUS[prev.status].label, toVal: 'Construct placed' });
+  }
+  entries.push({ kind: 'place', clusterIds: [row.id], category: 'matrix_mapping', action: 'Placed 2nd Order Construct in a 3rd Order Row',
+    detail: `${name} (p.${sec.page}): ${sec.note ? sec.note + ' — ' : ''}"${String(sec.text || '').slice(0, 75)}..."`,
+    toVal: `Row: ${row.thirdOrderTitle || '(Untitled Row)'} [in ${placed.clusterIds.length} row(s)]`, isMinorOp: true });
+  return { ops: [{ store: 'annotations', put: placed }, ...placementOpsFor(project, [placed])], entries };
+}
+// A construct taken out of a row, with its judgement, note and line-of-argument mark there
+/** @param {any} project @param {{ secId: string, rowId: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opUnplace(project, { secId, rowId }, h) {
+  const sec = secOf(project, secId), row = rowOf(project, rowId);
+  if (!sec || !(sec.clusterIds || []).includes(rowId)) return null;
+  const out = { ...sec };
+  takeOutOfRow(out, rowId); // (on a copy: it replaces the lists it changes)
+  return {
+    ops: [{ store: 'annotations', put: out }],
+    entries: [{ kind: 'unplace', clusterIds: [rowId], category: 'matrix_mapping', action: 'Removed 2nd Order Construct from a 3rd Order Row',
+      detail: `${h.docName(sec.docId) || 'Study'} (p.${sec.page}): ${secShort(sec)}`,
+      fromVal: `Row: ${(row && row.thirdOrderTitle) || '(Untitled Row)'}`, isMinorOp: true }]
+  };
+}
+// Why a 2nd Order construct was not translated into any row (Appendix B)
+/** @param {any} project @param {{ secId: string, note: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opNotTranslated(project, { secId, note }, h) {
+  const sec = secOf(project, secId);
+  if (!sec || (sec.notTranslatedNote || '').trim() === note) return null;
+  return {
+    ops: [{ store: 'annotations', put: { ...sec, notTranslatedNote: note } }],
+    entries: [{ kind: 'not_translated', category: 'translation_process',
+      action: 'Noted why a 2nd Order construct was not translated into any 3rd Order row',
+      detail: `${h.docName(sec.docId) || 'Study'} (p.${sec.page}): ${sec.note || '"' + String(sec.text || '').slice(0, 60) + '…"'}`,
+      fromVal: sec.notTranslatedNote || '', toVal: note }]
+  };
+}
+// A row moved one place up (-1) or down (+1), past the next row on view (visibleIds: the rows shown, in order; rows hidden
+// by a filter are skipped). The rows are numbered by their new place (only those whose number changes are written).
+/** @param {any} project @param {{ rowId: string, direction: number, visibleIds?: string[] }} a @returns {OpResult | null} */
+function opMoveRow(project, { rowId, direction, visibleIds }) {
+  const rows = project.clusters || [];
+  const visible = visibleIds || rows.map(c => c.id);
+  const neighbourId = visible[visible.indexOf(rowId) + direction];
+  const fromIdx = rows.findIndex(c => c.id === rowId);
+  if (fromIdx < 0 || visible.indexOf(rowId) < 0 || !neighbourId) return null;
+  const list = rows.slice();
+  const [moved] = list.splice(fromIdx, 1);
+  const nIdx = list.findIndex(c => c.id === neighbourId);
+  const toIdx = direction < 0 ? nIdx : nIdx + 1;
+  list.splice(toIdx, 0, moved);
+  const neighbour = rows.find(c => c.id === neighbourId);
+  return {
+    ops: rowOrderOps(list),
+    entries: [{ kind: 'row_reorder', clusterIds: [moved.id], category: 'third_order',
+      action: `Reordered 3rd Order Theme Row "${moved.thirdOrderTitle || 'Untitled'}"`,
+      fromVal: `Row #${fromIdx + 1}`, toVal: `Row #${toIdx + 1}`,
+      detail: `Moved past "${(neighbour && neighbour.thirdOrderTitle) || 'Untitled'}". New row order: ${list.map((c, i) => (i + 1) + '. ' + (c.thirdOrderTitle || 'Untitled')).join(' | ')}` }]
+  };
+}
+
+// ---- Tab 1: quotes and constructs (extraction.js) ----
+/** @param {any} project @param {any} id */
+const annoOf = (project, id) => (project.annotations || []).find(a => a && a.id === id) || null;
+// The rows of a construct that are in the project (for an entry's clusterIds)
+/** @param {any} project @param {any} sec */
+const liveRowsOf = (project, sec) => { const ids = new Set((project.clusters || []).map(c => c.id)); return (sec.clusterIds || []).filter(id => ids.has(id)); };
+// A quote linked to a 2nd Order construct of its study
+/** @param {any} project @param {{ quoteId: string, secId: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opLinkQuote(project, { quoteId, secId }, h) {
+  const f = annoOf(project, quoteId), sec = secOf(project, secId);
+  if (!f || f.type !== 'first_order' || !sec || sec.docId !== f.docId || (f.parentIds || []).includes(secId)) return null;
+  return {
+    ops: [{ store: 'annotations', put: { ...f, parentIds: [...(f.parentIds || []), secId] } }],
+    entries: [{ kind: 'quote_link', category: 'linking', action: `Linked 1st Order Quote to 2nd Order Construct (${h.docName(f.docId) || 'Study'})`,
+      detail: `Quote (p.${f.page}): "${String(f.text || '').slice(0, 80)}..."`, toVal: `2nd Order: ${secShort(sec)}`, isMinorOp: true }]
+  };
+}
+// A quote unlinked from one construct (secId), or from all of them (secId null)
+/** @param {any} project @param {{ quoteId: string, secId: string | null }} a @returns {OpResult | null} */
+function opUnlinkQuote(project, { quoteId, secId }) {
+  const f = annoOf(project, quoteId);
+  if (!f || !(f.parentIds || []).length || (secId && !f.parentIds.includes(secId))) return null;
+  const sec = secId ? secOf(project, secId) : null;
+  return {
+    ops: [{ store: 'annotations', put: { ...f, parentIds: secId ? f.parentIds.filter(id => id !== secId) : [] } }],
+    entries: [{ kind: 'quote_unlink', category: 'linking', action: 'Unlinked 1st Order Quote from 2nd Order Construct',
+      detail: `Quote (p.${f.page}): "${String(f.text || '').slice(0, 70)}..."`,
+      fromVal: sec ? (sec.note || String(sec.text || '').slice(0, 50)) : '', isMinorOp: true }]
+  };
+}
+// Whether a construct's label is the authors' own term or the reviewer's wording
+/** @param {any} project @param {{ secId: string, source: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opLabelSource(project, { secId, source }, h) {
+  const sec = secOf(project, secId);
+  if (!sec || sec.noteSource === source || !['author', 'reviewer'].includes(source)) return null;
+  return {
+    ops: [{ store: 'annotations', put: { ...sec, noteSource: source } }],
+    entries: [{ kind: 'label_source', category: 'linking',
+      action: `Set 2nd Order label source to "${source === 'author' ? "Authors' own term" : 'Reviewer wording'}" (${h.docName(sec.docId) || 'Study'}, p.${sec.page})`,
+      detail: sec.note ? `Label: ${sec.note}` : '(no label)', fromVal: sec.noteSource, toVal: source }]
+  };
+}
+// A corrected extracted text (the evidence itself): logged with the old and new wording
+/** @param {any} project @param {{ annoId: string, text: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opExtractedText(project, { annoId, text }, h) {
+  const a = annoOf(project, annoId);
+  if (!a || !text || text === a.text) return null;
+  const isSec = a.type === 'second_order';
+  return {
+    ops: [{ store: 'annotations', put: { ...a, text } }],
+    entries: [{ kind: 'extract_edit', category: 'reading_extraction',
+      action: isSec ? 'Edited the extracted text of a 2nd Order Construct' : 'Edited the extracted text of a 1st Order Quote',
+      detail: `${h.docName(a.docId) || 'Study'} (p.${a.page})${a.note ? ': ' + a.note : ''}`, fromVal: a.text || '', toVal: text,
+      clusterIds: isSec ? liveRowsOf(project, a) : null }]
+  };
+}
+// A construct's team status and discussion note (action: another wording of the entry, e.g. from Compare)
+/** @param {any} project @param {{ secId: string, status: string, note: string, action?: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opConstructTeamStatus(project, { secId, status, note, action }, h) {
+  const sec = secOf(project, secId);
+  if (!sec || (sec.concordanceStatus === status && (sec.concordanceNote || '') === note)) return null;
+  return {
+    ops: [{ store: 'annotations', put: { ...sec, concordanceStatus: status, concordanceNote: note } }],
+    entries: [{ kind: 'construct_team', category: 'concordance',
+      action: action || `2nd Order Team Perspective Updated (${h.docName(sec.docId) || 'Study'}, p.${sec.page})`,
+      detail: `Construct: ${secShort(sec)}${note ? '\nTeam Discussion Note: ' + note : ''}`,
+      fromVal: teamStatusText(sec.concordanceStatus, sec.concordanceNote), toVal: teamStatusText(status, note) }]
+  };
+}
+// A relationship between two constructs of one study (Appendix C); text: how it reads (from → to)
+/** @param {any} project @param {{ docId: string, link: any, text: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opAddConceptLink(project, { docId, link, text }, h) {
+  const doc = (project.docs || []).find(d => d.id === docId);
+  const ends = [link.from, link.to].map(id => secOf(project, id));
+  if (!doc || link.from === link.to || ends.some(s => !s || s.docId !== docId)) return null;
+  return {
+    ops: [{ store: 'docs', put: { ...doc, conceptLinks: [...(doc.conceptLinks || []), link] } }],
+    entries: [{ kind: 'within_study_link', category: 'reading_extraction', action: `Recorded how two concepts relate within ${h.docName(docId) || 'Study'}`,
+      detail: link.note || '', toVal: text, clusterIds: [...new Set(ends.flatMap(s => liveRowsOf(project, s)))] }]
+  };
+}
+/** @param {any} project @param {{ docId: string, linkId: string, text: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opRemoveConceptLink(project, { docId, linkId, text }, h) {
+  const doc = (project.docs || []).find(d => d.id === docId);
+  const link = doc && (doc.conceptLinks || []).find(l => l.id === linkId);
+  if (!link) return null;
+  return {
+    ops: [{ store: 'docs', put: { ...doc, conceptLinks: doc.conceptLinks.filter(l => l !== link) } }],
+    entries: [{ kind: 'within_study_unlink', category: 'reading_extraction', action: `Removed a relationship between concepts within ${h.docName(docId) || 'Study'}`,
+      fromVal: text + (link.note ? ' — ' + link.note : '') }]
+  };
+}
+// A 2nd Order construct deleted: its quotes' links to it and its within-study relationships go with it
+/** @param {any} project @param {{ secId: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opDeleteConstruct(project, { secId }, h) {
+  const sec = secOf(project, secId);
+  if (!sec) return null;
+  const quotes = (project.annotations || []).filter(a => a.type === 'first_order' && (a.parentIds || []).includes(secId));
+  const doc = (project.docs || []).find(d => d.id === sec.docId);
+  const gone = ((doc && doc.conceptLinks) || []).filter(l => l.from === secId || l.to === secId);
+  /** @type {DbOp[]} */
+  const ops = quotes.map(f => ({ store: 'annotations', put: { ...f, parentIds: f.parentIds.filter(id => id !== secId) } }));
+  if (gone.length) ops.push({ store: 'docs', put: { ...doc, conceptLinks: doc.conceptLinks.filter(l => !gone.includes(l)) } });
+  ops.push({ store: 'annotations', del: secId });
+  const rows = sec.clusterIds || [];
+  return {
+    ops,
+    entries: [{ kind: 'construct_delete', category: 'reading_extraction', action: `Deleted a 2nd Order construct (${h.docName(sec.docId) || 'Study'}, p.${sec.page})`,
+      detail: `${sec.note ? sec.note + ': ' : ''}"${String(sec.text || '').slice(0, 80)}..."${rows.length ? `\nIt was placed in ${rows.length} 3rd Order row(s).` : ''}${quotes.length ? `\n${quotes.length} linked quote(s) unlinked.` : ''}`,
+      clusterIds: rows.length ? rows : null }]
+  };
+}
+/** @param {any} project @param {{ quoteId: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opDeleteQuote(project, { quoteId }, h) {
+  const f = annoOf(project, quoteId);
+  if (!f || f.type !== 'first_order') return null;
+  return {
+    ops: [{ store: 'annotations', del: quoteId }],
+    entries: [{ kind: 'quote_delete', category: 'reading_extraction', action: `Deleted a 1st Order quote (${h.docName(f.docId) || 'Study'}, p.${f.page})`,
+      detail: `"${String(f.text || '').slice(0, 80)}..."` }]
+  };
+}
+// A further passage of the same author interpretation, added to a construct / removed from it
+/** @param {any} project @param {{ secId: string, passage: any }} a @param {OpNames} h @returns {OpResult | null} */
+function opAddPassage(project, { secId, passage }, h) {
+  const sec = secOf(project, secId);
+  if (!sec || !passage || !passage.text) return null;
+  const t = String(passage.text);
+  return {
+    ops: [{ store: 'annotations', put: { ...sec, passages: [...(sec.passages || []), passage] } }],
+    entries: [{ kind: 'passage_add', category: 'reading_extraction',
+      action: `Added a further passage (p.${passage.page}) to 2nd Order construct "${sec.note || '"' + String(sec.text || '').slice(0, 40) + '…"'}" (${h.docName(sec.docId) || 'Study'})`,
+      detail: `Same author interpretation stated elsewhere in the paper: "${t.slice(0, 120)}${t.length > 120 ? '…' : ''}"`, isMinorOp: true }]
+  };
+}
+/** @param {any} project @param {{ secId: string, passageId: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opRemovePassage(project, { secId, passageId }, h) {
+  const sec = secOf(project, secId);
+  const p = sec && (sec.passages || []).find(x => x.id === passageId);
+  if (!p) return null;
+  const t = String(p.text || '');
+  return {
+    ops: [{ store: 'annotations', put: { ...sec, passages: sec.passages.filter(x => x.id !== passageId) } }],
+    entries: [{ kind: 'passage_remove', category: 'reading_extraction',
+      action: `Removed a further passage (p.${p.page}) from 2nd Order construct "${sec.note || '"' + String(sec.text || '').slice(0, 40) + '…"'}" (${h.docName(sec.docId) || 'Study'})`,
+      detail: `"${t.slice(0, 120)}${t.length > 120 ? '…' : ''}"`, clusterIds: liveRowsOf(project, sec) }]
+  };
+}
+// A quote with no construct of its own, wrapped by the reviewer in a new 2nd Order construct (construct: the new record)
+/** @param {any} project @param {{ quoteId: string, construct: any }} a @param {OpNames} h @returns {OpResult | null} */
+function opWrapQuote(project, { quoteId, construct }, h) {
+  const f = annoOf(project, quoteId);
+  if (!f || f.type !== 'first_order' || !construct || construct.docId !== f.docId) return null;
+  return {
+    ops: [{ store: 'annotations', put: construct }, { store: 'annotations', put: { ...f, parentIds: [...(f.parentIds || []), construct.id] } }],
+    entries: [{ kind: 'wrap', category: 'linking',
+      action: `[Reviewer-wrapped] Created 2nd Order Concept Wrapper from Unlinked 1st Order Quote (${h.docName(f.docId) || 'Study'}, p.${f.page})`,
+      detail: `Quote: "${String(f.text || '').slice(0, 80)}..."`, toVal: `2nd Order Concept: ${construct.note}` }]
+  };
+}
+
+// ---- The Research Aim & Overall Model drawer and the write-up fields (loa.js) ----
+// How two 3rd Order rows relate in the line-of-argument map
+const LINK_TYPES = {
+  leads: { sym: '➔', label: 'leads to', color: '#6d28d9', dash: '' },
+  mutual: { sym: '⇄', label: 'is mutually related to', color: '#0f766e', dash: '' },
+  contradicts: { sym: '⚡', label: 'is in tension with', color: '#be123c', dash: '6 4' },
+  encompasses: { sym: '⊃', label: 'encompasses', color: '#b45309', dash: '' },
+  metaphor: { sym: '≈', label: 'is understood through the metaphor of', color: '#0369a1', dash: '2 3' }
+};
+/** @param {any} c */
+function clusterLabel(c) { return (c && c.thirdOrderTitle && c.thirdOrderTitle.trim()) || '(Untitled row)'; }
+/** @param {any} project @param {any} l */
+const relationText = (project, l) => `"${clusterLabel(rowOf(project, l.from))}" ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} "${clusterLabel(rowOf(project, l.to))}"`;
+/** @param {any} project @param {Record<string, any>} fields */
+const loaOp = (project, fields) => ({ store: 'meta', put: { ...(project.loa || {}), id: 'loa_main', ...fields, updatedAt: Date.now() } });
+// A relation between two rows in the map (the same relation twice, or B–A for one without direction, is not added)
+/** @param {any} project @param {{ link: any }} a @returns {OpResult | null} */
+function opAddMapRelation(project, { link }) {
+  const links = Array.isArray(project.loa && project.loa.links) ? project.loa.links : [];
+  if (!link || link.from === link.to || !rowOf(project, link.from) || !rowOf(project, link.to) || !LINK_TYPES[link.type]) return null;
+  if (links.some(l => l.type === link.type && ((l.from === link.from && l.to === link.to) || (!isDirectedLink(link.type) && l.from === link.to && l.to === link.from)))) return null;
+  const m = LINK_TYPES[link.type];
+  return {
+    ops: [loaOp(project, { links: [...links, link] })],
+    entries: [{ kind: 'map_relation', clusterIds: [link.from, link.to], category: 'line_of_argument',
+      action: `Added relation: ${relationText(project, link)}`, detail: `${m.label}${link.note ? ' — ' + link.note : ''}` }]
+  };
+}
+/** @param {any} project @param {{ linkId: string }} a @returns {OpResult | null} */
+function opRemoveMapRelation(project, { linkId }) {
+  const links = Array.isArray(project.loa && project.loa.links) ? project.loa.links : [];
+  const l = links.find(x => x.id === linkId);
+  if (!l) return null;
+  return {
+    ops: [loaOp(project, { links: links.filter(x => x !== l) })],
+    entries: [{ kind: 'map_relation', clusterIds: [l.from, l.to], category: 'line_of_argument', action: `Removed relation: ${relationText(project, l)}`, detail: l.note || '' }]
+  };
+}
+// A ◇ the line of argument draws on (or no longer): a card judged ◇ in a row (secId), or an empty cell marked ◇ (docId)
+/** @param {any} project @param {{ rowId: string, docId: string, secId?: string | null, used: boolean }} a @param {OpNames} h @returns {OpResult | null} */
+function opAspectUse(project, { rowId, docId, secId = null, used }, h) {
+  const row = rowOf(project, rowId);
+  if (!row) return null;
+  /** @type {DbOp} */
+  let op;
+  let note = '';
+  if (secId) {
+    const sec = secOf(project, secId);
+    if (!sec || relationIn(project, sec, rowId) !== 'other_aspect' || !!(sec.aspectUsedInLoa || {})[rowId] === used) return null;
+    const marks = { ...(sec.aspectUsedInLoa || {}) };
+    if (used) marks[rowId] = true; else delete marks[rowId];
+    op = { store: 'annotations', put: { ...sec, aspectUsedInLoa: marks } };
+    note = [sec.note, (sec.clusterComments || {})[rowId]].filter(Boolean).join(': ');
+  } else {
+    const v = (row.cellStatus || {})[docId];
+    if (!v || v.status !== 'other_aspect' || !!v.usedInLoa === used) return null;
+    const cell = { ...v };
+    if (used) cell.usedInLoa = true; else delete cell.usedInLoa;
+    op = { store: 'clusters', put: { ...row, cellStatus: { ...row.cellStatus, [docId]: cell } } };
+    note = v.note || '';
+  }
+  const where = `${h.docName(docId) || 'Study'} (${secId ? 'in' : 'beside'} "${clusterLabel(row)}")`;
+  return {
+    ops: [op],
+    entries: [{ kind: 'aspect_use', clusterIds: [rowId], category: 'line_of_argument',
+      action: used ? `Line of argument draws on a different aspect: ${where}` : `Line of argument no longer draws on: ${where}`,
+      detail: note, fromVal: used ? 'Not used' : 'Used in the line of argument', toVal: used ? 'Used in the line of argument' : 'Not used' }]
+  };
+}
+// An independent model of one reviewer, recorded beside the others (how: where it came from) / removed
+/** @param {any} project @param {{ model: any, how: string }} a @returns {OpResult | null} */
+function opAddTeamModel(project, { model, how }) {
+  if (!model || !(model.title || model.flow || model.narrative || (model.links && model.links.length))) return null;
+  const models = Array.isArray(project.loa && project.loa.teamModels) ? project.loa.teamModels : [];
+  const links = model.links || [];
+  return {
+    ops: [loaOp(project, { teamModels: [...models, model] })],
+    entries: [{ kind: 'team_model', category: 'team_model', action: `Recorded independent model of @${model.reviewer}${model.title ? ': "' + model.title + '"' : ''}`,
+      detail: `${how}\n${model.flow ? 'Flow: ' + model.flow + '\n' : ''}${links.length ? 'Relations: ' + links.map(l => `${l.from} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${l.to}`).join('; ') + '\n' : ''}${model.narrative ? 'Narrative: ' + model.narrative : ''}` }]
+  };
+}
+/** @param {any} project @param {{ modelId: string }} a @returns {OpResult | null} */
+function opRemoveTeamModel(project, { modelId }) {
+  const models = Array.isArray(project.loa && project.loa.teamModels) ? project.loa.teamModels : [];
+  const m = models.find(x => x.id === modelId);
+  if (!m) return null;
+  return {
+    ops: [loaOp(project, { teamModels: models.filter(x => x !== m) })],
+    entries: [{ kind: 'team_model', category: 'team_model', action: `Removed independent model record of @${m.reviewer}${m.title ? ': "' + m.title + '"' : ''}`, detail: '' }]
+  };
+}
+// One write-up field of Tab 4 (label: its name; show(v): how a value reads in the trail)
+/** @param {any} project @param {{ key: string, value: string, category: string, label: string, show?: (v: string) => string }} a @returns {OpResult | null} */
+function opWriteupField(project, { key, value, category, label, show = v => v }) {
+  const old = (project.loa && project.loa[key]) || '';
+  if (old === value) return null;
+  return {
+    ops: [loaOp(project, { [key]: value })],
+    entries: [{ kind: key === 'reviewQuestion' ? 'review_question' : 'writeup', targetLabel: key, category, action: `Updated ${label}`,
+      fromVal: old ? show(old) : '(empty)', toVal: value ? show(value) : '(cleared)' }]
+  };
+}
+// The drawer's fields saved together (values: the aim, title, flow, narrative, Item 12 and the extra fields; extraFields:
+// [key, input id, category] of the extra fields; labels: their names). One entry per part that changed.
+/** @param {any} project @param {{ values: Record<string, string>, projectCode: string, extraFields: any[][], labels: Record<string, string> }} a @returns {OpResult | null} */
+function opSaveDrawer(project, { values, projectCode, extraFields, labels }) {
+  const loa = project.loa || {};
+  const old = k => loa[k] || '';
+  const changed = Object.keys(values).filter(k => old(k) !== values[k]);
+  if (!changed.length) return null;
+  const v = values;
+  /** @type {Record<string, any>[]} */
+  const entries = [];
+  if (changed.includes('aim')) entries.push({ kind: 'aim', category: 'aim_question', action: 'Updated Phase 1 Research Aim', detail: v.aim || '(cleared)',
+    fromVal: old('aim') ? old('aim').slice(0, 90) : '(none)', toVal: v.aim ? v.aim.slice(0, 90) : '(cleared)' });
+  if (['title', 'flow', 'narrative'].some(k => changed.includes(k))) entries.push({ kind: 'line_of_argument', category: 'line_of_argument',
+    action: `Updated Line of Argument Synthesis${v.title ? ': "' + v.title + '"' : ''}`,
+    detail: `${v.flow ? 'Model Flow: ' + v.flow + '\n' : ''}${v.narrative ? 'Narrative: ' + v.narrative : ''}`,
+    fromVal: old('title') || old('flow') || old('narrative') ? `${old('title') || '(Untitled)'} — ${(old('narrative') || old('flow')).slice(0, 70)}...` : '(Initial Draft)',
+    toVal: `${v.title || '(Untitled)'} — ${(v.narrative || v.flow || '').slice(0, 70)}...` });
+  // One entry per extra field that changed (alternative interpretations, Item 16, team merge)
+  extraFields.filter(([k]) => changed.includes(k)).forEach(([k, , cat]) => entries.push({
+    kind: ({ alternativeInterpretations: 'alternative_interpretations', modelContext: 'model_context', teamMergeNote: 'team_merge_note' })[k], targetLabel: k,
+    category: cat, action: `Updated ${labels[k]}`, detail: `${labels[k]}: ${v[k] || '(cleared)'}`,
+    fromVal: old(k).slice(0, 90) || '(Initial Draft)', toVal: (v[k] || '').slice(0, 90) || '(cleared)' }));
+  if (changed.includes('relateOutcome')) entries.push({ kind: 'relate_outcome', category: 'relating_studies',
+    action: 'Updated Phase 4: Outcome of Relating Studies (eMERGe item 12)', detail: v.relateOutcome ? 'Outcome: ' + v.relateOutcome : '(cleared)',
+    fromVal: old('relateOutcome') ? `${old('relateOutcome').slice(0, 70)}...` : '(Initial Draft)', toVal: v.relateOutcome ? `${v.relateOutcome.slice(0, 70)}...` : '(cleared)' });
+  return { ops: [loaOp(project, { projectCode, ...values })], entries };
+}
+
+// ---- Studies: order, study #1, removal, study info and appraisal (studies-pdf.js) ----
+/** @param {any} project @param {any} id */
+const docOf = (project, id) => (project.docs || []).find(d => d && d.id === id) || null;
+// The translation-order strategy (labels: the strategies' names, as shown)
+/** @param {any} project @param {{ next: string, rationale?: string, reason?: string, labels: Record<string, string> }} a @returns {OpResult | null} */
+function opOrderStrategy(project, { next, rationale = '', reason = '', labels }) {
+  const loa = project.loa || {};
+  const prev = labels[loa.orderStrategy] ? loa.orderStrategy : 'index';
+  if (!labels[next] || prev === next) return null;
+  return {
+    ops: [loaOp(project, { orderStrategy: next, ...(rationale ? { orderRationale: rationale } : {}) })], // (the reason is reused in the Methods Summary)
+    entries: [{ kind: 'order_strategy', category: 'study_order', action: `Set translation-order strategy: ${labels[next]}`,
+      detail: reason || 'Changed in the study list.', fromVal: labels[prev], toVal: labels[next], rationale }]
+  };
+}
+// The studies in a new order (ids: every study, in that order; only those whose number changes are written), with the
+// entries about it and any other writes (extraOps)
+/** @param {any} project @param {{ ids: string[], entries?: Record<string, any>[], extraOps?: DbOp[] }} a @returns {OpResult} */
+function opStudyOrder(project, { ids, entries = [], extraOps = [] }) {
+  const list = ids.map(id => docOf(project, id)).filter(Boolean);
+  return { ops: [...list.flatMap((d, i) => d.order === i ? [] : [{ store: 'docs', put: { ...d, order: i } }]), ...extraOps], entries };
+}
+// Study #1 is where translation starts. Rows keep the study that established them; when #1 changes, rows established by the
+// former #1 (or flagged by an earlier change) are marked for re-reading, and rows back on their own basis lose the mark.
+// Returns the writes (with study #1 remembered in the model) and their entries; bookkeeping (no entry, quiet) when #1 is
+// remembered for the first time or only its name changed; null when nothing changes.
+/** @param {any} project @param {OpNames} h @returns {(OpResult & { quiet: boolean, affected: number }) | null} */
+function opBaselineCheck(project, h) {
+  const loa = project.loa || {};
+  const prevId = loa.baselineDocId || null, prevName = loa.baselineDocName || '';
+  const now = (project.docs || [])[0] || null;
+  const nowId = now ? now.id : null, nowName = now ? (h.docName(nowId) || '') : '';
+  if (prevId === nowId && (!now || prevName === nowName)) return null;
+  const remember = { store: 'meta', put: { ...loa, id: 'loa_main', baselineDocId: nowId, baselineDocName: nowName } };
+  if (!prevId || !nowId || prevId === nowId) return { ops: [remember], entries: [], quiet: true, affected: 0 };
+  /** @type {DbOp[]} */
+  const ops = [remember];
+  /** @type {Record<string, any>[]} */
+  const entries = [];
+  const reverted = (project.clusters || []).filter(c => c.baselineChange && (c.baselineChange.fromDocId === nowId || c.baseDocId === nowId));
+  reverted.forEach(c => { const next = { ...c }; delete next.baselineChange; ops.push({ store: 'clusters', put: next }); });
+  if (reverted.length) entries.push({ kind: 'baseline_rows', category: 'study_order',
+    action: `Study #1 is ${nowName}: ${reverted.length} row(s) are back on the basis they were built on`,
+    detail: `Re-reading flag cleared for: ${reverted.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`, clusterIds: reverted.map(c => c.id) });
+  const affected = (project.clusters || []).filter(c => !reverted.includes(c) && (c.baseDocId === prevId || c.baselineChange));
+  const at = Date.now();
+  affected.forEach(c => {
+    const orig = c.baselineChange;
+    ops.push({ store: 'clusters', put: { ...c, baselineChange: { at, fromDocId: orig ? orig.fromDocId : prevId, fromName: orig ? orig.fromName : prevName, toDocId: nowId, toName: nowName } } });
+  });
+  if (affected.length) entries.push({ kind: 'baseline_rows', category: 'study_order',
+    action: `Study #1 changed: ${affected.length} 3rd Order row(s) established by an earlier #1 need re-reading`,
+    detail: `#1 was ${prevName || 'another study'}; it is now ${nowName}. These rows keep the study that established them`
+      + ' (the other studies were translated into its construct); no judgement was changed. Re-read each row, or make the new #1 its base.'
+      + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
+    fromVal: `#1: ${prevName}`, toVal: `#1: ${nowName}`, clusterIds: affected.map(c => c.id) });
+  return { ops, entries, quiet: false, affected: affected.length };
+}
+// A study removed from the synthesis with its PDF, its constructs and quotes, and the references to it (purgeDocRefs; a row's
+// ◆ base is kept: it tells which rows that study established). refs: what Undo needs to put the references back.
+/** @param {any} project @param {{ docId: string, why: string }} a @param {OpNames} h @returns {(OpResult & { refs: any }) | null} */
+function opRemoveStudy(project, { docId, why }, h) {
+  const doc = docOf(project, docId);
+  if (!doc) return null;
+  const toDel = (project.annotations || []).filter(a => a.docId === docId);
+  const refs = purgeDocRefs(project, docId);
+  const rest = (project.docs || []).filter(d => d.id !== docId);
+  const wasFirst = (project.docs || [])[0] === doc;
+  return {
+    ops: [{ store: 'docs', del: docId }, { store: 'pdf_binaries', del: docId }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refs.ops],
+    entries: [{ kind: 'study_remove', category: 'study_order', rationale: why,
+      action: `Removed Study from the Synthesis: ${h.docName(docId) || 'Study'}${wasFirst ? ' (was the #1 study)' : ''}`,
+      detail: `"${doc.title || doc.name}" was deleted together with ${toDel.length} extracted construct(s)/quote(s).${wasFirst && rest[0] ? ` New #1 study: ${h.docName(rest[0].id) || 'Study'}.` : ''}`,
+      fromVal: `${rest.length + 1} studies`, toVal: `${rest.length} studies` }],
+    refs
+  };
+}
+// The fields of the study info dock (fields: the values as entered; doi already tidied). One entry for each part that
+// changed: subgroup, appraisal / richness, the study overview, the companion paper. nameOf(fields): the study's new name.
+/** @param {any} project @param {{ docId: string, fields: Record<string, any> }} a @param {OpNames & { nameOf?: (d: any) => string }} h @returns {OpResult | null} */
+function opStudyInfo(project, { docId, fields }, h) {
+  const doc = docOf(project, docId);
+  if (!doc) return null;
+  const next = { ...doc, ...fields };
+  const name = h.nameOf ? h.nameOf(next) : (h.docName(docId) || 'Study');
+  const summary = d => `${d.appraisalTool}:${d.quality || 'None'}| Richness:${d.richness || 'None'}`;
+  /** @type {Record<string, any>[]} */
+  const entries = [];
+  if ((doc.group || '') !== (next.group || '')) entries.push({ kind: 'subgroup', category: 'context_appraisal', action: `Set subgroup for ${name}`, fromVal: doc.group || '(none)', toVal: next.group || '(none)' });
+  if (summary(doc) !== summary(next)) entries.push({ kind: 'appraisal', category: 'context_appraisal', action: `Updated Critical Appraisal / Richness for ${name}`,
+    detail: `Setting: ${next.setting || '-'} | Sample: ${next.participants || '-'} | Note: ${next.contextNote || '-'}`, fromVal: summary(doc), toVal: summary(next) });
+  if ((doc.studyOverview || '') !== (next.studyOverview || '')) entries.push({ kind: 'study_overview', category: 'reading_extraction',
+    action: `${doc.studyOverview ? 'Revised' : 'Wrote'} Study Overview / Key Metaphors for ${name}`,
+    detail: 'Phase 3–4: the account read as a whole (storyline, key metaphors and how they relate) before / alongside construct extraction.',
+    fromVal: doc.studyOverview || '(Empty)', toVal: next.studyOverview || '(Empty)' });
+  if ((doc.companionOf || '') !== (next.companionOf || '')) entries.push({ kind: 'companion', category: 'context_appraisal',
+    action: next.companionOf ? `Linked ${name} as a companion paper (same primary study)` : `Unlinked companion paper: ${name}`,
+    detail: next.companionOf ? `Same primary study as ${h.docName(next.companionOf) || 'Study'} (eMERGe item 10).` : '',
+    fromVal: doc.companionOf ? (h.docName(doc.companionOf) || 'Study') : '(separate study)', toVal: next.companionOf ? (h.docName(next.companionOf) || 'Study') : '(separate study)' });
+  if (Object.keys(fields).every(k => stableJson(doc[k]) === stableJson(next[k]))) return null;
+  return { ops: [{ store: 'docs', put: next }], entries };
+}
+// One answer, reason or summary text of an appraisal checklist (field: 'appraisalItems' with a question id, or
+// 'appraisalSummary'; what / detail / from / to: how the entry names it)
+/** @param {any} project @param {{ docId: string, tool: string, field: string, id?: string | null, patch: Record<string, any>, what: string, detail: string, from: string, to: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opAppraisalAnswer(project, { docId, tool, field, id = null, patch, what, detail, from, to }, h) {
+  const doc = docOf(project, docId);
+  if (!doc || (from || '') === (to || '')) return null;
+  const all = doc[field] && typeof doc[field] === 'object' ? doc[field] : {};
+  const cur = all[tool] && typeof all[tool] === 'object' ? all[tool] : {};
+  const part = id ? { ...cur, [id]: { ...(cur[id] || {}), ...patch } } : { ...cur, ...patch };
+  return {
+    ops: [{ store: 'docs', put: { ...doc, [field]: { ...all, [tool]: part } } }],
+    entries: [{ kind: 'appraisal_answer', category: 'context_appraisal', action: `Appraisal (${tool} ${what}) for ${h.docName(docId) || 'Study'}: ${from ? 'changed' : 'recorded'}`,
+      detail, fromVal: from || '', toVal: to || '' }]
+  };
+}
+
+// ---- Compare: what is taken over from another reviewer's file (compare.js) ----
+// A peer row that is here now (imported after its constructs, or a local row with the same title): the writes that place the
+// constructs waiting for it (_peerRows), with the peer's judgement, cell note and mark there (what a construct already has in
+// that row here is kept). peerRowId: the row's id in the peer's file; localRowId: the row here; newRow: that row when it is
+// written in the same transaction (not in the project yet). Returns { ops, count } (count: constructs placed).
+/** @param {any} project @param {string} peerRowId @param {string} [localRowId] @param {any} [newRow] */
+function peerRowPlacementOps(project, peerRowId, localRowId = peerRowId, newRow = null) {
+  /** @type {DbOp[]} */
+  const ops = [];
+  const placed = [];
+  for (const a of project.annotations || []) {
+    const w = a.type === 'second_order' && a._peerRows && a._peerRows[peerRowId];
+    if (!w) continue;
+    const peerFields = {};
+    ANNOTATION_ROW_FIELDS.forEach(k => { if (k in w) peerFields[k] = w[k]; });
+    const c = { ...a, clusterIds: [...(a.clusterIds || [])], _peerRows: { ...a._peerRows } };
+    putIntoRow(c, localRowId, { ...peerFields, ...rowFieldsOf(a, localRowId) });
+    delete c._peerRows[peerRowId];
+    if (!Object.keys(c._peerRows).length) delete c._peerRows;
+    ops.push({ store: 'annotations', put: c });
+    placed.push(c);
+  }
+  // As a placement made here: the row's base if not set yet, and no empty-cell note for this study (placementOpsFor)
+  ops.push(...placementOpsFor(newRow ? { ...project, clusters: [...(project.clusters || []), newRow] } : project, placed));
+  return { ops, count: placed.length };
+}
+// A matched construct marked "Agreed (for now)" with the other reviewer; their label is taken where this one has none,
+// or noted in the team note where it differs
+/** @param {any} project @param {{ secId: string, peerNote: string, peerReviewer: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opProvisionalAgreement(project, { secId, peerNote, peerReviewer }, h) {
+  const l = annoOf(project, secId);
+  if (!l) return null;
+  const next = { ...l, concordanceStatus: 'agreed' };
+  if (peerNote && !l.note) next.note = peerNote;
+  else if (peerNote && peerNote !== l.note && !(l.concordanceNote || '').includes(peerNote)) next.concordanceNote = `[Peer @${peerReviewer} label: ${peerNote}] ${l.concordanceNote || ''}`.trim();
+  return {
+    ops: [{ store: 'annotations', put: next }],
+    entries: [{ kind: 'provisional_agreement', category: 'concordance', action: `Recorded provisional agreement (for now) with @${peerReviewer} (${h.docName(l.docId) || 'Study'}, p.${l.page})`,
+      detail: `"${String(l.text || '').slice(0, 75)}..."`, toVal: 'Agreed (for now)' }]
+  };
+}
+// A peer construct set aside (record added) or reconsidered (record taken out of the list kept in the model)
+/** @param {any} project @param {{ add?: any, remove?: ((r: any) => boolean) | null, action: string, detail: string }} a @returns {OpResult} */
+function opPeerSetAside(project, { add = null, remove = null, action, detail }) {
+  const list = Array.isArray(project.loa && project.loa.peerSetAside) ? project.loa.peerSetAside : [];
+  const next = add ? [...list, add] : list.filter(r => !(remove && remove(r)));
+  return { ops: [loaOp(project, { peerSetAside: next })], entries: [{ kind: 'peer_set_aside', category: 'concordance', action, detail }] };
+}
+// The other reviewer's map relations between rows that are here by title (a relation already here is not added twice)
+/** @param {any} project @param {{ peerLinks: any[], peerReviewer: string, newId: () => string }} a @returns {OpResult | null} */
+function opImportPeerRelations(project, { peerLinks, peerReviewer, newId }) {
+  const byTitle = t => (project.clusters || []).find(c => (c.thirdOrderTitle || '').trim().toLowerCase() === String(t || '').trim().toLowerCase());
+  const links = [...((project.loa && project.loa.links) || [])];
+  let skipped = 0;
+  for (const l of peerLinks || []) {
+    const f = byTitle(l.from), t = byTitle(l.to);
+    if (!f || !t || f.id === t.id) { skipped++; continue; }
+    if (links.some(x => x.type === l.type && ((x.from === f.id && x.to === t.id) || (!isDirectedLink(l.type) && x.from === t.id && x.to === f.id)))) continue;
+    links.push({ id: newId(), from: f.id, to: t.id, type: l.type, note: (l.note ? l.note + ' ' : '') + `[from @${peerReviewer}]` });
+  }
+  const added = links.length - ((project.loa && project.loa.links) || []).length;
+  if (!added) return null;
+  return {
+    ops: [loaOp(project, { links })],
+    entries: [{ kind: 'peer_relations', category: 'team_model', action: `Imported ${added} concept relation(s) from @${peerReviewer}'s model`,
+      detail: skipped ? `${skipped} relation(s) skipped: the rows were not found here by title (import those rows first).` : '' }]
+  };
+}
+// A row of the other reviewer's file added here (row: as it will be stored), with the constructs that were waiting for it
+/** @param {any} project @param {{ row: any, peerRowId: string, peerReviewer: string }} a @returns {OpResult | null} */
+function opImportPeerRow(project, { row, peerRowId, peerReviewer }) {
+  if (!row || rowOf(project, row.id)) return null;
+  const waiting = peerRowPlacementOps(project, peerRowId, row.id, row);
+  return {
+    ops: [{ store: 'clusters', put: row }, ...waiting.ops],
+    entries: [{ kind: 'peer_row_import', clusterIds: [row.id], category: 'concordance', action: `Imported 3rd Order Row from @${peerReviewer}`,
+      toVal: row.thirdOrderTitle || '(Untitled)',
+      detail: waiting.count ? `${waiting.count} construct(s) imported earlier from @${peerReviewer} placed in this row, with their judgements and cell notes.` : '' }]
+  };
+}
+// The other reviewer's audit trail entries that are not here yet, so the shared trail shows both reviewers
+/** @param {any} project @param {{ logs: any[], peerReviewer: string }} a @returns {OpResult | null} */
+function opMergePeerLogs(project, { logs, peerReviewer }) {
+  const have = new Set((project.logs || []).map(l => l.id));
+  const add = [];
+  for (const pl of logs || []) {
+    if (!pl || !pl.id || have.has(pl.id)) continue;
+    have.add(pl.id);
+    add.push({ ...pl, reviewer: pl.reviewer || peerReviewer });
+  }
+  if (!add.length) return null;
+  return {
+    ops: add.map(e => ({ store: 'logs', put: e })),
+    entries: [{ kind: 'peer_logs', category: 'concordance', action: `Merged ${add.length} audit trail entries from @${peerReviewer}`, detail: 'Both reviewers\' decisions now appear in one trail.' }]
+  };
+}
+// Constructs waiting for a peer row placed in a row here of the same title
+/** @param {any} project @param {{ peerRowId: string, rowId: string, peerReviewer: string, peerTitle: string }} a @returns {OpResult | null} */
+function opPeerPlacement(project, { peerRowId, rowId, peerReviewer, peerTitle }) {
+  const row = rowOf(project, rowId);
+  const { ops, count } = peerRowPlacementOps(project, peerRowId, rowId);
+  if (!row || !count) return null;
+  return {
+    ops,
+    entries: [{ kind: 'peer_placement', clusterIds: [rowId], category: 'concordance', action: `Placed ${count} construct(s) imported from @${peerReviewer} in "${rowName(row)}"`,
+      detail: `The row matches @${peerReviewer}'s row "${peerTitle || ''}"; their judgements and cell notes came with them.` }]
+  };
+}
+
+// ---- The audit trail (audit-view.js) and who did what (app.js) ----
+// A reason added to an entry later: it keeps when it was written and every earlier wording (no entry about it: the entry
+// itself shows it)
+/** @param {any} project @param {{ logId: string, reason: string, at: number }} a @returns {OpResult | null} */
+function opTrailReason(project, { logId, reason, at }) {
+  const log = (project.logs || []).find(l => l.id === logId);
+  const prev = log ? (log.rationale || '').trim() : '';
+  if (!log || prev === reason) return null;
+  const history = Array.isArray(log.rationaleHistory) ? log.rationaleHistory : [];
+  return { ops: [{ store: 'logs', put: { ...log, rationale: reason, rationaleAt: at, rationaleHistory: prev ? [...history, { text: prev, at: log.rationaleAt || log.timestamp }] : history } }], entries: [] };
+}
+// An entry deleted from the trail: the deletion itself is recorded, with what the entry said (when: its time as shown;
+// categoryLabel: its category's name)
+/** @param {any} project @param {{ logId: string, when: string, categoryLabel: string }} a @returns {OpResult | null} */
+function opDeleteTrailEntry(project, { logId, when, categoryLabel }) {
+  const log = (project.logs || []).find(l => l.id === logId);
+  if (!log) return null;
+  return {
+    ops: [{ store: 'logs', del: logId }],
+    entries: [{ kind: 'trail_delete', targetId: logId, category: 'audit_edit', action: `Deleted an audit trail entry: ${log.action}`,
+      detail: `Original entry (${when}, @${log.reviewer || 'Unknown'}, ${categoryLabel})${log.detail ? ':\n' + log.detail : ''}`,
+      fromVal: log.fromVal || '', toVal: log.toVal || '', clusterIds: log.clusterIds || null }]
+  };
+}
+// The reviewer an item is attributed to (store: annotations / clusters / logs; what: how the entry names the item)
+/** @param {any} project @param {{ store: string, id: string, reviewer: string, what: string }} a @returns {OpResult | null} */
+function opItemReviewer(project, { store, id, reviewer, what }) {
+  const list = store === 'logs' ? project.logs : store === 'clusters' ? project.clusters : project.annotations;
+  const item = (list || []).find(x => x && x.id === id);
+  const field = store === 'logs' ? 'reviewer' : 'by';
+  if (!item || !reviewer || item[field] === reviewer) return null;
+  return {
+    ops: [{ store, put: { ...item, [field]: reviewer } }],
+    entries: [{ kind: 'reviewer_change', category: 'audit_edit', action: 'Changed the reviewer attributed to an item', detail: `The ${what} is now attributed to @${reviewer}.`,
+      fromVal: '@' + (item[field] || 'Reviewer'), toVal: '@' + reviewer,
+      clusterIds: store === 'clusters' ? [item.id] : store === 'logs' ? (item.clusterIds || null) : (item.type === 'second_order' ? liveRowsOf(project, item) : null) }]
+  };
+}
+// Everything attributed to one reviewer ID attributed to another (a change of name only: the same person)
+/** @param {any} project @param {{ from: string, to: string }} a @returns {OpResult | null} */
+function opReattributeAll(project, { from, to }) {
+  /** @type {DbOp[]} */
+  const ops = [];
+  (project.annotations || []).forEach(a => { if (a.by === from) ops.push({ store: 'annotations', put: { ...a, by: to } }); });
+  (project.clusters || []).forEach(c => { if (c.by === from) ops.push({ store: 'clusters', put: { ...c, by: to } }); });
+  const items = ops.length;
+  (project.logs || []).forEach(l => { if (l.reviewer === from) ops.push({ store: 'logs', put: { ...l, reviewer: to } }); });
+  if (!ops.length) return null;
+  return {
+    ops,
+    entries: [{ kind: 'reviewer_bulk', category: 'audit_edit', action: `Attributed all items of @${from} to @${to}`,
+      detail: `${items} construct(s) / row(s) and ${ops.length - items} audit trail entries.`, fromVal: '@' + from, toVal: '@' + to }]
+  };
+}
+// The project code, the Phase 1 aim and the review question (prevCode: the code before; '' for a first setup)
+/** @param {any} project @param {{ code: string, aim: string, question: string, prevCode: string }} a @returns {OpResult} */
+function opProjectSetup(project, { code, aim, question, prevCode }) {
+  const loa = project.loa || {};
+  const prevAim = loa.aim || '';
+  const changed = prevAim !== aim || (loa.reviewQuestion || '') !== question || (prevCode && prevCode !== code);
+  /** @type {Record<string, any>[]} */
+  const entries = [];
+  if (changed) entries.push({ kind: 'project_setup', category: 'aim_question', action: `Configured Project [${code}] & Phase 1 Research Aim`,
+    detail: (aim ? `Phase 1 Aim: ${aim}` : 'Project code configured (Phase 1 Aim left blank).') + (question ? `\nReview question: ${question}` : ''),
+    fromVal: prevCode ? `[${prevCode}] ${prevAim.slice(0, 60)}` : '(Initial Setup)', toVal: `[${code}] ${aim.slice(0, 60)}` });
+  return { ops: [loaOp(project, { projectCode: code, aim, reviewQuestion: question })], entries };
+}
+
 // ======================= Merging and splitting 3rd Order rows (matrix.js) =======================
 // What a merge / split writes, worked out from the project without changing it: the caller writes plan.ops (commitOps) and
 // keeps plan.before / plan.after for Undo. helpers give the names used in the notes and the log: docName(id) (null for a
@@ -828,6 +1663,14 @@ function planSplitRow(project, srcId, secIds, newRow, helpers) {
 // fields, the map relations).
 const sameJ = (x, y) => JSON.stringify(x === undefined ? null : x) === JSON.stringify(y === undefined ? null : y);
 const rowOrderKey = c => c.order ?? c.createdAt ?? 0;
+// The rows / studies of a list in their stored order (sorted in place, as at startup). Returns the list.
+/** @param {any[]} list */
+function sortRows(list) { return list.sort((x, y) => rowOrderKey(x) - rowOrderKey(y)); }
+/** @param {any[]} list */
+function sortStudies(list) { return list.sort((x, y) => (x.order ?? 999) - (y.order ?? 999)); }
+// The writes that number the rows by their place in the list (only the rows whose number changes; copies)
+/** @param {any[]} list @returns {DbOp[]} */
+function rowOrderOps(list) { return list.flatMap((c, i) => c.order === i ? [] : [{ store: 'clusters', put: { ...c, order: i } }]); }
 // The cards' places in the two rows; returns the cards' copies (and fills kept)
 function revertRowCards(project, entry, ids, kept, splitBasesDiffer) {
   const isSplit = entry.type === 'row_split';

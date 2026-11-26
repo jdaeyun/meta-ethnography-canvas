@@ -15,7 +15,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'app/js/logic.js'), 'utf8'), ctx, { filename: 'app/js/logic.js' });
 const L = vm.runInContext(`({ applyOps, checkInvariants, planMergeRows, planSplitRow, planUndoRowMerge, planUndoRowSplit, purgeDocRefs, purgeClusterRefs, rowDeletionOps, revertChange, tidyRefsOps, recordOf,
-  putIntoRow, takeOutOfRow, relationIn, rowSecsIn, stableJson })`, ctx);
+  putIntoRow, takeOutOfRow, relationIn, rowSecsIn, stableJson, opPlace, opUnplace, opJudge, opEmptyCellStatus, opEmptyCellNote, opSetRowBase,
+  opRereadRow, opRowTeamStatus, opRowCerqual, opConfirmSeed, opMoveRow, opNotTranslated, opLinkQuote, opUnlinkQuote, opDeleteConstruct, opDeleteQuote,
+  opAddConceptLink, opRemoveConceptLink, opAddPassage, opRemovePassage, opExtractedText, opConstructTeamStatus, opLabelSource, opWrapQuote,
+  opAddMapRelation, opRemoveMapRelation, opAspectUse, opAddTeamModel, opRemoveTeamModel, opWriteupField, opSaveDrawer,
+  opOrderStrategy, opStudyOrder, opBaselineCheck, opRemoveStudy, opStudyInfo, opAppraisalAnswer,
+  opProvisionalAgreement, opPeerSetAside, opImportPeerRelations, opImportPeerRow, opMergePeerLogs, opPeerPlacement,
+  opTrailReason, opDeleteTrailEntry, opItemReviewer, opReattributeAll, opProjectSetup })`, ctx);
+// The names an operation's entries need (the app passes study names and judgement labels: OP_NAMES, undo-audit.js)
+const H = { docName: id => `Study ${id}`, relLabel: r => `● ${r}` };
+// An operation of logic.js, run as the app runs it (runOperation): its ops applied; null = nothing to do. Returns the result.
+const run = (p, result) => { if (result) L.applyOps(p, result.ops); return result; };
 const clone = v => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 const plain = clone;
 
@@ -43,17 +53,14 @@ const assertConsistent = (p, step) => assert.deepEqual(plain(L.checkInvariants(p
 const write = (p, ops) => { L.applyOps(p, L.tidyRefsOps(p, ops).ops); };
 
 // ---- Steps (each one as the app does it, on copies, then written) ----
-function place(p, sid, rid) {
-  const s = clone(sec(p, sid));
-  L.putIntoRow(s, rid);
-  write(p, [{ store: 'annotations', put: s }]);
-}
+// (the app's own operations: opPlace / opJudge … in logic.js)
+function place(p, sid, rid) { run(p, L.opPlace(p, { secId: sid, rowId: rid }, H)); }
 function judge(p, sid, rid, rel) {
-  const s = clone(sec(p, sid));
-  s.clusterRelations = { ...s.clusterRelations, [rid]: rel };
-  if (rel === 'other_aspect') s.aspectUsedInLoa = { ...(s.aspectUsedInLoa || {}), [rid]: true };
-  else if (s.aspectUsedInLoa && rid in s.aspectUsedInLoa) { s.aspectUsedInLoa = { ...s.aspectUsedInLoa }; delete s.aspectUsedInLoa[rid]; } // (as matrix.js: the mark goes with ◇)
-  write(p, [{ store: 'annotations', put: s }]);
+  run(p, L.opJudge(p, { secId: sid, rowId: rid, rel }, H));
+  // A ◇ the line of argument draws on (the tick in the drawer)
+  if (rel === 'other_aspect' && L.relationIn(p, sec(p, sid), rid) === 'other_aspect') {
+    const s = clone(sec(p, sid)); s.aspectUsedInLoa = { ...(s.aspectUsedInLoa || {}), [rid]: true }; L.applyOps(p, [{ store: 'annotations', put: s }]);
+  }
 }
 // (the app keeps state.clusters in the rows' order after each write: so does this)
 const sortRows = p => { p.clusters.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); };
@@ -75,35 +82,25 @@ function deleteRow(p, rid) {
   return ch;
 }
 function unplace(p, sid, rid) {
-  return recorded(p, [{ store: 'annotations', id: sid }], () => { const s = clone(sec(p, sid)); L.takeOutOfRow(s, rid); L.applyOps(p, [{ store: 'annotations', put: s }]); });
+  return recorded(p, [{ store: 'annotations', id: sid }], () => run(p, L.opUnplace(p, { secId: sid, rowId: rid }, H)));
 }
 function deleteConstruct(p, sid) {
   const s = sec(p, sid);
   const quotes = p.annotations.filter(a => a.type === 'first_order' && (a.parentIds || []).includes(sid));
   const doc = p.docs.find(d => d.id === s.docId);
   const keys = [{ store: 'annotations', id: sid }, ...quotes.map(q => ({ store: 'annotations', id: q.id })), { store: 'docs', id: doc.id }];
-  return recorded(p, keys, () => {
-    const ops = quotes.map(q => ({ store: 'annotations', put: { ...q, parentIds: q.parentIds.filter(x => x !== sid) } }));
-    ops.push({ store: 'docs', put: { ...doc, conceptLinks: (doc.conceptLinks || []).filter(l => l.from !== sid && l.to !== sid) } });
-    ops.push({ store: 'annotations', del: sid });
-    L.applyOps(p, ops);
-  });
+  return recorded(p, keys, () => run(p, L.opDeleteConstruct(p, { secId: sid }, H)));
 }
 // A construct made (as splitting a passage off makes one): undoing it deletes it
 function addConstruct(p, docId, id) {
   return recorded(p, [], () => L.applyOps(p, [{ store: 'annotations', put: { id, docId, type: 'second_order', page: '9', text: `made ${id}`, note: '', clusterIds: [], clusterRelations: {}, clusterComments: {}, passages: [] } }]),
     [{ store: 'annotations', id }]);
 }
-function linkQuote(p, qid, sid) { const q = clone(sec(p, qid)); q.parentIds = [...new Set([...(q.parentIds || []), sid])]; L.applyOps(p, [{ store: 'annotations', put: q }]); }
+function linkQuote(p, qid, sid) { run(p, L.opLinkQuote(p, { quoteId: qid, secId: sid }, H)); }
 function relate(p, docId, from, to) {
-  const d = clone(p.docs.find(x => x.id === docId));
-  d.conceptLinks = [...(d.conceptLinks || []), { id: `k_${from}_${to}_${Math.random().toString(36).slice(2, 6)}`, from, to, type: 'leads' }];
-  L.applyOps(p, [{ store: 'docs', put: d }]);
+  run(p, L.opAddConceptLink(p, { docId, link: { id: `k_${from}_${to}_${Math.random().toString(36).slice(2, 6)}`, from, to, type: 'leads' }, text: `${from} → ${to}` }, H));
 }
-function markEmpty(p, rid, docId) {
-  if (L.rowSecsIn(p, rid).some(a => a.docId === docId)) return;
-  const c = clone(row(p, rid)); c.cellStatus = { ...c.cellStatus, [docId]: { status: 'absent', note: '' } }; L.applyOps(p, [{ store: 'clusters', put: c }]);
-}
+function markEmpty(p, rid, docId, status = 'absent') { run(p, L.opEmptyCellStatus(p, { rowId: rid, docId, status }, H)); }
 // A row merge / split as the app records it for Undo (matrix.js), and its Undo (undo-audit.js)
 const mergeStep = (p, src, tgt) => { const plan = merge(p, src, tgt); return { type: 'row_merge', srcId: src, tgtId: tgt, before: plan.before, after: plan.after }; };
 const splitStep = (p, src, ids, nid) => { const plan = split(p, src, ids, nid); return { type: 'row_split', srcId: src, newId: nid, before: plan.before, after: plan.after }; };
@@ -268,8 +265,218 @@ test('scenario: undoing a split whose new row has another base leaves a ◇ read
 });
 
 // ---- Random walks: any order of the steps keeps the project consistent; Undo right after a step restores it exactly ----
+test('operations: each says what it changes, and returns nothing when nothing changes', () => {
+  const p = makeProject();
+  // Placing clears the study's empty-cell record, with an entry for it, and the construct starts unjudged
+  const pl = run(p, L.opPlace(p, { secId: 's_d3_1', rowId: 'r1' }, H));
+  assert.deepEqual(plain(pl.entries.map(e => e.kind)), ['empty_cell', 'place']);
+  assert.equal(row(p, 'r1').cellStatus.d3, undefined);
+  assert.equal(L.relationIn(p, sec(p, 's_d3_1'), 'r1'), 'unjudged');
+  assert.equal(L.opPlace(p, { secId: 's_d3_1', rowId: 'r1' }, H), null, 'placed already: nothing to do');
+  assertConsistent(p, 'place');
+  // An empty cell can only be recorded where the study has no construct
+  assert.equal(L.opEmptyCellStatus(p, { rowId: 'r1', docId: 'd3', status: 'absent' }, H), null);
+  run(p, L.opEmptyCellStatus(p, { rowId: 'r2', docId: 'd2', status: 'other_aspect' }, H));
+  run(p, L.opEmptyCellNote(p, { rowId: 'r2', docId: 'd2', note: 'speaks to the family' }, H));
+  assert.deepEqual(plain(row(p, 'r2').cellStatus.d2), { status: 'other_aspect', note: 'speaks to the family' });
+  run(p, L.opEmptyCellStatus(p, { rowId: 'r2', docId: 'd2', status: '' }, H));
+  assert.equal(row(p, 'r2').cellStatus.d2, undefined, 'back to "not yet checked"');
+  // Judged other than ◇, the line-of-argument mark goes; the study that established the row is not judged
+  judge(p, 's_d3_1', 'r1', 'other_aspect');
+  assert.ok(sec(p, 's_d3_1').aspectUsedInLoa.r1);
+  const j = run(p, L.opJudge(p, { secId: 's_d3_1', rowId: 'r1', rel: 'reciprocal' }, H));
+  assert.ok(!sec(p, 's_d3_1').aspectUsedInLoa.r1 && /no longer marked/.test(j.entries[0].detail));
+  assert.equal(L.opJudge(p, { secId: 's_d1_1', rowId: 'r1', rel: 'refutational' }, H), null, 'the base study (◆) is not judged');
+  assertConsistent(p, 'judge');
+  // Choosing study #1 as a row's base clears its re-reading note; "no single base" is a change from "not set yet"
+  L.applyOps(p, [{ store: 'clusters', put: { ...row(p, 'r3'), baseDocId: 'd2', baselineChange: { fromName: 'd2', toName: 'd1' } } }]);
+  const b = run(p, L.opSetRowBase(p, { rowId: 'r3', docId: 'd1' }, H));
+  assert.ok(!row(p, 'r3').baselineChange && /re-reading note is cleared/.test(b.entries[0].detail));
+  L.applyOps(p, [{ store: 'clusters', put: { ...row(p, 'r2'), baseDocId: '' } }]);
+  assert.equal(run(p, L.opSetRowBase(p, { rowId: 'r2', docId: null }, H)).entries[0].fromVal, 'Not set yet');
+  assert.equal(L.opSetRowBase(p, { rowId: 'r2', docId: null }, H), null);
+  assert.equal(L.opRereadRow(p, { rowId: 'r1', why: '' }), null, 'nothing to re-read');
+  // Team status, CERQual, seed confirmation: written only when something changes
+  assert.ok(run(p, L.opRowTeamStatus(p, { rowId: 'r1', status: 'discuss', note: 'two readings' })));
+  assert.equal(L.opRowTeamStatus(p, { rowId: 'r1', status: 'discuss', note: 'two readings' }), null);
+  assert.equal(row(p, 'r1').concordanceStatus, 'discuss');
+  const cq = run(p, L.opRowCerqual(p, { rowId: 'r1', values: { cerqualConfidence: 'Moderate', cerqualExplanation: '  thin data  ' } }));
+  assert.equal(row(p, 'r1').cerqualExplanation, 'thin data', 'trimmed');
+  assert.ok(/Moderate/.test(cq.entries[0].toVal));
+  assert.equal(L.opRowCerqual(p, { rowId: 'r1', values: { cerqualConfidence: 'Moderate' } }), null);
+  L.applyOps(p, [{ store: 'clusters', put: { ...row(p, 'r1'), autoSeeded: true } }]);
+  run(p, L.opConfirmSeed(p, { rowId: 'r1' }));
+  assert.equal(L.opConfirmSeed(p, { rowId: 'r1' }), null);
+  // Moving a row past the next one on view (rows hidden by a filter are skipped)
+  run(p, L.opMoveRow(p, { rowId: 'r1', direction: 1, visibleIds: ['r1', 'r3'] })); sortRows(p);
+  assert.deepEqual(p.clusters.map(c => c.id), ['r2', 'r3', 'r1']);
+  assert.equal(L.opMoveRow(p, { rowId: 'r1', direction: 1 }), null, 'the last row cannot move down');
+  // Why a construct was not translated
+  assert.ok(run(p, L.opNotTranslated(p, { secId: 's_d2_3', note: 'out of scope of the aim' }, H)));
+  assert.equal(L.opNotTranslated(p, { secId: 's_d2_3', note: 'out of scope of the aim' }, H), null);
+  assertConsistent(p, 'operations');
+});
+
+test('operations of Tab 1: links, passages, deletions, wrapping — each says what it changes', () => {
+  const p = makeProject();
+  assert.equal(L.opLinkQuote(p, { quoteId: 'q_d1', secId: 's_d2_1' }, H), null, 'a quote is linked only to constructs of its own study');
+  run(p, L.opLinkQuote(p, { quoteId: 'q_d1', secId: 's_d1_2' }, H));
+  assert.deepEqual(plain(sec(p, 'q_d1').parentIds), ['s_d1_1', 's_d1_2']);
+  run(p, L.opUnlinkQuote(p, { quoteId: 'q_d1', secId: 's_d1_1' }));
+  assert.deepEqual(plain(sec(p, 'q_d1').parentIds), ['s_d1_2']);
+  run(p, L.opUnlinkQuote(p, { quoteId: 'q_d1', secId: null }));
+  assert.deepEqual(plain(sec(p, 'q_d1').parentIds), [], 'unlinked from all');
+  assert.equal(L.opUnlinkQuote(p, { quoteId: 'q_d1', secId: null }), null);
+  // Passages: added and removed (removing is logged, with the construct's rows)
+  run(p, L.opAddPassage(p, { secId: 's_d2_1', passage: { id: 'pp', text: 'again, in the discussion', page: '7' } }, H));
+  const rm = run(p, L.opRemovePassage(p, { secId: 's_d2_1', passageId: 'pp' }, H));
+  assert.equal(rm.entries[0].kind, 'passage_remove');
+  assert.equal(L.opRemovePassage(p, { secId: 's_d2_1', passageId: 'pp' }, H), null);
+  // Text, label source, team status: written only when something changes
+  assert.equal(L.opExtractedText(p, { annoId: 's_d2_1', text: sec(p, 's_d2_1').text }, H), null);
+  assert.ok(run(p, L.opExtractedText(p, { annoId: 's_d2_1', text: 'corrected wording' }, H)));
+  assert.ok(run(p, L.opLabelSource(p, { secId: 's_d2_1', source: 'reviewer' }, H)));
+  assert.equal(L.opLabelSource(p, { secId: 's_d2_1', source: 'reviewer' }, H), null);
+  const t = run(p, L.opConstructTeamStatus(p, { secId: 's_d2_1', status: 'discuss', note: 'our note\nreason', action: 'Flagged for discussion' }, H));
+  assert.equal(t.entries[0].action, 'Flagged for discussion');
+  // Within-study relationships: only between constructs of that study; removed by id
+  assert.equal(L.opAddConceptLink(p, { docId: 'd2', link: { id: 'x', from: 's_d2_1', to: 's_d3_1', type: 'leads' }, text: '' }, H), null);
+  relate(p, 'd2', 's_d2_2', 's_d2_3');
+  const k = p.docs.find(d => d.id === 'd2').conceptLinks.find(l => l.from === 's_d2_2');
+  run(p, L.opRemoveConceptLink(p, { docId: 'd2', linkId: k.id, text: '' }, H));
+  assert.ok(!p.docs.find(d => d.id === 'd2').conceptLinks.some(l => l.id === k.id));
+  // Deleting a construct takes its quotes' links and its relationships with it
+  const d = run(p, L.opDeleteConstruct(p, { secId: 's_d2_1' }, H));
+  assert.ok(!sec(p, 's_d2_1') && !(sec(p, 'q_d2').parentIds || []).includes('s_d2_1') && !p.docs.find(x => x.id === 'd2').conceptLinks.length);
+  assert.ok(/1 linked quote\(s\) unlinked/.test(d.entries[0].detail));
+  // Wrapping a quote in a construct of the reviewer's wording; deleting a quote
+  run(p, L.opWrapQuote(p, { quoteId: 'q_d2', construct: { id: 'w1', docId: 'd2', type: 'second_order', origin: 'wrapped_first_order', page: '1', text: 'q', note: 'Label', clusterIds: [], clusterRelations: {}, clusterComments: {}, passages: [] } }, H));
+  assert.deepEqual(plain(sec(p, 'q_d2').parentIds), ['w1']);
+  run(p, L.opDeleteQuote(p, { quoteId: 'q_d3' }, H));
+  assert.ok(!sec(p, 'q_d3'));
+  assertConsistent(p, 'operations of Tab 1');
+});
+
+test('operations of the drawer: map relations, ◇ marks, team models, write-up and drawer fields', () => {
+  const p = makeProject();
+  assert.equal(L.opAddMapRelation(p, { link: { id: 'x', from: 'r1', to: 'r2', type: 'leads' } }), null, 'the same relation is not added twice');
+  assert.equal(L.opAddMapRelation(p, { link: { id: 'x', from: 'r3', to: 'r2', type: 'reciprocal' } }), null, 'an unknown relation type');
+  run(p, L.opAddMapRelation(p, { link: { id: 'm3', from: 'r3', to: 'r1', type: 'mutual' } }));
+  assert.equal(L.opAddMapRelation(p, { link: { id: 'm4', from: 'r1', to: 'r3', type: 'mutual' } }), null, 'B–A is A–B for a relation without direction');
+  run(p, L.opRemoveMapRelation(p, { linkId: 'm1' }));
+  assert.deepEqual(plain(p.loa.links.map(l => l.id)), ['m2', 'm3']);
+  // A ◇ mark only with a ◇ judgement (a card) or a ◇ empty cell
+  place(p, 's_d2_1', 'r2');
+  assert.equal(L.opAspectUse(p, { rowId: 'r2', docId: 'd2', secId: 's_d2_1', used: true }, H), null, 'not judged ◇');
+  run(p, L.opJudge(p, { secId: 's_d2_1', rowId: 'r2', rel: 'other_aspect' }, H));
+  run(p, L.opAspectUse(p, { rowId: 'r2', docId: 'd2', secId: 's_d2_1', used: true }, H));
+  assert.ok(sec(p, 's_d2_1').aspectUsedInLoa.r2);
+  markEmpty(p, 'r3', 'd3', 'other_aspect');
+  run(p, L.opAspectUse(p, { rowId: 'r3', docId: 'd3', used: true }, H));
+  assert.ok(row(p, 'r3').cellStatus.d3.usedInLoa);
+  assertConsistent(p, '◇ marks');
+  // Team models, write-up fields and the drawer: written only when something changes
+  assert.equal(L.opAddTeamModel(p, { model: { id: 't', reviewer: 'B' }, how: '' }), null, 'an empty model');
+  run(p, L.opAddTeamModel(p, { model: { id: 't1', reviewer: 'B', title: 'B\'s model', links: [] }, how: 'Imported' }));
+  run(p, L.opRemoveTeamModel(p, { modelId: 't1' }));
+  assert.deepEqual(plain(p.loa.teamModels), []);
+  const w = run(p, L.opWriteupField(p, { key: 'reviewQuestion', value: 'How do nurses…?', category: 'aim_question', label: 'Review question (Item 3)' }));
+  assert.equal(w.entries[0].kind, 'review_question');
+  assert.equal(L.opWriteupField(p, { key: 'reviewQuestion', value: 'How do nurses…?', category: 'aim_question', label: '' }), null);
+  const extra = [['alternativeInterpretations', 'x', 'translation_process'], ['teamMergeNote', 'y', 'team_model']];
+  const d = run(p, L.opSaveDrawer(p, { values: { aim: 'Aim', title: 'Model', flow: '', narrative: 'N', relateOutcome: '', alternativeInterpretations: '', teamMergeNote: 'merged' }, projectCode: 'P', extraFields: extra, labels: { teamMergeNote: 'How merged' } }));
+  assert.deepEqual(plain(d.entries.map(e => e.kind)), ['aim', 'line_of_argument', 'team_merge_note']);
+  assert.equal(p.loa.aim, 'Aim');
+  assert.equal(L.opSaveDrawer(p, { values: { aim: 'Aim', title: 'Model', narrative: 'N', teamMergeNote: 'merged' }, projectCode: 'P', extraFields: extra, labels: {} }), null);
+  assertConsistent(p, 'drawer');
+});
+
+test('operations of the studies: order, study #1 and its rows, removal, study info, appraisal', () => {
+  const p = makeProject();
+  const labels = { index: 'Index paper first', chronological: 'Chronological', other: 'Other' };
+  run(p, L.opOrderStrategy(p, { next: 'chronological', rationale: 'by year', labels }));
+  assert.equal(p.loa.orderStrategy, 'chronological');
+  assert.equal(L.opOrderStrategy(p, { next: 'chronological', labels }), null);
+  // Study #1 remembered (bookkeeping), then changed: rows established by the former #1 are marked; moved back, unmarked
+  const first = L.opBaselineCheck(p, H);
+  assert.ok(first.quiet && !first.entries.length); run(p, first);
+  run(p, L.opStudyOrder(p, { ids: ['d2', 'd1', 'd3'] })); p.docs.sort((a, b) => a.order - b.order);
+  const ch = run(p, L.opBaselineCheck(p, H));
+  assert.equal(ch.affected, 3);
+  assert.ok(p.clusters.every(c => c.baselineChange && c.baselineChange.fromDocId === 'd1'));
+  run(p, L.opStudyOrder(p, { ids: ['d1', 'd2', 'd3'] })); p.docs.sort((a, b) => a.order - b.order);
+  run(p, L.opBaselineCheck(p, H));
+  assert.ok(p.clusters.every(c => !c.baselineChange), 'back on the basis they were built on');
+  assert.equal(L.opBaselineCheck(p, H), null);
+  // Removing a study takes its constructs and the references to it
+  const rm = run(p, L.opRemoveStudy(p, { docId: 'd3', why: 'out of scope' }, H));
+  assert.ok(!p.docs.some(d => d.id === 'd3') && !p.annotations.some(a => a.docId === 'd3') && !row(p, 'r1').cellStatus.d3);
+  assert.equal(rm.entries[0].rationale, 'out of scope');
+  assertConsistent(p, 'study removed');
+  // Study info and appraisal: an entry for each part that changed, none when nothing did
+  const info = run(p, L.opStudyInfo(p, { docId: 'd2', fields: { group: 'Nurses', studyOverview: 'The account read whole', appraisalTool: 'CASP' } }, H));
+  assert.deepEqual(plain(info.entries.map(e => e.kind)), ['subgroup', 'appraisal', 'study_overview']);
+  assert.equal(L.opStudyInfo(p, { docId: 'd2', fields: { group: 'Nurses' } }, H), null);
+  run(p, L.opAppraisalAnswer(p, { docId: 'd2', tool: 'CASP', field: 'appraisalItems', id: 'q1', patch: { a: 'yes' }, what: 'Q1', detail: '', from: '', to: 'Yes' }, H));
+  run(p, L.opAppraisalAnswer(p, { docId: 'd2', tool: 'CASP', field: 'appraisalItems', id: 'q1', patch: { note: 'clear aims' }, what: 'Q1 reason', detail: '', from: '', to: 'clear aims' }, H));
+  assert.deepEqual(plain(p.docs.find(d => d.id === 'd2').appraisalItems.CASP.q1), { a: 'yes', note: 'clear aims' });
+  assertConsistent(p, 'studies');
+});
+
+test('operations of Compare: agreement, set aside, relations, a row and the constructs waiting for it, the trail', () => {
+  const p = makeProject();
+  run(p, L.opProvisionalAgreement(p, { secId: 's_d2_1', peerNote: 'Peer label', peerReviewer: 'B' }, H));
+  assert.equal(sec(p, 's_d2_1').concordanceStatus, 'agreed');
+  assert.equal(sec(p, 's_d2_1').note, 'Peer label', 'the peer\'s label where there was none');
+  run(p, L.opPeerSetAside(p, { add: { peerId: 'x', reviewer: 'B' }, action: 'Set aside', detail: '' }));
+  run(p, L.opPeerSetAside(p, { remove: r => r.peerId === 'x', action: 'Reconsidered', detail: '' }));
+  assert.deepEqual(plain(p.loa.peerSetAside), []);
+  let n = 0;
+  const rel = run(p, L.opImportPeerRelations(p, { peerLinks: [{ from: 'Row 3', to: 'Row 1', type: 'leads' }, { from: 'Row 1', to: 'Row 2', type: 'leads' }, { from: 'Gone', to: 'Row 1', type: 'leads' }], peerReviewer: 'B', newId: () => 'pl' + n++ }));
+  assert.ok(/Imported 1 concept relation/.test(rel.entries[0].action) && /1 relation\(s\) skipped/.test(rel.entries[0].detail), 'one new; one already here; one row not here');
+  // A construct waiting for a peer row: placed with the peer's judgement when the row arrives
+  L.applyOps(p, [{ store: 'annotations', put: { ...sec(p, 's_d3_2'), _peerRows: { peer_r: { clusterRelations: 'refutational', _title: 'Peer row' } } } }]);
+  const newRow = { id: 'r_peer', thirdOrderTitle: 'Peer row', order: 3, baseDocId: '', cellStatus: {}, historyFrom: [] };
+  const imp = run(p, L.opImportPeerRow(p, { row: newRow, peerRowId: 'peer_r', peerReviewer: 'B' }));
+  assert.ok(/1 construct/.test(imp.entries[0].detail));
+  assert.ok(sec(p, 's_d3_2').clusterIds.includes('r_peer') && !sec(p, 's_d3_2')._peerRows);
+  assert.equal(row(p, 'r_peer').baseDocId, 'd3', 'a row not set yet takes the study of the construct placed');
+  assert.equal(L.opPeerPlacement(p, { peerRowId: 'peer_r', rowId: 'r_peer', peerReviewer: 'B', peerTitle: '' }), null, 'nothing waits any more');
+  assertConsistent(p, 'Compare');
+  // The other reviewer's trail: each entry once
+  run(p, L.opMergePeerLogs(p, { logs: [{ id: 'pl1', action: 'x' }, { id: 'pl1', action: 'x' }], peerReviewer: 'B' }));
+  assert.equal(p.logs.filter(l => l.id === 'pl1').length, 1);
+  assert.equal(L.opMergePeerLogs(p, { logs: [{ id: 'pl1' }], peerReviewer: 'B' }), null);
+});
+
+test('operations of the trail and the project setup: reasons kept with their history, deletions recorded, reviewers', () => {
+  const p = makeProject();
+  p.logs.push({ id: 'l1', timestamp: 1, reviewer: 'A', action: 'Placed', category: 'matrix_mapping', rationale: '' });
+  run(p, L.opTrailReason(p, { logId: 'l1', reason: 'first reason', at: 10 }));
+  run(p, L.opTrailReason(p, { logId: 'l1', reason: 'better reason', at: 20 }));
+  const l1 = p.logs.find(l => l.id === 'l1');
+  assert.equal(l1.rationale, 'better reason');
+  assert.deepEqual(plain(l1.rationaleHistory), [{ text: 'first reason', at: 10 }], 'the earlier wording is kept with when it was written');
+  assert.equal(L.opTrailReason(p, { logId: 'l1', reason: 'better reason', at: 30 }), null);
+  const del = L.opDeleteTrailEntry(p, { logId: 'l1', when: 'then', categoryLabel: 'Matrix' });
+  assert.ok(/Deleted an audit trail entry: Placed/.test(del.entries[0].action) && del.entries[0].targetId === 'l1');
+  run(p, del);
+  assert.ok(!p.logs.some(l => l.id === 'l1'));
+  // Reviewers: one item, or everything of one ID
+  run(p, L.opItemReviewer(p, { store: 'clusters', id: 'r1', reviewer: 'B', what: 'row' }));
+  assert.equal(row(p, 'r1').by, 'B');
+  assert.equal(L.opItemReviewer(p, { store: 'clusters', id: 'r1', reviewer: 'B', what: 'row' }), null);
+  const all = run(p, L.opReattributeAll(p, { from: 'B', to: 'C' }));
+  assert.ok(row(p, 'r1').by === 'C' && /1 construct\(s\) \/ row\(s\)/.test(all.entries[0].detail));
+  // Project setup: an entry only when the aim, the question or an existing code changes
+  assert.equal(L.opProjectSetup(p, { code: 'P', aim: '', question: '', prevCode: '' }).entries.length, 0);
+  assert.equal(run(p, L.opProjectSetup(p, { code: 'P', aim: 'An aim', question: '', prevCode: '' })).entries.length, 1);
+  assertConsistent(p, 'trail and setup');
+});
+
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const STEPS = ['place', 'judge', 'merge', 'split', 'deleteRow', 'unplace', 'deleteConstruct', 'addConstruct', 'linkQuote', 'relate', 'markEmpty', 'deleteStudy', 'undo', 'undo'];
+const STEPS = ['place', 'judge', 'merge', 'split', 'deleteRow', 'unplace', 'deleteConstruct', 'addConstruct', 'linkQuote', 'relate', 'markEmpty', 'deleteStudy',
+  'moveRow', 'rowBase', 'rowTeam', 'undo', 'undo'];
 for (const seed of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765, 10946]) {
   test(`random walk (seed ${seed}): 80 steps, consistent after each; an immediate Undo restores the project exactly`, () => {
     const r = rng(seed);
@@ -312,7 +519,13 @@ for (const seed of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 
         const d = pick(p.docs), own = secs.filter(a => a.docId === d.id);
         if (own.length > 1) { const a = pick(own); relate(p, d.id, a.id, pick(own.filter(x => x !== a)).id); }
       } else if (step === 'markEmpty' && p.clusters.length) {
-        markEmpty(p, pick(p.clusters).id, pick(p.docs).id);
+        markEmpty(p, pick(p.clusters).id, pick(p.docs).id, pick(['absent', 'other_aspect', '']));
+      } else if (step === 'moveRow' && p.clusters.length > 1) {
+        run(p, L.opMoveRow(p, { rowId: pick(p.clusters).id, direction: pick([-1, 1]) })); sortRows(p);
+      } else if (step === 'rowBase' && p.clusters.length) {
+        run(p, L.opSetRowBase(p, { rowId: pick(p.clusters).id, docId: pick([...p.docs.map(d => d.id), null]) }, H));
+      } else if (step === 'rowTeam' && p.clusters.length) {
+        run(p, L.opRowTeamStatus(p, { rowId: pick(p.clusters).id, status: pick(['pending', 'discuss', 'agreed']), note: pick(['', 'talked it through']) }));
       } else if (['deleteRow', 'unplace', 'deleteConstruct', 'addConstruct'].includes(step)) {
         const before = meaning(p);
         let ch = null;

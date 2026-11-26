@@ -16,27 +16,14 @@ async function promptReassignItemReviewer(item, storeName, refreshFn) {
   const clean = nextRev.trim();
   if (!clean || clean === currentRev) return;
 
-  if (storeName === 'logs') {
-    item.reviewer = clean;
-  } else {
-    item.by = clean;
-  }
-  await dbPut(storeName, item);
   // Attribution is part of the audit trail: a change of who made an entry is itself recorded
   const what = storeName === 'logs'
     ? `audit trail entry "${item.action || ''}" (${new Date(item.timestamp).toLocaleString()})`
     : storeName === 'clusters'
       ? `3rd Order row "${item.thirdOrderTitle || '(Untitled Row)'}"`
-      : `${item.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} in ${getDisplayName(state.docs.find(d => d.id === item.docId))} (p.${item.page}): ${item.note || '"' + String(item.text || '').slice(0, 60) + '…"'}`;
-  await recordAuditLog({
-    kind: 'reviewer_change',
-    category: 'audit_edit',
-    action: 'Changed the reviewer attributed to an item',
-    detail: `The ${what} is now attributed to @${clean}.`,
-    fromVal: '@' + currentRev,
-    toVal: '@' + clean,
-    clusterIds: storeName === 'clusters' ? [item.id] : (storeName === 'logs' ? item.clusterIds : (item.type === 'second_order' ? liveClusterIds(item) : null))
-  });
+      : `${item.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} in ${studyNameOf(item)} (p.${item.page}): ${item.note || '"' + String(item.text || '').slice(0, 60) + '…"'}`;
+  // The item with its new reviewer and the entry, in one transaction (opItemReviewer, logic.js)
+  await runOperation(opItemReviewer(state, { store: storeName, id: item.id, reviewer: clean, what }));
   if (refreshFn) refreshFn();
 }
 
@@ -95,7 +82,6 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
     const projVal = sanitizeProjectCode(initProjInput.value);
     const aimVal = initAimInput.value.trim();
     const qVal = (document.getElementById('initialReviewQuestionInput')?.value || '').trim();
-    const prevQ = (state.loa && state.loa.reviewQuestion) || '';
 
     if (!revVal || !projVal) {
       errEl.classList.remove('hidden');
@@ -106,7 +92,6 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
     errEl.classList.add('hidden');
 
     const prevProj = state.projectCode;
-    const prevAim = (state.loa && state.loa.aim) || '';
 
     state.reviewerId = revVal;
     state.projectCode = projVal;
@@ -114,20 +99,10 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
     lsSet('me_project_code', projVal);
     if (revInput) revInput.value = revVal;
 
-    await commitOps([{ store: 'meta', put: { ...state.loa, id: 'loa_main', projectCode: projVal, aim: aimVal, reviewQuestion: qVal, updatedAt: Date.now() } }]);
+    await runOperation(opProjectSetup(state, { code: projVal, aim: aimVal, question: qVal, prevCode: prevProj || '' }));
     populateLoaInputs();
     updateHeaderProjectUI();
     if (!divPub.classList.contains('hidden')) renderPublicationView(); // the Methods Summary shows the aim and the question
-
-    if (prevAim !== aimVal || prevQ !== qVal || (prevProj && prevProj !== projVal)) {
-      await recordAuditLog({
-        category: 'aim_question',
-        action: `Configured Project [${projVal}] & Phase 1 Research Aim`,
-        detail: (aimVal ? `Phase 1 Aim: ${aimVal}` : 'Project code configured (Phase 1 Aim left blank).') + (qVal ? `\nReview question: ${qVal}` : ''),
-        fromVal: prevProj ? `[${prevProj}] ${prevAim.slice(0, 60)}` : '(Initial Setup)',
-        toVal: `[${projVal}] ${aimVal.slice(0, 60)}`
-      });
-    }
 
     modal.classList.add('hidden');
     modal.classList.remove('flex');
@@ -229,25 +204,18 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (how === 'all') {
         // Every record in one transaction: all of them carry the new ID, or (on a failure) none
         // (copies: the records in memory change once all of them are stored)
-        /** @type {DbOp[]} */
-        const ops = [];
-        state.annotations.forEach(a => { if (a.by === oldRev) ops.push({ store: 'annotations', put: { ...a, by: nextRev } }); });
-        state.clusters.forEach(c => { if (c.by === oldRev) ops.push({ store: 'clusters', put: { ...c, by: nextRev } }); });
-        const nLogs = logCount;
-        state.logs.forEach(l => { if (l.reviewer === oldRev) ops.push({ store: 'logs', put: { ...l, reviewer: nextRev } }); });
-        await commitOps(ops);
-        await recordAuditLog({ category: 'audit_edit', action: `Attributed all items of @${oldRev} to @${nextRev}`, detail: `${existingCount} construct(s) / row(s) and ${nLogs} audit trail entries.`, fromVal: '@' + oldRev, toVal: '@' + nextRev });
+        await runOperation(opReattributeAll(state, { from: oldRev, to: nextRev }));
         refreshOpenViews(); // (every open view: Tab 4 names the reviewers too)
       }
     }
   });
 
   const rawDocs = await dbGetAll('docs');
-  state.docs = rawDocs.map(normalizeDoc).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  state.docs = sortStudies(rawDocs.map(normalizeDoc));
   const rawAnnos = await dbGetAll('annotations');
   state.annotations = rawAnnos.map(normalizeAnnotation);
   const rawClusters = await dbGetAll('clusters');
-  state.clusters = rawClusters.map(normalizeCluster).sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
+  state.clusters = sortRows(rawClusters.map(normalizeCluster));
   state.logs = await dbGetAll('logs');
   state.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 

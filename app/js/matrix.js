@@ -83,49 +83,23 @@ async function createNewClusterRow(initialTitle = '', opts = {}) {
   });
   // deferWrite: the caller writes the row in its own transaction (dbBatch) together with what else it changes
   if (opts.deferWrite) return cluster;
-  await dbPut('clusters', cluster);
-  state.clusters.push(cluster);
-  if (!opts.silent) {
-    await recordAuditLog({
-      clusterIds: [cluster.id],
-      category: 'third_order',
-      action: 'Created New 3rd Order Row',
-      toVal: initialTitle || '(Untitled Concept Row)'
-    });
-  }
+  await saveChange([{ store: 'clusters', put: cluster }], opts.silent ? [] : auditEntry({
+    kind: 'row_create',
+    clusterIds: [cluster.id],
+    category: 'third_order',
+    action: 'Created New 3rd Order Row',
+    toVal: initialTitle || '(Untitled Concept Row)'
+  }));
   return cluster;
 }
 
+// A construct placed in a row (opPlace, logic.js): it starts "not yet judged"; the first construct placed in a new row
+// establishes it (◆; the reviewer can change this in the row header), and an earlier "not addressed / different aspect"
+// note for this study no longer applies
 async function assignSecondOrderToCluster(sec, cluster) {
   normalizeAnnotation(sec);
-  if (sec.clusterIds.includes(cluster.id)) return;
   normalizeCluster(cluster);
-  // No relation is assumed: the placement starts as "not yet judged" (see secRelation); nothing left from an earlier
-  // placement in this row comes back (putIntoRow). Built on a copy: the construct and the row in memory change once stored.
-  const placed = putIntoRow({ ...sec, clusterIds: [...sec.clusterIds] }, cluster.id);
-  // The first construct placed in a new row establishes it (◆; the reviewer can change this in the row header), and an
-  // earlier "not addressed / different aspect" note for this study no longer applies (placementOpsFor). Read first, for the log.
-  const prevStatus = emptyCellInfo(cluster, sec.docId);
-  // The placement and what it changes in the row in one transaction
-  await commitOps([{ store: 'annotations', put: placed }, ...placementOpsFor(state, [placed])]);
-  if (prevStatus) {
-    await recordAuditLog({
-      clusterIds: [cluster.id], category: 'relating_studies',
-      action: `Cleared "${prevStatus.label}" for ${getDisplayName(state.docs.find(d => d.id === sec.docId))} in "${cluster.thirdOrderTitle || 'Untitled Row'}": a construct was placed there`,
-      detail: prevStatus.note || '', fromVal: prevStatus.label, toVal: 'Construct placed'
-    });
-  }
-
-  const doc = state.docs.find(d => d.id === sec.docId);
-  await recordAuditLog({
-    kind: 'place',
-    clusterIds: [cluster.id],
-    category: 'matrix_mapping',
-    action: `Placed 2nd Order Construct in a 3rd Order Row`,
-    detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note ? sec.note + ' — ' : ''}"${sec.text.slice(0, 75)}..."`,
-    toVal: `Row: ${cluster.thirdOrderTitle || '(Untitled Row)'} [in ${sec.clusterIds.length} row(s)]`,
-    isMinorOp: true
-  });
+  await runOperation(opPlace(state, { secId: sec.id, rowId: cluster.id }, OP_NAMES));
 }
 
 // Deleting a 3rd Order row: nothing of it is left behind (judgements, cell notes and line-of-argument marks in it, its
@@ -137,16 +111,17 @@ async function deleteClusterRow(cluster) {
   // Undo covers the row and what named it; the other rows' new numbers stay (they keep the rows in the order shown)
   const keys = ops.filter(o => !(o.store === 'clusters' && !('del' in o))).map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id }));
   const change = beginChange(`3rd Order Row (${cluster.thirdOrderTitle || 'Untitled'})`, keys,
-    { before: { ['clusters|' + cluster.id]: row }, undoLogs: [{ clusterIds: [cluster.id], category: 'third_order', action: 'Restored 3rd Order Row (Undo)', toVal: cluster.thirdOrderTitle || '(Untitled Row)',
+    { before: { ['clusters|' + cluster.id]: row }, undoLogs: [{ kind: 'row_restore', clusterIds: [cluster.id], category: 'third_order', action: 'Restored 3rd Order Row (Undo)', toVal: cluster.thirdOrderTitle || '(Untitled Row)',
       detail: `${assignedSecIds.length} construct(s) placed in it again.` }] });
-  await commitOps(ops); // unplacing the cards and deleting the row in one transaction; the rows in memory change once it is stored
-  finishChange(change);
-  await recordAuditLog({
+  // Unplacing the cards, deleting the row and its entry in one transaction; the rows in memory change once it is stored
+  await saveChange(ops, auditEntry({
+    kind: 'row_delete',
     clusterIds: [cluster.id],
     category: 'third_order',
     action: 'Deleted 3rd Order Row',
     fromVal: cluster.thirdOrderTitle || '(Untitled Row)'
-  });
+  }));
+  finishChange(change);
   renderLoaClusterChips(); // the drawer's chips and map (if open) lose the row
   renderMatrixView();
   showUndoSnackbar(`Removed the row "${cluster.thirdOrderTitle || 'Untitled'}" (its constructs stay in the pool / other rows)`);
@@ -164,26 +139,13 @@ function syncSecCards(sec, fromCard) {
   });
 }
 
+// Taken out of the row (opUnplace, logic.js): its judgement, note and line-of-argument mark there go too; Ctrl+Z puts all of
+// them back
 async function removeSecondOrderFromCluster(sec, cluster) {
   normalizeAnnotation(sec);
-  // Taken out of the row: its judgement, note and line-of-argument mark there go too; Ctrl+Z puts all of them back
   const label = `Unassign "${(sec.note || sec.text).slice(0, 28)}" from "${cluster.thirdOrderTitle || 'Untitled Row'}"`;
-  const change = beginChange(label, [{ store: 'annotations', id: sec.id }], { undoLogs: [{ clusterIds: [cluster.id], category: 'matrix_mapping',
-    action: `Undid: ${label}`, detail: 'The construct is back in the row with its judgement, note and line-of-argument mark.', isMinorOp: true }] });
-  takeOutOfRow(sec, cluster.id);
-  await dbPut('annotations', sec);
-  finishChange(change);
-
-  const doc = state.docs.find(d => d.id === sec.docId);
-  await recordAuditLog({
-    kind: 'unplace',
-    clusterIds: [cluster.id],
-    category: 'matrix_mapping',
-    action: `Removed 2nd Order Construct from a 3rd Order Row`,
-    detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note || '"' + sec.text.slice(0, 60) + '..."'}`,
-    fromVal: `Row: ${cluster.thirdOrderTitle || '(Untitled Row)'}`,
-    isMinorOp: true
-  });
+  await runOperation(project => opUnplace(project, { secId: sec.id, rowId: cluster.id }, OP_NAMES), { undo: { label, undoLogs: [{ kind: 'undo_placement',
+    clusterIds: [cluster.id], category: 'matrix_mapping', action: `Undid: ${label}`, detail: 'The construct is back in the row with its judgement, note and line-of-argument mark.', isMinorOp: true }] } });
 }
 
 const newClusterDropZone = document.getElementById('newClusterDropZone');
@@ -319,39 +281,41 @@ async function seedIndexPaperRows() {
         ]
       });
       if (how !== 'seed') {
-        if (how === 'leave') for (const sec of fresh) { sec.indexSeeded = true; await dbPut('annotations', sec); }
+        if (how === 'leave') await commitOps(fresh.map(sec => ({ store: 'annotations', put: { ...sec, indexSeeded: true } })));
         return false;
       }
     }
 
+    // Every new row, every construct placed in it and the entry: one transaction
+    /** @type {DbOp[]} */
+    const ops = [];
     const created = [];
     const createdIds = [];
     for (const sec of fresh) {
+      // seeded or already placed: never auto-place this construct again (even if the row is later deleted)
+      const next = { ...sec, indexSeeded: true };
       if (liveClusterIds(sec).length === 0) {
         const fallback = String(sec.text || '').replace(/^\[Concept derived[^\]]*\]:\s*/, '').replace(/^"+|"+$/g, '').trim();
         const title = ((sec.note || '').trim() || fallback).slice(0, 80);
-        const cluster = await createNewClusterRow(title, { silent: true, baseDocId: indexDoc.id });
-        cluster.autoSeeded = true;
-        cluster.seededFromId = sec.id;
-        await dbPut('clusters', cluster);
-        await assignSecondOrderToCluster(sec, cluster);
+        // (a new row established by study #1, so placing in it changes nothing else in it)
+        const cluster = await createNewClusterRow(title, { deferWrite: true, baseDocId: indexDoc.id });
+        Object.assign(cluster, { autoSeeded: true, seededFromId: sec.id, order: state.clusters.length + createdIds.length });
+        ops.push({ store: 'clusters', put: cluster });
+        putIntoRow(next, cluster.id);
         created.push(`${title} (p.${sec.page})`);
         createdIds.push(cluster.id);
       }
-      sec.indexSeeded = true; // seeded or already placed: never auto-place this construct again (even if the row is later deleted)
-      await dbPut('annotations', sec);
+      ops.push({ store: 'annotations', put: next });
     }
-    if (created.length > 0) {
-      await recordAuditLog({
-        kind: 'auto_place',
-        clusterIds: createdIds,
-        category: 'matrix_mapping',
-        action: `Auto-placed ${created.length} 2nd Order construct(s) of the #1 study (${getDisplayName(indexDoc)}; ${firstStudyMeta().long}) as initial 3rd Order rows`,
-        detail: created.map(t => '• ' + t).join('\n'),
-        rationale: 'The #1 study\'s concepts seed the translation; later studies are translated into these rows.'
-      });
-      showSnackbar(`Placed ${created.length} concept(s) from study #1 as provisional rows.`);
-    }
+    await saveChange(ops, created.length ? auditEntry({
+      kind: 'auto_place',
+      clusterIds: createdIds,
+      category: 'matrix_mapping',
+      action: `Auto-placed ${created.length} 2nd Order construct(s) of the #1 study (${getDisplayName(indexDoc)}; ${firstStudyMeta().long}) as initial 3rd Order rows`,
+      detail: created.map(t => '• ' + t).join('\n'),
+      rationale: 'The #1 study\'s concepts seed the translation; later studies are translated into these rows.'
+    }) : []);
+    if (created.length) showSnackbar(`Placed ${created.length} concept(s) from study #1 as provisional rows.`);
     return created.length > 0;
   } finally {
     indexSeedBusy = false;
@@ -369,19 +333,16 @@ function seedChoice() {
 }
 async function setSeedChoice(choice, why = '', reason = '') {
   const prev = seedChoice();
-  state.loa = { ...state.loa, id: 'loa_main', seedChoice: choice, updatedAt: Date.now() };
-  await dbPut('meta', state.loa);
-  autoSeedToggleEl.checked = choice === 'seed';
-  if (prev !== choice || reason) {
-    await recordAuditLog({
+  await saveChange([{ store: 'meta', put: { ...state.loa, id: 'loa_main', seedChoice: choice, updatedAt: Date.now() } }], (prev !== choice || reason) ? auditEntry({
+      kind: 'seed_choice',
       category: 'translation_process',
       action: choice === 'seed' ? 'Rows start from study #1: its 2nd Order constructs become provisional 3rd Order rows' : 'Rows are created by the reviewer: study #1 is not placed automatically',
       detail: reason || '',
       fromVal: prev === 'seed' ? 'Start from study #1' : prev === 'manual' ? 'Empty matrix' : '(not decided)',
       toVal: choice === 'seed' ? 'Start from study #1' : 'Empty matrix',
       rationale: why
-    });
-  }
+    }) : []);
+  autoSeedToggleEl.checked = choice === 'seed';
 }
 let seedAskOpen = false;
 function maybeAskSeedChoice() {
@@ -656,23 +617,7 @@ function renderSecondOrderPool() {
       });
       ntInput.addEventListener('blur', () => { card.draggable = true; });
       ntInput.addEventListener('mouseup', () => { card.draggable = true; });
-      let initialNt = sec.notTranslatedNote;
-      bindPendingCommit(ntInput, async () => {
-        const next = ntInput.value.trim();
-        if (next === initialNt.trim()) return;
-        const prev = initialNt;
-        initialNt = next;
-        sec.notTranslatedNote = next;
-        await dbPut('annotations', sec);
-        await recordAuditLog({
-          kind: 'not_translated',
-          category: 'translation_process',
-          action: 'Noted why a 2nd Order construct was not translated into any 3rd Order row',
-          detail: `${docName} (p.${sec.page}): ${sec.note || '"' + String(sec.text || '').slice(0, 60) + '…"'}`,
-          fromVal: prev,
-          toVal: next
-        });
-      });
+      bindPendingCommit(ntInput, () => runOperation(opNotTranslated(state, { secId: sec.id, note: ntInput.value.trim() }, OP_NAMES)));
     }
     pool.appendChild(card);
   });
@@ -748,18 +693,8 @@ function renderSecondOrderPool() {
       const sel = fCard.querySelector('.link-to-sec-sel');
       if (sel) {
         sel.onchange = async e => {
-          const targetSecId = e.target.value;
-          if (!targetSecId) return;
-          linkQuote(f, targetSecId);
-          await dbPut('annotations', f);
-          await recordAuditLog({
-            kind: 'quote_link',
-            category: 'linking',
-            action: `Linked 1st Order Quote to 2nd Order Construct (${docName})`,
-            detail: `Quote (p.${f.page}): "${f.text.slice(0, 70)}..."`,
-            isMinorOp: true
-          });
-          renderMatrixView();
+          const target = state.annotations.find(x => x.id === e.target.value);
+          if (target && await linkQuoteToConstruct(f, target)) renderMatrixView();
         };
       }
 
@@ -790,42 +725,15 @@ function buildEmptyCell(cluster, doc) {
   wrap.className = `empty-cell h-full min-h-[120px] rounded border border-dashed ${info ? (info.status === 'other_aspect' ? 'border-sky-300 bg-sky-50/40' : 'border-slate-300 bg-slate-50') : 'border-slate-200'} flex flex-col items-center justify-center gap-1.5 p-1.5 text-[13px] text-slate-400`;
   wrap.innerHTML = `
     ${info ? `<div class="text-lg leading-none ${info.status === 'other_aspect' ? 'text-sky-700' : 'text-slate-500'}" aria-hidden="true">${info.symbol}</div>` : '<div class="select-none text-slate-300">Drop 2nd Order here</div>'}
-    <select class="empty-status matrix-card-detail max-w-full text-[11px] border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-600" title="Nothing of this study is in this row. Was it checked?">
+    <select data-action="empty-status" class="empty-status matrix-card-detail max-w-full text-[11px] border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-600" title="Nothing of this study is in this row. Was it checked?">
       <option value="">Not yet checked</option>
       ${Object.entries(EMPTY_CELL_STATUS).map(([k, v]) => `<option value="${k}" ${info && info.status === k ? 'selected' : ''}>${v.symbol} ${escapeHtml(v.label)}</option>`).join('')}
     </select>
     ${info ? `<input type="text" class="empty-note matrix-card-detail w-full text-[11px] border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-700" placeholder="${info.status === 'other_aspect' ? 'Which aspect? (feeds the line of argument)' : 'Why (optional)'}" value="${escapeHtml(info.note || '')}">` : ''}`;
-  const sel = wrap.querySelector('.empty-status');
-  sel.addEventListener('mousedown', e => e.stopPropagation());
-  sel.onchange = async () => {
-    const prev = emptyCellInfo(cluster, doc.id);
-    if (sel.value) cluster.cellStatus[doc.id] = { status: sel.value, note: prev ? prev.note || '' : '' };
-    else delete cluster.cellStatus[doc.id];
-    await dbPut('clusters', cluster);
-    if (state.isLoaOpen) renderLoaAspects(); // the drawer lists the ◇ cells
-    await recordAuditLog({
-      clusterIds: [cluster.id], category: 'relating_studies',
-      action: `${getDisplayName(doc)} in "${cluster.thirdOrderTitle || 'Untitled Row'}": ${sel.value ? EMPTY_CELL_STATUS[sel.value].label : 'not yet checked'}`,
-      fromVal: prev ? prev.label : 'Not yet checked', toVal: sel.value ? EMPTY_CELL_STATUS[sel.value].label : 'Not yet checked'
-    });
-    wrap.replaceWith(buildEmptyCell(cluster, doc));
-  };
+  wrap.dataset.docId = doc.id; // (the table's actions read the study from here: MATRIX_ACTIONS)
+  wrap.querySelector('.empty-status').addEventListener('mousedown', e => e.stopPropagation());
   const note = wrap.querySelector('.empty-note');
-  if (note) {
-    let committed = (info && info.note) || '';
-    bindPendingCommit(note, async () => {
-      const next = note.value.trim();
-      if (next === committed || !cluster.cellStatus[doc.id]) return;
-      const prev = committed; committed = next;
-      cluster.cellStatus[doc.id].note = next;
-      await dbPut('clusters', cluster);
-      await recordAuditLog({
-        clusterIds: [cluster.id], category: 'relating_studies',
-        action: `Note on ${getDisplayName(doc)} in "${cluster.thirdOrderTitle || 'Untitled Row'}" (${EMPTY_CELL_STATUS[cluster.cellStatus[doc.id].status].label})`,
-        fromVal: prev, toVal: next
-      });
-    });
-  }
+  if (note) bindPendingCommit(note, () => runOperation(opEmptyCellNote(state, { rowId: cluster.id, docId: doc.id, note: note.value.trim() }, OP_NAMES)));
   return wrap;
 }
 
@@ -1031,11 +939,11 @@ function renderMatrixTable() {
             <span class="cl-conc-pill text-[11px] px-1.5 py-px rounded border font-semibold ${cBadge.cls}">${cBadge.label}</span>
             <span class="cl-cerqual-pill text-[11px] px-1.5 py-px rounded border font-semibold ${cqBadge.cls}">${cqBadge.label}</span>
             ${cluster.baseDocId === '' ? '' : (() => { const b = rowBaseDocId(cluster); const d = b && state.docs.find(x => x.id === b); return d ? `<span class="cl-base-pill text-[11px] px-1.5 py-px rounded border border-slate-300 bg-white text-slate-700 truncate max-w-[10rem]" title="◆ Established by ${escapeHtml(getDisplayName(d))}: its cards in this row are what the other studies are translated into. Change it under ⋯.">◆ ${escapeHtml(getDisplayName(d))}</span>` : `<span class="cl-base-pill text-[11px] px-1.5 py-px rounded border border-slate-300 bg-white text-slate-500" title="No single base: every study's cards are judged. Change it under ⋯.">◆ none</span>`; })()}
-            ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" class="cl-seed-confirm text-[11px] px-1.5 py-px rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from study #1's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
+            ${cluster.autoSeeded && !cluster.seedConfirmed ? `<button type="button" data-action="row-seed-confirm" class="cl-seed-confirm text-[11px] px-1.5 py-px rounded border border-amber-400 bg-amber-100 text-amber-900 font-semibold cursor-pointer" title="Auto-placed from study #1's 2nd order construct. The title is still the primary authors' wording, not yet your 3rd order interpretation. Click once you have reviewed / rewritten it.">🌱 Provisional · click to confirm</button>` : ''}
           </div>
           <div class="flex items-center gap-1 shrink-0">
-            <button type="button" class="move-cl-up px-1.5 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === 0 ? 'disabled' : ''} title="Move row up">▲</button>
-            <button type="button" class="move-cl-down px-1.5 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === visibleClusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
+            <button type="button" data-action="row-up" class="move-cl-up px-1.5 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === 0 ? 'disabled' : ''} title="Move row up">▲</button>
+            <button type="button" data-action="row-down" class="move-cl-down px-1.5 py-px bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 cursor-pointer text-[11px]" ${rowIdx === visibleClusters.length - 1 ? 'disabled' : ''} title="Move row down">▼</button>
             <button type="button" class="cl-tools-toggle px-1.5 py-px rounded border ${state.rowToolsOpen.has(cluster.id) ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold" aria-expanded="${state.rowToolsOpen.has(cluster.id)}" title="Row tools: reviewer, history, the study that established the row (◆), merge / split, delete">⋯</button>
           </div>
         </div>
@@ -1048,7 +956,7 @@ function renderMatrixTable() {
             </div>
             <div class="flex items-center gap-1">
               <button type="button" class="cl-rowops text-[11px] px-1.5 py-px rounded border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 cursor-pointer" title="Merge this row into another, or split some of its cards into a new row"><i class="ph ph-git-merge"></i> Merge / split</button>
-              <button class="del-cluster text-[11px] px-1.5 py-px rounded border border-slate-200 bg-white text-slate-500 hover:text-rose-600 cursor-pointer" title="Delete Row"><i class="ph ph-trash"></i></button>
+              <button data-action="row-delete" class="del-cluster text-[11px] px-1.5 py-px rounded border border-slate-200 bg-white text-slate-500 hover:text-rose-600 cursor-pointer" title="Delete Row"><i class="ph ph-trash"></i></button>
             </div>
           </div>
         ${(() => {
@@ -1061,7 +969,7 @@ function renderMatrixTable() {
           if (base && !opts.some(d => d.id === base)) opts.unshift(state.docs.find(d => d.id === base));
           return `<div class="flex items-center flex-wrap gap-1 text-[11px] text-slate-600">
             <span class="font-semibold" title="The study whose construct established this row. Its cards here are the reading the other studies are translated into, so they get no Reciprocal / Refutational judgement. In index-paper approaches this is usually study #1; choose 'No single base' if you compare every concept with all the others.">◆ Established by</span>
-            <select class="cl-base-select text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white max-w-full">
+            <select data-action="row-base" class="cl-base-select text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white max-w-full">
               ${opts.map(d => `<option value="${escapeHtml(d.id)}" ${d.id === base ? 'selected' : ''}>${escapeHtml(getDisplayName(d))}${state.docs[0] && state.docs[0].id === d.id ? ' (#1)' : ''}${rowDocs.includes(d) ? '' : ' (no construct here)'}</option>`).join('')}
               ${cluster.baseDocId === '' ? `<option value="__unset" selected>Not set yet: the next construct placed sets it</option>` : ''}
               <option value="" ${base || cluster.baseDocId === '' ? '' : 'selected'}>No single base: judge every study</option>
@@ -1078,8 +986,8 @@ function renderMatrixTable() {
           <div class="font-bold">⚠ Study #1 changed after this row was built</div>
           <div>This row was established by ${escapeHtml(bc.fromName || 'the former #1')}, which is no longer study #1 (now <b>${escapeHtml(bc.toName)}</b>). The row keeps its base: the other studies were translated into ${escapeHtml(bc.fromName || 'that study')}'s construct. Re-read it: does the row and its title still hold in the new translation order?${canRebase ? ` If ${escapeHtml(getDisplayName(nowFirst))} should establish it instead, make it the base: ${escapeHtml(bc.fromName || 'the former #1')} is then translated into the row.` : ''}</div>
           <div class="flex flex-wrap gap-1 mt-1">
-            ${canRebase ? `<button type="button" class="cl-baseline-rebase px-1.5 py-0.5 rounded border border-amber-400 bg-white font-semibold cursor-pointer hover:bg-amber-100">Make ${escapeHtml(getDisplayName(nowFirst))} the base</button>` : ''}
-            <button type="button" class="cl-baseline-ok px-1.5 py-0.5 rounded border border-amber-400 bg-white font-semibold cursor-pointer hover:bg-amber-100">Re-read · mark as reviewed</button>
+            ${canRebase ? `<button type="button" data-action="row-rebase" class="cl-baseline-rebase px-1.5 py-0.5 rounded border border-amber-400 bg-white font-semibold cursor-pointer hover:bg-amber-100">Make ${escapeHtml(getDisplayName(nowFirst))} the base</button>` : ''}
+            <button type="button" data-action="row-reread" class="cl-baseline-ok px-1.5 py-0.5 rounded border border-amber-400 bg-white font-semibold cursor-pointer hover:bg-amber-100">Re-read · mark as reviewed</button>
           </div>
         </div>`;
         })() : ''}
@@ -1132,7 +1040,7 @@ function renderMatrixTable() {
             <div class="p-1.5 rounded border border-teal-100 bg-white">
               <div class="flex items-center justify-between gap-2">
                 <label class="text-[11px] font-semibold text-slate-600">${label}</label>
-                <select class="${selCls} text-xs border border-slate-300 rounded px-1 py-0.5 bg-white">
+                <select data-action="row-cerqual" class="${selCls} text-xs border border-slate-300 rounded px-1 py-0.5 bg-white">
                   ${cerqualOpts.map(o => `<option value="${o}" ${cluster[f] === o ? 'selected' : ''}>${o === 'Not assessed' ? o : o + ' concerns'}</option>`).join('')}
                 </select>
               </div>
@@ -1143,7 +1051,7 @@ function renderMatrixTable() {
           <div class="flex items-center justify-between gap-1.5 pt-0.5">
             <div class="flex-1">
               <label class="block text-[11px] font-bold text-teal-900">Overall Confidence</label>
-              <select class="cq-conf w-full text-xs font-bold border border-teal-400 rounded px-1.5 py-1 bg-white text-slate-800">
+              <select data-action="row-cerqual" class="cq-conf w-full text-xs font-bold border border-teal-400 rounded px-1.5 py-1 bg-white text-slate-800">
                 <option value="Not assessed" ${cluster.cerqualConfidence === 'Not assessed' ? 'selected' : ''}>⚪ Not assessed</option>
                 <option value="High" ${cluster.cerqualConfidence === 'High' ? 'selected' : ''}>🟢 High Confidence</option>
                 <option value="Moderate" ${cluster.cerqualConfidence === 'Moderate' ? 'selected' : ''}>🔵 Moderate Confidence</option>
@@ -1164,7 +1072,7 @@ function renderMatrixTable() {
         <div class="subpanel-concordance p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-200/80 space-y-2 ${activeSubTab === 'concordance' ? '' : 'hidden'}">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-indigo-900">🤝 Team Perspectives</span>
-            <select class="cl-conc-status text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
+            <select data-action="row-team" class="cl-conc-status text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
               <option value="pending" ${cluster.concordanceStatus === 'pending' ? 'selected' : ''}>⏳ Pending</option>
               <option value="discuss" ${cluster.concordanceStatus === 'discuss' ? 'selected' : ''}>💬 Needs Discussion</option>
               <option value="agreed" ${cluster.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed (for now)</option>
@@ -1180,8 +1088,6 @@ function renderMatrixTable() {
 
     // Reviewer badge & row reorder click handlers
     tdMeta.querySelector('.cl-rev-btn').onclick = () => promptReassignItemReviewer(cluster, 'clusters', renderMatrixTable);
-    tdMeta.querySelector('.move-cl-up')?.addEventListener('click', () => moveClusterOrder(cluster.id, -1));
-    tdMeta.querySelector('.move-cl-down')?.addEventListener('click', () => moveClusterOrder(cluster.id, 1));
 
     // Sub-tab switching logic (In-place partial DOM update without rebuilding table)
     const subButtons = tdMeta.querySelectorAll('.cl-subtab-btn');
@@ -1221,24 +1127,26 @@ function renderMatrixTable() {
     };
 
     // The row's texts: saved while typed and logged when left (bindTextField, one path for each box)
-    const saveRow = () => dbPut('clusters', cluster);
+    const rowRecord = () => ({ store: 'clusters', put: cluster });
     // Only the row title appears in the line-of-argument drawer (chips, map labels): redraw it when the title changed
     let chipsTitle = cluster.thirdOrderTitle;
     bindTextField(tdMeta.querySelector('.cluster-title'), {
       get: () => cluster.thirdOrderTitle,
       set: v => { cluster.thirdOrderTitle = v.trim(); },
       onInput: () => { const strip = tdMeta.querySelector('.theme-strip-title'); if (strip) strip.textContent = cluster.thirdOrderTitle || 'Untitled row'; },
-      save: async () => { await saveRow(); if (cluster.thirdOrderTitle !== chipsTitle) { chipsTitle = cluster.thirdOrderTitle; renderLoaClusterChips(); } },
-      commit: async (oldTitle, newTitle) => {
+      record: rowRecord,
+      save: async () => { await dbPut('clusters', cluster); if (cluster.thirdOrderTitle !== chipsTitle) { chipsTitle = cluster.thirdOrderTitle; renderLoaClusterChips(); } },
+      log: (oldTitle, newTitle) => auditEntry({
+        kind: 'row_title', targetLabel: newTitle || '(Untitled)',
+        clusterIds: [cluster.id],
+        category: 'third_order',
+        action: LOG_ACTION.rowTitle,
+        fromVal: oldTitle || '(Untitled)',
+        toVal: newTitle || '(Untitled)'
+      }),
+      after: async () => {
+        if (cluster.thirdOrderTitle !== chipsTitle) { chipsTitle = cluster.thirdOrderTitle; renderLoaClusterChips(); }
         if (await reattachWaitingForRow(cluster)) { renderSecondOrderPool(); renderMatrixTable(); } // the pool's "waits for the row" badges too
-        await recordAuditLog({
-          kind: 'row_title', targetLabel: newTitle || '(Untitled)',
-          clusterIds: [cluster.id],
-          category: 'third_order',
-          action: LOG_ACTION.rowTitle,
-          fromVal: oldTitle || '(Untitled)',
-          toVal: newTitle || '(Untitled)'
-        });
       }
     });
 
@@ -1248,8 +1156,8 @@ function renderMatrixTable() {
     };
 
     bindTextField(tdMeta.querySelector('.cluster-trans'), {
-      get: () => cluster.translationSummary, set: v => { cluster.translationSummary = v; }, onInput: refreshStepBWarn, save: saveRow,
-      commit: (oldVal, newVal) => recordAuditLog({
+      get: () => cluster.translationSummary, set: v => { cluster.translationSummary = v; }, onInput: refreshStepBWarn, record: rowRecord,
+      log: (oldVal, newVal) => auditEntry({
         kind: 'step_a', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
         clusterIds: [cluster.id],
         category: 'translation_process',
@@ -1260,8 +1168,8 @@ function renderMatrixTable() {
     });
 
     bindTextField(tdMeta.querySelector('.cluster-note'), {
-      get: () => cluster.synthesisNote, set: v => { cluster.synthesisNote = v; }, onInput: refreshStepBWarn, save: saveRow,
-      commit: (oldNote, newNote) => recordAuditLog({
+      get: () => cluster.synthesisNote, set: v => { cluster.synthesisNote = v; }, onInput: refreshStepBWarn, record: rowRecord,
+      log: (oldNote, newNote) => auditEntry({
         kind: 'step_b', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
         clusterIds: [cluster.id],
         category: 'third_order',
@@ -1272,8 +1180,8 @@ function renderMatrixTable() {
     });
 
     bindTextField(tdMeta.querySelector('.cluster-reflex'), {
-      get: () => cluster.reflexiveNote, set: v => { cluster.reflexiveNote = v; }, save: saveRow,
-      commit: (oldVal, newVal) => recordAuditLog({
+      get: () => cluster.reflexiveNote, set: v => { cluster.reflexiveNote = v; }, record: rowRecord,
+      log: (oldVal, newVal) => auditEntry({
         kind: 'row_reflexive', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
         clusterIds: [cluster.id],
         category: 'reflexive_memo',
@@ -1283,150 +1191,12 @@ function renderMatrixTable() {
       })
     });
 
-    const updateClusterConcordance = async () => {
-      const oldStatus = cluster.concordanceStatus;
-      const oldNote = cluster.concordanceNote;
-      const newStatus = tdMeta.querySelector('.cl-conc-status').value;
-      const newNote = tdMeta.querySelector('.cl-conc-note').value.trim();
-      if (oldStatus === newStatus && oldNote === newNote) return;
+    // (the row header's menus and buttons: MATRIX_ACTIONS; text boxes commit through the same actions)
+    bindPendingCommit(tdMeta.querySelector('.cl-conc-note'), () => MATRIX_ACTIONS['row-team'](matrixActionContext(tdMeta)));
 
-      cluster.concordanceStatus = newStatus;
-      cluster.concordanceNote = newNote;
-      await dbPut('clusters', cluster);
-
-      const pill = tdMeta.querySelector('.cl-conc-pill');
-      const meta = getConcordanceBadgeMeta(newStatus);
-      pill.className = `cl-conc-pill text-[11px] px-1.5 py-px rounded border font-semibold ${meta.cls}`;
-      pill.textContent = meta.label;
-
-      await recordAuditLog({
-        kind: 'row_team', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
-        clusterIds: [cluster.id],
-        category: 'concordance',
-        action: `3rd Order Team Perspective Updated ("${cluster.thirdOrderTitle || 'Untitled Row'}")`,
-        detail: newNote ? `Team Discussion Note: ${newNote}` : 'Updated team status.',
-        fromVal: `${oldStatus.toUpperCase()}${oldNote ? ' (' + oldNote + ')' : ''}`,
-        toVal: `${newStatus.toUpperCase()}${newNote ? ' (' + newNote + ')' : ''}`
-      });
-    };
-
-    tdMeta.querySelector('.cl-conc-status').onchange = updateClusterConcordance;
-    const seedBtn = tdMeta.querySelector('.cl-seed-confirm');
-    if (seedBtn) seedBtn.onclick = async () => {
-      cluster.seedConfirmed = true;
-      await dbPut('clusters', cluster);
-      await recordAuditLog({
-        clusterIds: [cluster.id],
-        category: 'third_order',
-        action: `Confirmed auto-placed row as a working 3rd Order construct: "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-        detail: 'The row was seeded from an Index Paper 2nd order construct and has been reviewed by the researcher.'
-      });
-      seedBtn.remove();
-    };
-    // Changing the study that established the row: logged, and its effect on the cards is stated
-    const setRowBase = async (nextId, extraDetail = '') => {
-      const prevId = rowBaseDocId(cluster);
-      // Compared with what is stored: "No single base" (null) chosen for a row whose base is not set yet ('') is a change
-      if ((nextId || null) === cluster.baseDocId) return;
-      const nameOf = id => { const d = id && state.docs.find(x => x.id === id); return d ? getDisplayName(d) : 'No single base'; };
-      const wasUnset = cluster.baseDocId === '';
-      cluster.baseDocId = nextId || null;
-      const clearedFlag = !!(cluster.baselineChange && nextId && state.docs[0] && nextId === state.docs[0].id);
-      if (clearedFlag) delete cluster.baselineChange;
-      await dbPut('clusters', cluster);
-      await recordAuditLog({
-        clusterIds: [cluster.id],
-        category: 'third_order',
-        action: `Changed the study that established "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-        detail: [
-          prevId ? `${nameOf(prevId)} is now translated into the row: judge its cards here (Reciprocal / Refutational).` : '',
-          nextId ? `${nameOf(nextId)}'s own Reciprocal / Refutational judgements in this row are kept but not shown while it is the base.` : 'Every study in the row is now judged against the row.',
-          clearedFlag ? 'The row is now based on the current study #1, so the re-reading note is cleared.' : '',
-          extraDetail
-        ].filter(Boolean).join(' '),
-        fromVal: wasUnset ? 'Not set yet' : nameOf(prevId),
-        toVal: nameOf(nextId)
-      });
-      renderMatrixView();
-    };
-    const baseSel = tdMeta.querySelector('.cl-base-select');
-    if (baseSel) baseSel.onchange = () => { if (baseSel.value !== '__unset') setRowBase(baseSel.value || null); };
-    const rebaseBtn = tdMeta.querySelector('.cl-baseline-rebase');
-    if (rebaseBtn) rebaseBtn.onclick = () => setRowBase(state.docs[0].id, 'Chosen after study #1 changed.');
-    const baselineOkBtn = tdMeta.querySelector('.cl-baseline-ok');
-    if (baselineOkBtn) baselineOkBtn.onclick = async () => {
-      const bc = cluster.baselineChange;
-      const why = await askReason({
-        title: `Re-read: ${cluster.thirdOrderTitle || 'Untitled Row'}`,
-        context: `Study #1 changed from ${bc.fromName || 'another study'} to ${bc.toName}.`,
-        label: 'What did you check or change in this row? (optional, saved in the Audit Trail)',
-        confirmLabel: 'Mark as re-read', draftKey: 'reread-' + cluster.id
-      });
-      if (why === null) return;
-      delete cluster.baselineChange;
-      await dbPut('clusters', cluster);
-      await recordAuditLog({
-        clusterIds: [cluster.id],
-        category: 'third_order',
-        action: `Re-read row after study #1 changed: "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-        detail: `#1 changed from ${bc.fromName || 'another study'} to ${bc.toName}.`,
-        rationale: why
-      });
-      renderMatrixTable();
-    };
-    bindPendingCommit(tdMeta.querySelector('.cl-conc-note'), updateClusterConcordance);
-
-    // GRADE-CERQual Handlers
-    const saveCerqualChanges = async () => {
-      const sigOf = () => [cluster.cerqualConfidence, cluster.cerqualLimitations, cluster.cerqualCoherence, cluster.cerqualAdequacy, cluster.cerqualRelevance,
-        cluster.cerqualLimNote, cluster.cerqualCohNote, cluster.cerqualAdeqNote, cluster.cerqualRelNote, cluster.cerqualExplanation].join('\u241F');
-      const prevSig = sigOf();
-      const prevSummary = `${cluster.cerqualConfidence} [L:${cluster.cerqualLimitations}, C:${cluster.cerqualCoherence}, A:${cluster.cerqualAdequacy}, R:${cluster.cerqualRelevance}]`;
-      cluster.cerqualLimitations = tdMeta.querySelector('.cq-lim').value;
-      cluster.cerqualCoherence = tdMeta.querySelector('.cq-coh').value;
-      cluster.cerqualAdequacy = tdMeta.querySelector('.cq-adeq').value;
-      cluster.cerqualRelevance = tdMeta.querySelector('.cq-rel').value;
-      cluster.cerqualConfidence = tdMeta.querySelector('.cq-conf').value;
-      cluster.cerqualExplanation = tdMeta.querySelector('.cq-exp').value.trim();
-      cluster.cerqualLimNote = tdMeta.querySelector('.cq-lim-note').value.trim();
-      cluster.cerqualCohNote = tdMeta.querySelector('.cq-coh-note').value.trim();
-      cluster.cerqualAdeqNote = tdMeta.querySelector('.cq-adeq-note').value.trim();
-      cluster.cerqualRelNote = tdMeta.querySelector('.cq-rel-note').value.trim();
-      const warnEl = tdMeta.querySelector('.cq-exp-warn');
-      if (warnEl) warnEl.classList.toggle('hidden', !(cluster.cerqualConfidence !== 'Not assessed' && !cluster.cerqualExplanation));
-      const nextSummary = `${cluster.cerqualConfidence} [L:${cluster.cerqualLimitations}, C:${cluster.cerqualCoherence}, A:${cluster.cerqualAdequacy}, R:${cluster.cerqualRelevance}]`;
-
-      await dbPut('clusters', cluster);
-
-      const cqPill = tdMeta.querySelector('.cl-cerqual-pill');
-      const cqMeta = getCerqualBadgeMeta(cluster.cerqualConfidence);
-      cqPill.className = `cl-cerqual-pill text-[11px] px-1.5 py-px rounded border font-semibold ${cqMeta.cls}`;
-      cqPill.textContent = cqMeta.label;
-
-      if (prevSig !== sigOf()) {
-        await recordAuditLog({
-          kind: 'row_cerqual', targetLabel: cluster.thirdOrderTitle || 'Untitled Row',
-          clusterIds: [cluster.id],
-          category: 'cerqual',
-          action: `Updated GRADE-CERQual Assessment for "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-          detail: [
-            cluster.cerqualLimNote && `Methodological limitations — ${cluster.cerqualLimNote}`,
-            cluster.cerqualCohNote && `Coherence — ${cluster.cerqualCohNote}`,
-            cluster.cerqualAdeqNote && `Adequacy — ${cluster.cerqualAdeqNote}`,
-            cluster.cerqualRelNote && `Relevance — ${cluster.cerqualRelNote}`,
-            cluster.cerqualExplanation && `Overall — ${cluster.cerqualExplanation}`
-          ].filter(Boolean).join('\n') || 'Updated component ratings.',
-          fromVal: prevSummary,
-          toVal: nextSummary
-        });
-      }
-    };
-
-    ['.cq-lim', '.cq-coh', '.cq-adeq', '.cq-rel', '.cq-conf'].forEach(sel => {
-      tdMeta.querySelector(sel).onchange = saveCerqualChanges;
-    });
+    // GRADE-CERQual: the notes and the explanation commit like the ratings (MATRIX_ACTIONS['row-cerqual'])
     ['.cq-exp', '.cq-lim-note', '.cq-coh-note', '.cq-adeq-note', '.cq-rel-note'].forEach(sel => {
-      bindPendingCommit(tdMeta.querySelector(sel), saveCerqualChanges);
+      bindPendingCommit(tdMeta.querySelector(sel), () => MATRIX_ACTIONS['row-cerqual'](matrixActionContext(tdMeta)));
     });
 
     tdMeta.querySelector('.cl-tools-toggle').onclick = () => {
@@ -1438,7 +1208,6 @@ function renderMatrixTable() {
       t.className = `cl-tools-toggle px-1.5 py-px rounded border ${open ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-500'} hover:bg-slate-100 cursor-pointer text-[11px] font-bold`;
     };
     tdMeta.querySelector('.cl-rowops').onclick = () => openRowOps(cluster);
-    tdMeta.querySelector('.del-cluster').onclick = () => deleteClusterRow(cluster);
 
     tr.appendChild(tdMeta);
 
@@ -1463,10 +1232,7 @@ function renderMatrixTable() {
           const secBadge = getConcordanceBadgeMeta(sec.concordanceStatus);
           const showConcUI = state.teamMode || sec.concordanceStatus !== 'pending' || Boolean(sec.concordanceNote);
 
-          const placeholderFor = rel => rel === 'refutational' ? 'Explain how this study contrasts or disagrees in this row...'
-            : rel === 'other_aspect' ? 'Which other aspect of the topic does this speak to, and how might it feed the line of argument?'
-            : rel === 'unjudged' ? 'Read it against the row: does it translate into it (reciprocal) or contrast with it (refutational)?' : 'Note on how this concept fits into this theme...';
-          const cellPlaceholder = placeholderFor(cellRelation);
+          const cellPlaceholder = cellNotePlaceholder(cellRelation);
 
           const card = document.createElement('div');
           card.className = `matrix-cell-card ${relMeta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
@@ -1500,7 +1266,7 @@ function renderMatrixTable() {
               <div class="flex items-center flex-wrap gap-1">
                 ${isBaselineCell
                   ? `<span class="text-[11px] font-bold px-1.5 py-0.5 rounded border ${relMeta.badgeCls}" title="This study's construct established the row; the constructs of the other studies are judged against it (Reciprocal / Refutational). Change it under Established by in the row header.">${relMeta.label}</span>`
-                  : `<select class="rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${relMeta.badgeCls}" title="How this study's construct relates to the row: not yet judged, Reciprocal (translates into it), Refutational (contrasts with it) or Different aspect (speaks to another aspect of the topic, for the line of argument)">
+                  : `<select data-action="cell-judge" class="rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${relMeta.badgeCls}" title="How this study's construct relates to the row: not yet judged, Reciprocal (translates into it), Refutational (contrasts with it) or Different aspect (speaks to another aspect of the topic, for the line of argument)">
                   ${CELL_RELATIONS.map(r => `<option value="${r}" ${r === cellRelation ? 'selected' : ''}>${escapeHtml(getCellRelationMeta(r).label)}</option>`).join('')}
                 </select>`}
                 <button type="button" class="jump-pdf-btn text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 px-2.5 py-0.5 rounded-md shadow-sm cursor-pointer transition flex items-center space-x-1 transform hover:-translate-y-0.5" title="Open PDF & jump to page ${escapeHtml(sec.page)} in ${escapeHtml(getDisplayName(doc))}"><i class="ph ph-file-pdf"></i><span>PDF p.${escapeHtml(sec.page)}</span><i class="ph ph-arrow-square-out"></i></button>
@@ -1511,7 +1277,7 @@ function renderMatrixTable() {
               </div>
               <div class="flex items-center space-x-1">
                 <button type="button" class="matrix-card-detail edit-cell-quote-btn text-slate-400 hover:text-indigo-600 text-xs cursor-pointer" title="Edit quote text"><i class="ph ph-pencil-simple"></i></button>
-                <button class="unassign-btn text-slate-400 hover:text-rose-500 text-xs cursor-pointer" title="Remove from this row"><i class="ph ph-x-circle"></i></button>
+                <button data-action="cell-unplace" class="unassign-btn text-slate-400 hover:text-rose-500 text-xs cursor-pointer" title="Remove from this row"><i class="ph ph-x-circle"></i></button>
               </div>
             </div>
             <div class="cell-quote-display text-[13px] font-serif italic text-slate-700 bg-white p-1.5 rounded border ${relMeta.quoteBorderCls} leading-snug cursor-pointer" title="Double-click to edit quote text">"${escapeHtml(sec.text)}"</div>
@@ -1555,65 +1321,25 @@ function renderMatrixTable() {
           };
           card.querySelector('.cell-quote-cancel').onclick = () => toggleCellQuoteEdit(false);
           card.querySelector('.cell-quote-save').onclick = async () => {
-            const cleaned = cleanAnnotationText(sec, cellQuoteTa.value);
-            if (cleaned && cleaned !== sec.text) {
-              const oldText = sec.text;
-              sec.text = cleaned;
-              cellQuoteDisp.textContent = `"${cleaned}"`;
+            if (await saveExtractedText(sec, cleanAnnotationText(sec, cellQuoteTa.value))) {
+              cellQuoteDisp.textContent = `"${sec.text}"`;
               syncSecCards(sec, card);
-              await dbPut('annotations', sec);
-              await logExtractedTextEdit(sec, oldText);
             }
             toggleCellQuoteEdit(false);
           };
 
-          const relSelect = card.querySelector('.rel-select');
-          if (relSelect) {
-            relSelect.addEventListener('mousedown', e => e.stopPropagation());
-            relSelect.onchange = async (e) => {
-              e.stopPropagation();
-              const prevRel = secRelation(sec, cluster.id);
-              const nextRel = relSelect.value;
-              if (nextRel === prevRel) return;
-              const next = { ...sec, clusterRelations: { ...(sec.clusterRelations || {}), [cluster.id]: nextRel } };
-              // The line-of-argument mark goes with a ◇ judgement: judged otherwise, the row's mark goes too (judged ◇ again
-              // later, the card is not shown as used until the reviewer ticks it again)
-              const markGone = nextRel !== 'other_aspect' && !!(sec.aspectUsedInLoa && sec.aspectUsedInLoa[cluster.id]);
-              if (markGone) { next.aspectUsedInLoa = { ...sec.aspectUsedInLoa }; delete next.aspectUsedInLoa[cluster.id]; }
-              await commitOps([{ store: 'annotations', put: next }]); // (sec is updated once it is stored)
-              if (state.isLoaOpen && (nextRel === 'other_aspect' || prevRel === 'other_aspect')) renderLoaAspects();
-
-              const nextMeta = getCellRelationMeta(nextRel);
-              card.className = `matrix-cell-card ${nextMeta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
-              relSelect.className = `rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${nextMeta.badgeCls}`;
-              const cmtInput = card.querySelector('.sec-comment-input');
-              if (cmtInput) {
-                cmtInput.placeholder = placeholderFor(nextRel);
-                const cmtView = card.querySelector('.sec-comment-view');
-                if (cmtView && !cmtInput.value.trim()) cmtView.textContent = placeholderFor(nextRel);
-              }
-              await recordAuditLog({
-                kind: 'judgement',
-                clusterIds: [cluster.id],
-                category: 'third_order',
-                action: `Judged construct as ${getCellRelationMeta(nextRel).label.replace(/^\S+\s/, '')} in "${cluster.thirdOrderTitle || 'Untitled Row'}"`,
-                detail: `${getDisplayName(doc)} (p.${sec.page}): ${sec.note || '"' + sec.text.slice(0, 65) + '..."'}`
-                  + (markGone ? '\nIt is no longer marked as used by the line of argument.' : ''),
-                fromVal: getCellRelationMeta(prevRel).label,
-                toVal: getCellRelationMeta(nextRel).label
-              });
-            };
-          }
+          // (judging, and taking the card out of the row: MATRIX_ACTIONS)
+          card.querySelector('.rel-select')?.addEventListener('mousedown', e => e.stopPropagation());
 
           card.querySelector('.rev-badge-btn').onclick = (e) => {
             e.stopPropagation();
             promptReassignItemReviewer(sec, 'annotations', renderMatrixView);
           };
 
-          const saveSec = () => dbPut('annotations', sec);
+          const secRecord = () => ({ store: 'annotations', put: sec });
           bindTextField(card.querySelector('.sec-label-input'), {
-            get: () => sec.note, set: v => { sec.note = v; }, save: saveSec, onInput: () => syncSecCards(sec, card),
-            commit: (oldLabel, newLabel) => recordAuditLog({
+            get: () => sec.note, set: v => { sec.note = v; }, record: secRecord, onInput: () => syncSecCards(sec, card),
+            log: (oldLabel, newLabel) => auditEntry({
               kind: 'construct_label',
               clusterIds: liveClusterIds(sec),
               category: 'matrix_mapping',
@@ -1641,8 +1367,8 @@ function renderMatrixTable() {
           bindTextField(cmtInput, {
             get: () => (sec.clusterComments || {})[cluster.id],
             set: v => { sec.clusterComments = { ...(sec.clusterComments || {}), [cluster.id]: v.trim() }; },
-            save: saveSec,
-            commit: (oldVal, newVal) => recordAuditLog({
+            record: secRecord,
+            log: (oldVal, newVal) => auditEntry({
               kind: 'cell_note',
               clusterIds: [cluster.id],
               category: 'third_order',
@@ -1659,11 +1385,6 @@ function renderMatrixTable() {
             cmtView.classList.remove('hidden');
             refreshCmtView();
           });
-
-          card.querySelector('.unassign-btn').onclick = async () => {
-            await removeSecondOrderFromCluster(sec, cluster);
-            renderMatrixView();
-          };
 
           cellWrap.appendChild(card);
         });
@@ -1738,10 +1459,110 @@ function renderMatrixTable() {
 }
 
 // --- C. 3rd Order Row Reordering (▲ / ▼) ---
-async function persistClusterOrder() {
-  // The whole order in one transaction (see dbBatch)
-  await commitOps(state.clusters.map((c, i) => { c.order = i; return { store: 'clusters', put: c }; }));
+// ======================= What the matrix's buttons and menus do =======================
+// The rows only draw: a button or menu carries data-action, and one listener on the table runs the action named here with
+// what it belongs to (matrixActionContext). Each action runs an operation worked out in logic.js (runOperation: the change
+// and its audit entry in one transaction), then shows the result. Text boxes commit through the same actions.
+function matrixActionContext(el) {
+  const tr = el.closest('tr[data-cluster-id]');
+  const card = el.closest('.matrix-cell-card[data-sec-card]');
+  const cell = el.closest('.empty-cell');
+  return {
+    el, tr,
+    row: tr ? clusterById(tr.dataset.clusterId) : null,
+    sec: card ? state.annotations.find(a => a.id === card.dataset.secCard) || null : null,
+    card, cell, docId: cell ? cell.dataset.docId : null
+  };
 }
+// The placeholder of a card's note, by how the card is judged
+function cellNotePlaceholder(rel) {
+  return rel === 'refutational' ? 'Explain how this study contrasts or disagrees in this row...'
+    : rel === 'other_aspect' ? 'Which other aspect of the topic does this speak to, and how might it feed the line of argument?'
+    : rel === 'unjudged' ? 'Read it against the row: does it translate into it (reciprocal) or contrast with it (refutational)?' : 'Note on how this concept fits into this theme...';
+}
+// A pill in the row header (team status, CERQual) shows its new value
+function setRowPill(tr, cls, meta) {
+  const pill = tr && tr.querySelector('.' + cls);
+  if (!pill) return;
+  pill.className = `${cls} text-[11px] px-1.5 py-px rounded border font-semibold ${meta.cls}`;
+  pill.textContent = meta.label;
+}
+/** @type {Record<string, (ctx: any) => any>} */
+const MATRIX_ACTIONS = {
+  'row-up': ({ row }) => moveClusterOrder(row.id, -1),
+  'row-down': ({ row }) => moveClusterOrder(row.id, 1),
+  'row-delete': ({ row }) => deleteClusterRow(row),
+  'row-team': async ({ row, tr }) => {
+    const status = tr.querySelector('.cl-conc-status').value;
+    if (await runOperation(opRowTeamStatus(state, { rowId: row.id, status, note: tr.querySelector('.cl-conc-note').value.trim() }))) {
+      setRowPill(tr, 'cl-conc-pill', getConcordanceBadgeMeta(status));
+    }
+  },
+  'row-seed-confirm': async ({ row, el }) => { if (await runOperation(opConfirmSeed(state, { rowId: row.id }))) el.remove(); },
+  'row-base': async ({ row, el }) => {
+    if (el.value === '__unset') return;
+    if (await runOperation(opSetRowBase(state, { rowId: row.id, docId: el.value || null }, OP_NAMES))) renderMatrixView();
+  },
+  'row-rebase': async ({ row }) => {
+    if (await runOperation(opSetRowBase(state, { rowId: row.id, docId: state.docs[0].id, extraDetail: 'Chosen after study #1 changed.' }, OP_NAMES))) renderMatrixView();
+  },
+  'row-reread': async ({ row }) => {
+    const bc = row.baselineChange;
+    if (!bc) return;
+    const why = await askReason({
+      title: `Re-read: ${row.thirdOrderTitle || 'Untitled Row'}`,
+      context: `Study #1 changed from ${bc.fromName || 'another study'} to ${bc.toName}.`,
+      label: 'What did you check or change in this row? (optional, saved in the Audit Trail)',
+      confirmLabel: 'Mark as re-read', draftKey: 'reread-' + row.id
+    });
+    if (why === null) return;
+    if (await runOperation(opRereadRow(state, { rowId: row.id, why }))) renderMatrixTable();
+  },
+  'row-cerqual': async ({ row, tr }) => {
+    const box = { cerqualLimitations: '.cq-lim', cerqualCoherence: '.cq-coh', cerqualAdequacy: '.cq-adeq', cerqualRelevance: '.cq-rel', cerqualConfidence: '.cq-conf',
+      cerqualExplanation: '.cq-exp', cerqualLimNote: '.cq-lim-note', cerqualCohNote: '.cq-coh-note', cerqualAdeqNote: '.cq-adeq-note', cerqualRelNote: '.cq-rel-note' };
+    const values = Object.fromEntries(Object.entries(box).map(([k, sel]) => [k, tr.querySelector(sel).value]));
+    const warn = tr.querySelector('.cq-exp-warn');
+    if (warn) warn.classList.toggle('hidden', !(values.cerqualConfidence !== 'Not assessed' && !values.cerqualExplanation.trim()));
+    if (await runOperation(opRowCerqual(state, { rowId: row.id, values }))) setRowPill(tr, 'cl-cerqual-pill', getCerqualBadgeMeta(row.cerqualConfidence));
+  },
+  'cell-judge': async ({ row, sec, card, el }) => {
+    const prevRel = secRelation(sec, row.id), rel = el.value;
+    if (!(await runOperation(opJudge(state, { secId: sec.id, rowId: row.id, rel }, OP_NAMES)))) return;
+    if (state.isLoaOpen && (rel === 'other_aspect' || prevRel === 'other_aspect')) renderLoaAspects();
+    const meta = getCellRelationMeta(rel);
+    card.className = `matrix-cell-card ${meta.cardCls} border rounded-lg p-2.5 shadow-sm text-xs cursor-grab transition`;
+    el.className = `rel-select text-[11px] font-bold px-1 py-0.5 rounded border cursor-pointer ${meta.badgeCls}`;
+    const cmtInput = card.querySelector('.sec-comment-input');
+    if (cmtInput) {
+      cmtInput.placeholder = cellNotePlaceholder(rel);
+      const cmtView = card.querySelector('.sec-comment-view');
+      if (cmtView && !cmtInput.value.trim()) cmtView.textContent = cellNotePlaceholder(rel);
+    }
+  },
+  'cell-unplace': async ({ row, sec }) => { await removeSecondOrderFromCluster(sec, row); renderMatrixView(); },
+  'empty-status': async ({ row, el, cell, docId }) => {
+    if (!(await runOperation(opEmptyCellStatus(state, { rowId: row.id, docId, status: el.value }, OP_NAMES)))) return;
+    if (state.isLoaOpen) renderLoaAspects(); // the drawer lists the ◇ cells
+    const doc = state.docs.find(d => d.id === docId);
+    if (doc) cell.replaceWith(buildEmptyCell(row, doc));
+  }
+};
+(() => {
+  const table = document.getElementById('matrixTable');
+  // Buttons on click, menus on change; the rest of the row (drag and drop, text boxes) is not touched here
+  const run = (ev, wantChange) => {
+    const el = ev.target && ev.target.closest && ev.target.closest('[data-action]');
+    if (!el || !table.contains(el) || (el.tagName === 'SELECT') !== wantChange) return;
+    const ctx = matrixActionContext(el);
+    const action = MATRIX_ACTIONS[el.dataset.action];
+    if (!action || !ctx.row) return;
+    ev.stopPropagation();
+    Promise.resolve(action(ctx)).catch(err => console.error('Matrix action failed:', err));
+  };
+  table.addEventListener('click', ev => run(ev, false));
+  table.addEventListener('change', ev => run(ev, true));
+})();
 
 // Rows shown in the matrix (all, or only those with a ⚡ card while "Contradictions Only" is on)
 function matrixVisibleClusters() {
@@ -1751,31 +1572,11 @@ function matrixVisibleClusters() {
     : state.clusters;
 }
 
+// ▲ / ▼ move past the next row on view (rows hidden by a filter are skipped, as hidden study columns are): opMoveRow
 async function moveClusterOrder(clusterId, direction) {
-  const fromIdx = state.clusters.findIndex(c => c.id === clusterId);
-  // ▲ / ▼ move past the next row on view (rows hidden by a filter are skipped, as hidden study columns are)
-  const visible = matrixVisibleClusters();
-  const vIdx = visible.findIndex(c => c.id === clusterId);
-  const neighbour = visible[vIdx + direction];
-  if (fromIdx < 0 || vIdx < 0 || !neighbour) return;
-
-  const movedCluster = state.clusters[fromIdx];
-  const [moved] = state.clusters.splice(fromIdx, 1);
-  const nIdx = state.clusters.findIndex(c => c.id === neighbour.id);
-  const toIdx = direction < 0 ? nIdx : nIdx + 1;
-  state.clusters.splice(toIdx, 0, moved);
-  await persistClusterOrder();
-
-  await recordAuditLog({
-    kind: 'row_reorder',
-    clusterIds: [movedCluster.id],
-    category: 'third_order',
-    action: `Reordered 3rd Order Theme Row "${movedCluster.thirdOrderTitle || 'Untitled'}"`,
-    fromVal: `Row #${fromIdx + 1}`,
-    toVal: `Row #${toIdx + 1}`,
-    detail: `Moved past "${neighbour.thirdOrderTitle || 'Untitled'}". New row order: ${state.clusters.map((c, i) => (i + 1) + '. ' + (c.thirdOrderTitle || 'Untitled')).join(' | ')}`
-  });
-
+  const moved = await runOperation(opMoveRow(state, { rowId: clusterId, direction, visibleIds: matrixVisibleClusters().map(c => c.id) }));
+  if (!moved) return;
+  sortRows(state.clusters);
   renderLoaClusterChips();
   renderMatrixTable();
 }
@@ -1966,17 +1767,17 @@ async function mergeRows(src, tgt, why) {
   const plan = planMergeRows(state, src.id, tgt.id, ROW_PLAN_HELPERS);
   if (!plan) return null;
   const { srcTitle, tgtTitle, differing, rejudge } = plan;
-  await commitOps(plan.ops); // every write of the merge in one transaction; the source row leaves memory once it is stored
-  pushUndoAction({ type: 'row_merge', label: `Merge "${srcTitle.slice(0, 24)}" into "${tgtTitle.slice(0, 24)}"`, srcId: src.id, tgtId: tgt.id, before: plan.before, after: plan.after });
-  await recordAuditLog({
-    clusterIds: [tgt.id, src.id], category: 'third_order',
+  // Every write of the merge and its entry in one transaction; the source row leaves memory once it is stored
+  await saveChange(plan.ops, auditEntry({
+    kind: 'row_merge', clusterIds: [tgt.id, src.id], category: 'third_order',
     action: `Merged row "${srcTitle}" into "${tgtTitle}"`,
     detail: `${plan.moved} construct(s) moved with their judgements and notes; ${plan.alreadyThere} were already in "${tgtTitle}".`
       + (differing.length ? ` Read differently in the two rows (the judgement in "${tgtTitle}" was kept; the other is noted on the card):\n${differing.join('\n')}\n` : ' ')
       + (rejudge.length ? ` "${srcTitle}" was established by ${plan.srcBaseName} and "${tgtTitle}" by ${plan.tgtBaseName}, so ${rejudge.length} moved construct(s) start unjudged (their earlier judgement is noted on the card):\n${rejudge.join('\n')}\n` : '')
       + `Step A / Step B and other texts of "${srcTitle}" were added to "${tgtTitle}", marked with their origin. The CERQual ratings of "${tgtTitle}" were kept: re-read them for the merged finding.`,
     fromVal: `${srcTitle} + ${tgtTitle}`, toVal: tgtTitle, rationale: why
-  });
+  }));
+  pushUndoAction({ type: 'row_merge', label: `Merge "${srcTitle.slice(0, 24)}" into "${tgtTitle.slice(0, 24)}"`, srcId: src.id, tgtId: tgt.id, before: plan.before, after: plan.after });
   return { rejudge: rejudge.length, baseName: plan.tgtBaseName };
 }
 
@@ -1984,19 +1785,18 @@ async function splitRow(src, secIds, title, why) {
   const plan = planSplitRow(state, src.id, secIds, await createNewClusterRow(title, { silent: true, deferWrite: true }), ROW_PLAN_HELPERS);
   if (!plan) return null;
   const nw = plan.newRow;
-  // The new row, the moved cards and the order of every row in one transaction; the rows in memory change once it is stored
-  await commitOps(plan.ops);
-  state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0)); // the new row right below its source
   const secs = plan.after.anns.map(x => state.annotations.find(a => a.id === x.id)).filter(Boolean); // the cards moved
-  pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${plan.srcTitle.slice(0, 24)}"`, srcId: src.id, newId: nw.id,
-    before: plan.before, after: plan.after });
-  await recordAuditLog({
-    clusterIds: [src.id, nw.id], category: 'third_order',
+  // The new row, the moved cards, the order of every row and the entry in one transaction; the rows in memory change once stored
+  await saveChange(plan.ops, auditEntry({
+    kind: 'row_split', clusterIds: [src.id, nw.id], category: 'third_order',
     action: `Split ${secs.length} construct(s) off "${plan.srcTitle}" into a new row "${clusterLabel(nw)}"`,
     detail: secs.map(s => { const d = state.docs.find(x => x.id === s.docId); return `${d ? getDisplayName(d) : 'Study'} (p.${s.page}): ${s.note || String(s.text || '').slice(0, 60)}`; }).join('\n')
       + (plan.rejudge.length ? `\n"${plan.srcTitle}" was established by ${plan.srcBaseName} and the new row by ${plan.newBaseName}, so ${plan.rejudge.length} moved construct(s) start unjudged (their earlier judgement is noted on the card):\n${plan.rejudge.join('\n')}` : ''),
     fromVal: plan.srcTitle, toVal: `${plan.srcTitle} | ${clusterLabel(nw)}`, rationale: why
-  });
+  }));
+  sortRows(state.clusters); // the new row right below its source
+  pushUndoAction({ type: 'row_split', label: `Split ${secs.length} card(s) off "${plan.srcTitle.slice(0, 24)}"`, srcId: src.id, newId: nw.id,
+    before: plan.before, after: plan.after });
   return { baseGone: plan.baseGone, rejudge: plan.rejudge.length, baseName: plan.newBaseName };
 }
 
