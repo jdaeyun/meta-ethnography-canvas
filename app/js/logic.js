@@ -1326,6 +1326,183 @@ function opAppraisalAnswer(project, { docId, tool, field, id = null, patch, what
   };
 }
 
+// ---- Compare: what is taken over from another reviewer's file (compare.js) ----
+// A peer row that is here now (imported after its constructs, or a local row with the same title): the writes that place the
+// constructs waiting for it (_peerRows), with the peer's judgement, cell note and mark there (what a construct already has in
+// that row here is kept). peerRowId: the row's id in the peer's file; localRowId: the row here; newRow: that row when it is
+// written in the same transaction (not in the project yet). Returns { ops, count } (count: constructs placed).
+/** @param {any} project @param {string} peerRowId @param {string} [localRowId] @param {any} [newRow] */
+function peerRowPlacementOps(project, peerRowId, localRowId = peerRowId, newRow = null) {
+  /** @type {DbOp[]} */
+  const ops = [];
+  const placed = [];
+  for (const a of project.annotations || []) {
+    const w = a.type === 'second_order' && a._peerRows && a._peerRows[peerRowId];
+    if (!w) continue;
+    const peerFields = {};
+    ANNOTATION_ROW_FIELDS.forEach(k => { if (k in w) peerFields[k] = w[k]; });
+    const c = { ...a, clusterIds: [...(a.clusterIds || [])], _peerRows: { ...a._peerRows } };
+    putIntoRow(c, localRowId, { ...peerFields, ...rowFieldsOf(a, localRowId) });
+    delete c._peerRows[peerRowId];
+    if (!Object.keys(c._peerRows).length) delete c._peerRows;
+    ops.push({ store: 'annotations', put: c });
+    placed.push(c);
+  }
+  // As a placement made here: the row's base if not set yet, and no empty-cell note for this study (placementOpsFor)
+  ops.push(...placementOpsFor(newRow ? { ...project, clusters: [...(project.clusters || []), newRow] } : project, placed));
+  return { ops, count: placed.length };
+}
+// A matched construct marked "Agreed (for now)" with the other reviewer; their label is taken where this one has none,
+// or noted in the team note where it differs
+/** @param {any} project @param {{ secId: string, peerNote: string, peerReviewer: string }} a @param {OpNames} h @returns {OpResult | null} */
+function opProvisionalAgreement(project, { secId, peerNote, peerReviewer }, h) {
+  const l = annoOf(project, secId);
+  if (!l) return null;
+  const next = { ...l, concordanceStatus: 'agreed' };
+  if (peerNote && !l.note) next.note = peerNote;
+  else if (peerNote && peerNote !== l.note && !(l.concordanceNote || '').includes(peerNote)) next.concordanceNote = `[Peer @${peerReviewer} label: ${peerNote}] ${l.concordanceNote || ''}`.trim();
+  return {
+    ops: [{ store: 'annotations', put: next }],
+    entries: [{ kind: 'provisional_agreement', category: 'concordance', action: `Recorded provisional agreement (for now) with @${peerReviewer} (${h.docName(l.docId) || 'Study'}, p.${l.page})`,
+      detail: `"${String(l.text || '').slice(0, 75)}..."`, toVal: 'Agreed (for now)' }]
+  };
+}
+// A peer construct set aside (record added) or reconsidered (record taken out of the list kept in the model)
+/** @param {any} project @param {{ add?: any, remove?: ((r: any) => boolean) | null, action: string, detail: string }} a @returns {OpResult} */
+function opPeerSetAside(project, { add = null, remove = null, action, detail }) {
+  const list = Array.isArray(project.loa && project.loa.peerSetAside) ? project.loa.peerSetAside : [];
+  const next = add ? [...list, add] : list.filter(r => !(remove && remove(r)));
+  return { ops: [loaOp(project, { peerSetAside: next })], entries: [{ kind: 'peer_set_aside', category: 'concordance', action, detail }] };
+}
+// The other reviewer's map relations between rows that are here by title (a relation already here is not added twice)
+/** @param {any} project @param {{ peerLinks: any[], peerReviewer: string, newId: () => string }} a @returns {OpResult | null} */
+function opImportPeerRelations(project, { peerLinks, peerReviewer, newId }) {
+  const byTitle = t => (project.clusters || []).find(c => (c.thirdOrderTitle || '').trim().toLowerCase() === String(t || '').trim().toLowerCase());
+  const links = [...((project.loa && project.loa.links) || [])];
+  let skipped = 0;
+  for (const l of peerLinks || []) {
+    const f = byTitle(l.from), t = byTitle(l.to);
+    if (!f || !t || f.id === t.id) { skipped++; continue; }
+    if (links.some(x => x.type === l.type && ((x.from === f.id && x.to === t.id) || (!isDirectedLink(l.type) && x.from === t.id && x.to === f.id)))) continue;
+    links.push({ id: newId(), from: f.id, to: t.id, type: l.type, note: (l.note ? l.note + ' ' : '') + `[from @${peerReviewer}]` });
+  }
+  const added = links.length - ((project.loa && project.loa.links) || []).length;
+  if (!added) return null;
+  return {
+    ops: [loaOp(project, { links })],
+    entries: [{ kind: 'peer_relations', category: 'team_model', action: `Imported ${added} concept relation(s) from @${peerReviewer}'s model`,
+      detail: skipped ? `${skipped} relation(s) skipped: the rows were not found here by title (import those rows first).` : '' }]
+  };
+}
+// A row of the other reviewer's file added here (row: as it will be stored), with the constructs that were waiting for it
+/** @param {any} project @param {{ row: any, peerRowId: string, peerReviewer: string }} a @returns {OpResult | null} */
+function opImportPeerRow(project, { row, peerRowId, peerReviewer }) {
+  if (!row || rowOf(project, row.id)) return null;
+  const waiting = peerRowPlacementOps(project, peerRowId, row.id, row);
+  return {
+    ops: [{ store: 'clusters', put: row }, ...waiting.ops],
+    entries: [{ kind: 'peer_row_import', clusterIds: [row.id], category: 'concordance', action: `Imported 3rd Order Row from @${peerReviewer}`,
+      toVal: row.thirdOrderTitle || '(Untitled)',
+      detail: waiting.count ? `${waiting.count} construct(s) imported earlier from @${peerReviewer} placed in this row, with their judgements and cell notes.` : '' }]
+  };
+}
+// The other reviewer's audit trail entries that are not here yet, so the shared trail shows both reviewers
+/** @param {any} project @param {{ logs: any[], peerReviewer: string }} a @returns {OpResult | null} */
+function opMergePeerLogs(project, { logs, peerReviewer }) {
+  const have = new Set((project.logs || []).map(l => l.id));
+  const add = [];
+  for (const pl of logs || []) {
+    if (!pl || !pl.id || have.has(pl.id)) continue;
+    have.add(pl.id);
+    add.push({ ...pl, reviewer: pl.reviewer || peerReviewer });
+  }
+  if (!add.length) return null;
+  return {
+    ops: add.map(e => ({ store: 'logs', put: e })),
+    entries: [{ kind: 'peer_logs', category: 'concordance', action: `Merged ${add.length} audit trail entries from @${peerReviewer}`, detail: 'Both reviewers\' decisions now appear in one trail.' }]
+  };
+}
+// Constructs waiting for a peer row placed in a row here of the same title
+/** @param {any} project @param {{ peerRowId: string, rowId: string, peerReviewer: string, peerTitle: string }} a @returns {OpResult | null} */
+function opPeerPlacement(project, { peerRowId, rowId, peerReviewer, peerTitle }) {
+  const row = rowOf(project, rowId);
+  const { ops, count } = peerRowPlacementOps(project, peerRowId, rowId);
+  if (!row || !count) return null;
+  return {
+    ops,
+    entries: [{ kind: 'peer_placement', clusterIds: [rowId], category: 'concordance', action: `Placed ${count} construct(s) imported from @${peerReviewer} in "${rowName(row)}"`,
+      detail: `The row matches @${peerReviewer}'s row "${peerTitle || ''}"; their judgements and cell notes came with them.` }]
+  };
+}
+
+// ---- The audit trail (audit-view.js) and who did what (app.js) ----
+// A reason added to an entry later: it keeps when it was written and every earlier wording (no entry about it: the entry
+// itself shows it)
+/** @param {any} project @param {{ logId: string, reason: string, at: number }} a @returns {OpResult | null} */
+function opTrailReason(project, { logId, reason, at }) {
+  const log = (project.logs || []).find(l => l.id === logId);
+  const prev = log ? (log.rationale || '').trim() : '';
+  if (!log || prev === reason) return null;
+  const history = Array.isArray(log.rationaleHistory) ? log.rationaleHistory : [];
+  return { ops: [{ store: 'logs', put: { ...log, rationale: reason, rationaleAt: at, rationaleHistory: prev ? [...history, { text: prev, at: log.rationaleAt || log.timestamp }] : history } }], entries: [] };
+}
+// An entry deleted from the trail: the deletion itself is recorded, with what the entry said (when: its time as shown;
+// categoryLabel: its category's name)
+/** @param {any} project @param {{ logId: string, when: string, categoryLabel: string }} a @returns {OpResult | null} */
+function opDeleteTrailEntry(project, { logId, when, categoryLabel }) {
+  const log = (project.logs || []).find(l => l.id === logId);
+  if (!log) return null;
+  return {
+    ops: [{ store: 'logs', del: logId }],
+    entries: [{ kind: 'trail_delete', targetId: logId, category: 'audit_edit', action: `Deleted an audit trail entry: ${log.action}`,
+      detail: `Original entry (${when}, @${log.reviewer || 'Unknown'}, ${categoryLabel})${log.detail ? ':\n' + log.detail : ''}`,
+      fromVal: log.fromVal || '', toVal: log.toVal || '', clusterIds: log.clusterIds || null }]
+  };
+}
+// The reviewer an item is attributed to (store: annotations / clusters / logs; what: how the entry names the item)
+/** @param {any} project @param {{ store: string, id: string, reviewer: string, what: string }} a @returns {OpResult | null} */
+function opItemReviewer(project, { store, id, reviewer, what }) {
+  const list = store === 'logs' ? project.logs : store === 'clusters' ? project.clusters : project.annotations;
+  const item = (list || []).find(x => x && x.id === id);
+  const field = store === 'logs' ? 'reviewer' : 'by';
+  if (!item || !reviewer || item[field] === reviewer) return null;
+  return {
+    ops: [{ store, put: { ...item, [field]: reviewer } }],
+    entries: [{ kind: 'reviewer_change', category: 'audit_edit', action: 'Changed the reviewer attributed to an item', detail: `The ${what} is now attributed to @${reviewer}.`,
+      fromVal: '@' + (item[field] || 'Reviewer'), toVal: '@' + reviewer,
+      clusterIds: store === 'clusters' ? [item.id] : store === 'logs' ? (item.clusterIds || null) : (item.type === 'second_order' ? liveRowsOf(project, item) : null) }]
+  };
+}
+// Everything attributed to one reviewer ID attributed to another (a change of name only: the same person)
+/** @param {any} project @param {{ from: string, to: string }} a @returns {OpResult | null} */
+function opReattributeAll(project, { from, to }) {
+  /** @type {DbOp[]} */
+  const ops = [];
+  (project.annotations || []).forEach(a => { if (a.by === from) ops.push({ store: 'annotations', put: { ...a, by: to } }); });
+  (project.clusters || []).forEach(c => { if (c.by === from) ops.push({ store: 'clusters', put: { ...c, by: to } }); });
+  const items = ops.length;
+  (project.logs || []).forEach(l => { if (l.reviewer === from) ops.push({ store: 'logs', put: { ...l, reviewer: to } }); });
+  if (!ops.length) return null;
+  return {
+    ops,
+    entries: [{ kind: 'reviewer_bulk', category: 'audit_edit', action: `Attributed all items of @${from} to @${to}`,
+      detail: `${items} construct(s) / row(s) and ${ops.length - items} audit trail entries.`, fromVal: '@' + from, toVal: '@' + to }]
+  };
+}
+// The project code, the Phase 1 aim and the review question (prevCode: the code before; '' for a first setup)
+/** @param {any} project @param {{ code: string, aim: string, question: string, prevCode: string }} a @returns {OpResult} */
+function opProjectSetup(project, { code, aim, question, prevCode }) {
+  const loa = project.loa || {};
+  const prevAim = loa.aim || '';
+  const changed = prevAim !== aim || (loa.reviewQuestion || '') !== question || (prevCode && prevCode !== code);
+  return {
+    ops: [loaOp(project, { projectCode: code, aim, reviewQuestion: question })],
+    entries: changed ? [{ kind: 'project_setup', category: 'aim_question', action: `Configured Project [${code}] & Phase 1 Research Aim`,
+      detail: (aim ? `Phase 1 Aim: ${aim}` : 'Project code configured (Phase 1 Aim left blank).') + (question ? `\nReview question: ${question}` : ''),
+      fromVal: prevCode ? `[${prevCode}] ${prevAim.slice(0, 60)}` : '(Initial Setup)', toVal: `[${code}] ${aim.slice(0, 60)}` }] : []
+  };
+}
+
 // ======================= Merging and splitting 3rd Order rows (matrix.js) =======================
 // What a merge / split writes, worked out from the project without changing it: the caller writes plan.ops (commitOps) and
 // keeps plan.before / plan.after for Undo. helpers give the names used in the notes and the log: docName(id) (null for a

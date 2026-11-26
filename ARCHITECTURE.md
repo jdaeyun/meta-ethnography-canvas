@@ -347,7 +347,10 @@ map positions is intended.
 | Tab 1 sidebar (extraction.js) | link / unlink a quote, label source, extracted text, team status, within-study relationships, delete a construct / quote, add / remove a passage, wrap a quote | yes (`SIDEBAR_ACTIONS`) | absorb / split off a passage, 1st ⇄ 2nd switch, manual entry, labels and notes (`bindTextField`) |
 | Drawer and write-up fields (loa.js) | map relations (add, remove), ◇ used by the line of argument, team models (add, remove), a write-up field, the drawer's fields saved together | yes (`LOA_ACTIONS`, on `#loaDrawer`) | map layout and box positions (layout, not logged) |
 | Studies (studies-pdf.js) | order strategy, order of studies, study #1 and its rows (`opBaselineCheck`), removing a study, the study info dock, appraisal answers | the study list's 🗑 (`study-remove` on `#studyList`) | adding PDFs and their fingerprints (bookkeeping), a new extraction from the PDF, sorting (builds the order, then `persistDocOrder`) |
-| compare.js, audit-view.js, app.js, backup.js | — | — | all of their changes (each through `saveChange`) |
+| Compare (compare.js) | provisional agreement, set aside / reconsidered, the other reviewer's map relations, a row of theirs (with the constructs waiting for it: `peerRowPlacementOps`), their trail, waiting constructs placed in a row of the same title | — (each card's buttons hold the peer item they belong to) | importing a construct or a study (`importPeerConstructNow`: id mapping, waiting links), team models (`addTeamModel`) |
+| Audit trail (audit-view.js) | a reason added later (with its history), deleting an entry | — | a memo (an entry on its own: `recordAuditLog`) |
+| Setup (app.js) | the reviewer of an item, re-attributing all items of an ID, the project code / aim / question | — | — |
+| Backup (backup.js) | — | — | clean restore and merge (built on copies, tidied with `tidyRefsOps`, one `saveChange`), reset |
 
 A test keeps the one path: `npm test` runs `node tools/dev/list-operations.mjs --rules`, which fails when a change is
 stored without its entry, a record is changed in memory before it is written, an entry has no kind, or `dbPut` /

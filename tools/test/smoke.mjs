@@ -2511,7 +2511,7 @@ await group('Review fixes 11: history count without a second rebuild, peer rows,
     const row = normalizeCluster({ id: 'cl_peer_test', thirdOrderTitle: 'Peer row', baseDocId: '', cellStatus: { [sec.docId]: { status: 'absent', note: '' } }, order: state.clusters.length });
     await dbPut('clusters', row); state.clusters.push(row);
     sec._peerRows = { peer_row: { clusterRelations: 'reciprocal' } }; await dbPut('annotations', sec);
-    const r = peerRowPlacementOps('peer_row', row.id);
+    const r = peerRowPlacementOps(state, 'peer_row', row.id);
     await saveChange(r.ops);
     const n = r.count;
     const stored = await dbGet('clusters', row.id);

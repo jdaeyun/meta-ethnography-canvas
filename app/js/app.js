@@ -22,16 +22,8 @@ async function promptReassignItemReviewer(item, storeName, refreshFn) {
     : storeName === 'clusters'
       ? `3rd Order row "${item.thirdOrderTitle || '(Untitled Row)'}"`
       : `${item.type === 'first_order' ? '1st Order Quote' : '2nd Order Construct'} in ${studyNameOf(item)} (p.${item.page}): ${item.note || '"' + String(item.text || '').slice(0, 60) + '…"'}`;
-  // The item with its new reviewer and the entry, in one transaction (the item in memory changes once stored)
-  await saveChange([{ store: storeName, put: storeName === 'logs' ? { ...item, reviewer: clean } : { ...item, by: clean } }], auditEntry({
-    kind: 'reviewer_change',
-    category: 'audit_edit',
-    action: 'Changed the reviewer attributed to an item',
-    detail: `The ${what} is now attributed to @${clean}.`,
-    fromVal: '@' + currentRev,
-    toVal: '@' + clean,
-    clusterIds: storeName === 'clusters' ? [item.id] : (storeName === 'logs' ? item.clusterIds : (item.type === 'second_order' ? liveClusterIds(item) : null))
-  }));
+  // The item with its new reviewer and the entry, in one transaction (opItemReviewer, logic.js)
+  await runOperation(opItemReviewer(state, { store: storeName, id: item.id, reviewer: clean, what }));
   if (refreshFn) refreshFn();
 }
 
@@ -90,7 +82,6 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
     const projVal = sanitizeProjectCode(initProjInput.value);
     const aimVal = initAimInput.value.trim();
     const qVal = (document.getElementById('initialReviewQuestionInput')?.value || '').trim();
-    const prevQ = (state.loa && state.loa.reviewQuestion) || '';
 
     if (!revVal || !projVal) {
       errEl.classList.remove('hidden');
@@ -101,7 +92,6 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
     errEl.classList.add('hidden');
 
     const prevProj = state.projectCode;
-    const prevAim = (state.loa && state.loa.aim) || '';
 
     state.reviewerId = revVal;
     state.projectCode = projVal;
@@ -109,15 +99,7 @@ function openProjectSetupModal({ isInitialOrReset = false, titleText = 'Project 
     lsSet('me_project_code', projVal);
     if (revInput) revInput.value = revVal;
 
-    const changed = prevAim !== aimVal || prevQ !== qVal || (prevProj && prevProj !== projVal);
-    await saveChange([{ store: 'meta', put: { ...state.loa, id: 'loa_main', projectCode: projVal, aim: aimVal, reviewQuestion: qVal, updatedAt: Date.now() } }], changed ? auditEntry({
-      kind: 'project_setup',
-      category: 'aim_question',
-      action: `Configured Project [${projVal}] & Phase 1 Research Aim`,
-      detail: (aimVal ? `Phase 1 Aim: ${aimVal}` : 'Project code configured (Phase 1 Aim left blank).') + (qVal ? `\nReview question: ${qVal}` : ''),
-      fromVal: prevProj ? `[${prevProj}] ${prevAim.slice(0, 60)}` : '(Initial Setup)',
-      toVal: `[${projVal}] ${aimVal.slice(0, 60)}`
-    }) : []);
+    await runOperation(opProjectSetup(state, { code: projVal, aim: aimVal, question: qVal, prevCode: prevProj || '' }));
     populateLoaInputs();
     updateHeaderProjectUI();
     if (!divPub.classList.contains('hidden')) renderPublicationView(); // the Methods Summary shows the aim and the question
@@ -222,13 +204,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (how === 'all') {
         // Every record in one transaction: all of them carry the new ID, or (on a failure) none
         // (copies: the records in memory change once all of them are stored)
-        /** @type {DbOp[]} */
-        const ops = [];
-        state.annotations.forEach(a => { if (a.by === oldRev) ops.push({ store: 'annotations', put: { ...a, by: nextRev } }); });
-        state.clusters.forEach(c => { if (c.by === oldRev) ops.push({ store: 'clusters', put: { ...c, by: nextRev } }); });
-        const nLogs = logCount;
-        state.logs.forEach(l => { if (l.reviewer === oldRev) ops.push({ store: 'logs', put: { ...l, reviewer: nextRev } }); });
-        await saveChange(ops, auditEntry({ kind: 'reviewer_bulk', category: 'audit_edit', action: `Attributed all items of @${oldRev} to @${nextRev}`, detail: `${existingCount} construct(s) / row(s) and ${nLogs} audit trail entries.`, fromVal: '@' + oldRev, toVal: '@' + nextRev }));
+        await runOperation(opReattributeAll(state, { from: oldRev, to: nextRev }));
         refreshOpenViews(); // (every open view: Tab 4 names the reviewers too)
       }
     }

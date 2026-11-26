@@ -19,7 +19,9 @@ const L = vm.runInContext(`({ applyOps, checkInvariants, planMergeRows, planSpli
   opRereadRow, opRowTeamStatus, opRowCerqual, opConfirmSeed, opMoveRow, opNotTranslated, opLinkQuote, opUnlinkQuote, opDeleteConstruct, opDeleteQuote,
   opAddConceptLink, opRemoveConceptLink, opAddPassage, opRemovePassage, opExtractedText, opConstructTeamStatus, opLabelSource, opWrapQuote,
   opAddMapRelation, opRemoveMapRelation, opAspectUse, opAddTeamModel, opRemoveTeamModel, opWriteupField, opSaveDrawer,
-  opOrderStrategy, opStudyOrder, opBaselineCheck, opRemoveStudy, opStudyInfo, opAppraisalAnswer })`, ctx);
+  opOrderStrategy, opStudyOrder, opBaselineCheck, opRemoveStudy, opStudyInfo, opAppraisalAnswer,
+  opProvisionalAgreement, opPeerSetAside, opImportPeerRelations, opImportPeerRow, opMergePeerLogs, opPeerPlacement,
+  opTrailReason, opDeleteTrailEntry, opItemReviewer, opReattributeAll, opProjectSetup })`, ctx);
 // The names an operation's entries need (the app passes study names and judgement labels: OP_NAMES, undo-audit.js)
 const H = { docName: id => `Study ${id}`, relLabel: r => `● ${r}` };
 // An operation of logic.js, run as the app runs it (runOperation): its ops applied; null = nothing to do. Returns the result.
@@ -419,6 +421,57 @@ test('operations of the studies: order, study #1 and its rows, removal, study in
   run(p, L.opAppraisalAnswer(p, { docId: 'd2', tool: 'CASP', field: 'appraisalItems', id: 'q1', patch: { note: 'clear aims' }, what: 'Q1 reason', detail: '', from: '', to: 'clear aims' }, H));
   assert.deepEqual(plain(p.docs.find(d => d.id === 'd2').appraisalItems.CASP.q1), { a: 'yes', note: 'clear aims' });
   assertConsistent(p, 'studies');
+});
+
+test('operations of Compare: agreement, set aside, relations, a row and the constructs waiting for it, the trail', () => {
+  const p = makeProject();
+  run(p, L.opProvisionalAgreement(p, { secId: 's_d2_1', peerNote: 'Peer label', peerReviewer: 'B' }, H));
+  assert.equal(sec(p, 's_d2_1').concordanceStatus, 'agreed');
+  assert.equal(sec(p, 's_d2_1').note, 'Peer label', 'the peer\'s label where there was none');
+  run(p, L.opPeerSetAside(p, { add: { peerId: 'x', reviewer: 'B' }, action: 'Set aside', detail: '' }));
+  run(p, L.opPeerSetAside(p, { remove: r => r.peerId === 'x', action: 'Reconsidered', detail: '' }));
+  assert.deepEqual(plain(p.loa.peerSetAside), []);
+  let n = 0;
+  const rel = run(p, L.opImportPeerRelations(p, { peerLinks: [{ from: 'Row 3', to: 'Row 1', type: 'leads' }, { from: 'Row 1', to: 'Row 2', type: 'leads' }, { from: 'Gone', to: 'Row 1', type: 'leads' }], peerReviewer: 'B', newId: () => 'pl' + n++ }));
+  assert.ok(/Imported 1 concept relation/.test(rel.entries[0].action) && /1 relation\(s\) skipped/.test(rel.entries[0].detail), 'one new; one already here; one row not here');
+  // A construct waiting for a peer row: placed with the peer's judgement when the row arrives
+  L.applyOps(p, [{ store: 'annotations', put: { ...sec(p, 's_d3_2'), _peerRows: { peer_r: { clusterRelations: 'refutational', _title: 'Peer row' } } } }]);
+  const newRow = { id: 'r_peer', thirdOrderTitle: 'Peer row', order: 3, baseDocId: '', cellStatus: {}, historyFrom: [] };
+  const imp = run(p, L.opImportPeerRow(p, { row: newRow, peerRowId: 'peer_r', peerReviewer: 'B' }));
+  assert.ok(/1 construct/.test(imp.entries[0].detail));
+  assert.ok(sec(p, 's_d3_2').clusterIds.includes('r_peer') && !sec(p, 's_d3_2')._peerRows);
+  assert.equal(row(p, 'r_peer').baseDocId, 'd3', 'a row not set yet takes the study of the construct placed');
+  assert.equal(L.opPeerPlacement(p, { peerRowId: 'peer_r', rowId: 'r_peer', peerReviewer: 'B', peerTitle: '' }), null, 'nothing waits any more');
+  assertConsistent(p, 'Compare');
+  // The other reviewer's trail: each entry once
+  run(p, L.opMergePeerLogs(p, { logs: [{ id: 'pl1', action: 'x' }, { id: 'pl1', action: 'x' }], peerReviewer: 'B' }));
+  assert.equal(p.logs.filter(l => l.id === 'pl1').length, 1);
+  assert.equal(L.opMergePeerLogs(p, { logs: [{ id: 'pl1' }], peerReviewer: 'B' }), null);
+});
+
+test('operations of the trail and the project setup: reasons kept with their history, deletions recorded, reviewers', () => {
+  const p = makeProject();
+  p.logs.push({ id: 'l1', timestamp: 1, reviewer: 'A', action: 'Placed', category: 'matrix_mapping', rationale: '' });
+  run(p, L.opTrailReason(p, { logId: 'l1', reason: 'first reason', at: 10 }));
+  run(p, L.opTrailReason(p, { logId: 'l1', reason: 'better reason', at: 20 }));
+  const l1 = p.logs.find(l => l.id === 'l1');
+  assert.equal(l1.rationale, 'better reason');
+  assert.deepEqual(plain(l1.rationaleHistory), [{ text: 'first reason', at: 10 }], 'the earlier wording is kept with when it was written');
+  assert.equal(L.opTrailReason(p, { logId: 'l1', reason: 'better reason', at: 30 }), null);
+  const del = L.opDeleteTrailEntry(p, { logId: 'l1', when: 'then', categoryLabel: 'Matrix' });
+  assert.ok(/Deleted an audit trail entry: Placed/.test(del.entries[0].action) && del.entries[0].targetId === 'l1');
+  run(p, del);
+  assert.ok(!p.logs.some(l => l.id === 'l1'));
+  // Reviewers: one item, or everything of one ID
+  run(p, L.opItemReviewer(p, { store: 'clusters', id: 'r1', reviewer: 'B', what: 'row' }));
+  assert.equal(row(p, 'r1').by, 'B');
+  assert.equal(L.opItemReviewer(p, { store: 'clusters', id: 'r1', reviewer: 'B', what: 'row' }), null);
+  const all = run(p, L.opReattributeAll(p, { from: 'B', to: 'C' }));
+  assert.ok(row(p, 'r1').by === 'C' && /1 construct\(s\) \/ row\(s\)/.test(all.entries[0].detail));
+  // Project setup: an entry only when the aim, the question or an existing code changes
+  assert.equal(L.opProjectSetup(p, { code: 'P', aim: '', question: '', prevCode: '' }).entries.length, 0);
+  assert.equal(run(p, L.opProjectSetup(p, { code: 'P', aim: 'An aim', question: '', prevCode: '' })).entries.length, 1);
+  assertConsistent(p, 'trail and setup');
 });
 
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
