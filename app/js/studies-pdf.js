@@ -236,8 +236,10 @@ function getBadgesHtml(doc) {
 // (extraOps), in one transaction; state.docs follows once stored. Then study #1 is checked (checkBaselineChange).
 // Only the studies whose number changes are written.
 /** @param {any[]} [list] @param {any} [entries] @param {DbOp[]} [extraOps] */
+// entries: audit entries already built (auditEntry; one or a list), stored with the order
 async function persistDocOrder(list = state.docs, entries = [], extraOps = []) {
-  await runOperation(opStudyOrder(state, { ids: list.map(d => d.id), entries, extraOps }));
+  const { ops } = opStudyOrder(state, { ids: list.map(d => d.id), extraOps });
+  await saveChange(ops, entries);
   sortStudies(state.docs);
   await checkBaselineChange();
 }

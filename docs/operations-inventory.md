@@ -10,7 +10,7 @@ section "Operations inventory".
 |---|---|---|
 | `split-write` | 0 | writes records and an audit entry about them in two transactions (a direct `dbPut` / `dbDelete`, or an entry written on its own with `recordAuditLog`), so one can be saved without the other |
 | `mutate-first` | 0 | changes the record it then `dbPut`s in memory first (if the write is refused, memory and database differ) |
-| `no-log` | 6 | writes project data and logs nothing, here or in a unit it calls (a draft save of `bindTextField`, logged by its commit, is not flagged): check whether the change is interpretive |
+| `no-log` | 7 | writes project data and logs nothing, here or in a unit it calls (a draft save of `bindTextField`, logged by its commit, is not flagged): check whether the change is interpretive |
 | `no-kind` | 0 | an audit entry without `kind` (Appendix A falls back to the action text) |
 
 ## app/js/app.js (3)
@@ -51,15 +51,15 @@ section "Operations inventory".
 | 65 | `ensureDocFingerprints` |  | commitOps |  |  |  |  |
 | 90 | `handleFiles` |  | commitOps |  |  | attachPdfFileToDoc, checkBaselineChange, ensureDocFingerprints | `no-log` |
 | 172 | `setOrderStrategy` |  | runOperation(opOrderStrategy) |  |  |  |  |
-| 239 | `persistDocOrder` |  | runOperation(opStudyOrder) |  |  | checkBaselineChange |  |
-| 248 | `checkBaselineChange` |  | commitOps, runOperation(…) |  |  |  |  |
-| 256 | `moveStudyOrder` |  |  | `study_order` · study_order · Changed the #1 Study (…)<br>`study_order` · study_order · Reordered Study Sequence for Translation |  | persistDocOrder |  |
-| 355 | `removeStudyWithReason` |  | runOperation(…) |  | delete_study | persistDocOrder |  |
-| 710 | `saveCurrentMeta` |  | runOperation(opStudyInfo) |  |  |  |  |
-| 771 | `saveAnswer` |  | runOperation(opAppraisalAnswer) |  |  |  |  |
-| 1223 | `addAnno` |  | commitOps |  |  |  | `no-log` |
-| 1695 | `sortStudiesByMode` |  |  | `study_order` · study_order · mode === 'year' ? 'Sorted Studies Chronologically (by Publicati… |  | persistDocOrder, setOrderStrategy |  |
-| 1808 | `(top level)` | `document.getElementById('richTieApplyBtn') on 'click'` | saveChange | `study_order` · study_order · Kept the order of studies tied on Conceptual Richness, with a r…<br>`study_order` · study_order · Ordered studies tied on Conceptual Richness by reviewer judgeme… |  | persistDocOrder |  |
+| 240 | `persistDocOrder` |  | saveChange |  |  | checkBaselineChange | `no-log` |
+| 250 | `checkBaselineChange` |  | commitOps, runOperation(…) |  |  |  |  |
+| 258 | `moveStudyOrder` |  |  | `study_order` · study_order · Changed the #1 Study (…)<br>`study_order` · study_order · Reordered Study Sequence for Translation |  | persistDocOrder |  |
+| 357 | `removeStudyWithReason` |  | runOperation(…) |  | delete_study | persistDocOrder |  |
+| 712 | `saveCurrentMeta` |  | runOperation(opStudyInfo) |  |  |  |  |
+| 773 | `saveAnswer` |  | runOperation(opAppraisalAnswer) |  |  |  |  |
+| 1225 | `addAnno` |  | commitOps |  |  |  | `no-log` |
+| 1697 | `sortStudiesByMode` |  |  | `study_order` · study_order · mode === 'year' ? 'Sorted Studies Chronologically (by Publicati… |  | persistDocOrder, setOrderStrategy |  |
+| 1810 | `(top level)` | `document.getElementById('richTieApplyBtn') on 'click'` | saveChange | `study_order` · study_order · Kept the order of studies tied on Conceptual Richness, with a r…<br>`study_order` · study_order · Ordered studies tied on Conceptual Richness by reviewer judgeme… |  | persistDocOrder |  |
 
 ## app/js/extraction.js (18)
 
@@ -190,9 +190,9 @@ Pure: `(project, args, names) → { ops, entries }` or null. Run by `runOperatio
 | 1173 | `opWriteupField` |  | loa.js:658 |
 | 1185 | `opSaveDrawer` | `aim`, `line_of_argument`, `relate_outcome` | loa.js:710 |
 | 1216 | `opOrderStrategy` | `order_strategy` | studies-pdf.js:172 |
-| 1229 | `opStudyOrder` |  | studies-pdf.js:239 |
+| 1229 | `opStudyOrder` |  |  |
 | 1238 | `opBaselineCheck` | `baseline_rows` |  |
 | 1272 | `opRemoveStudy` | `study_remove` |  |
-| 1291 | `opStudyInfo` | `subgroup`, `appraisal`, `study_overview`, `companion` | studies-pdf.js:710 |
-| 1316 | `opAppraisalAnswer` | `appraisal_answer` | studies-pdf.js:771 |
+| 1291 | `opStudyInfo` | `subgroup`, `appraisal`, `study_overview`, `companion` | studies-pdf.js:712 |
+| 1316 | `opAppraisalAnswer` | `appraisal_answer` | studies-pdf.js:773 |
 
