@@ -73,6 +73,11 @@ run one of them):
   A step that changes several records gets its pure part in logic.js and a step here; the browser code only names, writes, logs.
 - tools/test/smoke.mjs drives the ?demo project in Chromium (Playwright: audit logging, restore, lazy matrix rows, dialogs, file://);
   install the browser once with `npx playwright install chromium`. Run it after changing app behaviour and extend it with the change.
+  Its groups are in sections by feature, each group name starting with the section's tag (`[Rules]`, `[Saving]`, `[Studies]`,
+  `[Extraction]`, `[Matrix]`, `[Drawer]`, `[Audit]`, `[Exports]`, `[Compare]`, `[Backup]`, `[UI]`); `ONLY="[Matrix]" npm run test:smoke`
+  runs one section. Put a new check in the section of the feature it is about: a whole group, or a block (in braces) of that
+  section's "Cases from earlier reviews" group, which shares one page, so a block must not rely on what an earlier block left.
+  CI (`.github/workflows/test.yml`) runs `npm test` on every pull request and every push to main.
   No fixed waits (`waitForTimeout`, or a `setTimeout` sleep inside `page.evaluate`: a smoke check fails on one; in the page, `await __mecIdle()`
   waits like settle): after an action, `await settle(p)` waits until the app has nothing
   in flight (IndexedDB transactions, async handlers, timers up to 1 s, PDF rendering, pending debounced saves, a reason / choice
