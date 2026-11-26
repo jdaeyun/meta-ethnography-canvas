@@ -1495,12 +1495,12 @@ function opProjectSetup(project, { code, aim, question, prevCode }) {
   const loa = project.loa || {};
   const prevAim = loa.aim || '';
   const changed = prevAim !== aim || (loa.reviewQuestion || '') !== question || (prevCode && prevCode !== code);
-  return {
-    ops: [loaOp(project, { projectCode: code, aim, reviewQuestion: question })],
-    entries: changed ? [{ kind: 'project_setup', category: 'aim_question', action: `Configured Project [${code}] & Phase 1 Research Aim`,
-      detail: (aim ? `Phase 1 Aim: ${aim}` : 'Project code configured (Phase 1 Aim left blank).') + (question ? `\nReview question: ${question}` : ''),
-      fromVal: prevCode ? `[${prevCode}] ${prevAim.slice(0, 60)}` : '(Initial Setup)', toVal: `[${code}] ${aim.slice(0, 60)}` }] : []
-  };
+  /** @type {Record<string, any>[]} */
+  const entries = [];
+  if (changed) entries.push({ kind: 'project_setup', category: 'aim_question', action: `Configured Project [${code}] & Phase 1 Research Aim`,
+    detail: (aim ? `Phase 1 Aim: ${aim}` : 'Project code configured (Phase 1 Aim left blank).') + (question ? `\nReview question: ${question}` : ''),
+    fromVal: prevCode ? `[${prevCode}] ${prevAim.slice(0, 60)}` : '(Initial Setup)', toVal: `[${code}] ${aim.slice(0, 60)}` });
+  return { ops: [loaOp(project, { projectCode: code, aim, reviewQuestion: question })], entries };
 }
 
 // ======================= Merging and splitting 3rd Order rows (matrix.js) =======================
