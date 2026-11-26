@@ -73,15 +73,13 @@ async function ensureDocFingerprints() {
       try {
         const rec = await dbGet('pdf_binaries', d.id); // one PDF in memory at a time
         if (!rec || !rec.data || !rec.data.byteLength) continue;
-        d.sha256 = await sha256Hex(rec.data);
-        if (!d.doi) {
-          d.doi = await findDoiInPdf(rec.data);
-          // The study's info dock open on it with an empty DOI box: the box shows it, so "Save Info" keeps it
-          const box = document.getElementById('metaDoi');
-          if (d.doi && state.isEditMetaMode && state.activeDocId === d.id && box && !box.value.trim()) box.value = d.doi;
-        }
-        d.fpDone = true;
-        if (state.docs.includes(d)) await dbPut('docs', d, { quiet: true });
+        const sha256 = await sha256Hex(rec.data);
+        const doi = d.doi || await findDoiInPdf(rec.data);
+        // The study's info dock open on it with an empty DOI box: the box shows it, so "Save Info" keeps it
+        const box = document.getElementById('metaDoi');
+        if (doi && !d.doi && state.isEditMetaMode && state.activeDocId === d.id && box && !box.value.trim()) box.value = doi;
+        // Bookkeeping (no save badge, no backup reminder); a study deleted meanwhile is not written back
+        if (state.docs.includes(d)) await commitOps([{ store: 'docs', put: { ...d, sha256, doi, fpDone: true } }], { quiet: true });
       } catch (e) { console.warn('Fingerprinting skipped for one study:', e); }
     }
   } finally {
@@ -175,19 +173,19 @@ async function setOrderStrategy(next, { rationale = '', reason = '' } = {}) {
   if (!ORDER_STRATEGIES[next]) return;
   const prev = getOrderStrategy();
   if (prev === next) return;
-  state.loa = { ...state.loa, id: 'loa_main', orderStrategy: next, updatedAt: Date.now() };
-  if (rationale) state.loa.orderRationale = rationale; // reused in the Methods Summary
-  await dbPut('meta', state.loa);
-  const sel = document.getElementById('orderStrategySelect');
-  if (sel) sel.value = next;
-  await recordAuditLog({
+  const loa = /** @type {Record<string, any>} */ ({ ...state.loa, id: 'loa_main', orderStrategy: next, updatedAt: Date.now() });
+  if (rationale) loa.orderRationale = rationale; // reused in the Methods Summary
+  await saveChange([{ store: 'meta', put: loa }], auditEntry({
+    kind: 'order_strategy',
     category: 'study_order',
     action: `Set translation-order strategy: ${ORDER_STRATEGIES[next].label}`,
     detail: reason || 'Changed in the study list.',
     fromVal: ORDER_STRATEGIES[prev].label,
     toVal: ORDER_STRATEGIES[next].label,
     rationale
-  });
+  }));
+  const sel = document.getElementById('orderStrategySelect');
+  if (sel) sel.value = next;
   renderStudyList();
   if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   if (!divPub.classList.contains('hidden')) renderPublicationView();
@@ -214,6 +212,9 @@ function getDisplayName(doc) {
   }
   return doc.name;
 }
+
+// The display name of the study a record (a quote, a construct) belongs to
+function studyNameOf(rec) { return getDisplayName(state.docs.find(d => d.id === (rec && rec.docId))); }
 
 function getAppraisalDisplayString(doc) {
   if (!doc) return '-';
@@ -242,9 +243,13 @@ function getBadgesHtml(doc) {
   return html;
 }
 
-async function persistDocOrder() {
-  // The whole order in one transaction: never half of the studies in the new order and half in the old
-  await commitOps(state.docs.map((d, i) => ({ store: 'docs', put: { ...d, order: i } }))); // (copies: memory changes once stored)
+// The studies in the order of `list` (a copy of state.docs, reordered), with the audit entries about it and any other writes
+// (extraOps), in one transaction; state.docs follows once stored. Then study #1 is checked (checkBaselineChange).
+// Only the studies whose number changes are written.
+/** @param {any[]} [list] @param {any} [entries] @param {DbOp[]} [extraOps] */
+async function persistDocOrder(list = state.docs, entries = [], extraOps = []) {
+  await saveChange([...list.flatMap((d, i) => d.order === i ? [] : [{ store: 'docs', put: { ...d, order: i } }]), ...extraOps], entries);
+  sortStudies(state.docs);
   await checkBaselineChange();
 }
 
@@ -256,84 +261,93 @@ async function checkBaselineChange() {
   const now = state.docs[0] || null;
   const nowId = now ? now.id : null;
   if (prevId === nowId && (!now || prevName === getDisplayName(now))) return;
-  state.loa = { ...state.loa, id: 'loa_main', baselineDocId: nowId, baselineDocName: now ? getDisplayName(now) : '' };
-  const bookkeeping = !prevId || !nowId || prevId === nowId; // first study ever, or only the name changed
-  // Only remembering which study is #1 (the change that caused it was saved and marked already): no backup reminder for it
-  await dbPut('meta', state.loa, { quiet: bookkeeping });
-  if (bookkeeping) return;
-  await flagRowsForBaselineChange(prevId, prevName, now);
+  const loaOp = { store: 'meta', put: { ...state.loa, id: 'loa_main', baselineDocId: nowId, baselineDocName: now ? getDisplayName(now) : '' } };
+  // First study ever, or only the name changed: only remembering which study is #1 (the change that caused it was saved and
+  // marked already), so no backup reminder for it
+  if (!prevId || !nowId || prevId === nowId) { await commitOps([loaOp], { quiet: true }); return; }
+  const flags = rowFlagsForBaselineChange(prevId, prevName, now);
+  await saveChange([loaOp, ...flags.ops], flags.entries);
+  if (flags.affected) showSnackbar(`Study #1 changed: ${flags.affected} row(s) marked for re-reading in the Synthesis Matrix.`);
 }
 
 // Rows keep the study that established them (cluster.baseDocId): a new #1 does not change any row's base. Rows established
 // by the former #1 are marked for re-reading, because the translation order they were built on has changed.
-async function flagRowsForBaselineChange(prevId, prevName, nowDoc) {
+// Returns the rows' writes (copies), their audit entries and how many rows were marked.
+function rowFlagsForBaselineChange(prevId, prevName, nowDoc) {
+  /** @type {DbOp[]} */
+  const ops = [];
+  const entries = [];
   // A row whose flag started from the study that is #1 again (moved back, or a deletion undone) is back on the basis it was
   // built on: its flag is cleared instead of renewed. So is a row whose base already is the new #1.
   const reverted = state.clusters.filter(c => c.baselineChange && (c.baselineChange.fromDocId === nowDoc.id || c.baseDocId === nowDoc.id));
-  for (const c of reverted) { delete c.baselineChange; await dbPut('clusters', c); }
+  reverted.forEach(c => { const next = { ...c }; delete next.baselineChange; ops.push({ store: 'clusters', put: next }); });
   if (reverted.length) {
-    await recordAuditLog({
+    entries.push(auditEntry({
+      kind: 'baseline_rows',
       category: 'study_order',
       action: `Study #1 is ${getDisplayName(nowDoc)}: ${reverted.length} row(s) are back on the basis they were built on`,
       detail: `Re-reading flag cleared for: ${reverted.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
       clusterIds: reverted.map(c => c.id)
-    });
+    }));
   }
   const revertedIds = new Set(reverted.map(c => c.id));
   // Rows established by the former #1, and rows already flagged by an earlier change (A → B → C keeps A)
   const affected = state.clusters.filter(c => !revertedIds.has(c.id) && (c.baseDocId === prevId || c.baselineChange));
-  if (affected.length === 0) return;
-  const at = Date.now();
-  for (const c of affected) {
-    const orig = c.baselineChange;
-    c.baselineChange = { at, fromDocId: orig ? orig.fromDocId : prevId, fromName: orig ? orig.fromName : prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) };
-    await dbPut('clusters', c);
+  if (affected.length) {
+    const at = Date.now();
+    affected.forEach(c => {
+      const orig = c.baselineChange;
+      ops.push({ store: 'clusters', put: { ...c, baselineChange: { at, fromDocId: orig ? orig.fromDocId : prevId, fromName: orig ? orig.fromName : prevName, toDocId: nowDoc.id, toName: getDisplayName(nowDoc) } } });
+    });
+    entries.push(auditEntry({
+      kind: 'baseline_rows',
+      category: 'study_order',
+      action: `Study #1 changed: ${affected.length} 3rd Order row(s) established by an earlier #1 need re-reading`,
+      detail: `#1 was ${prevName || 'another study'}; it is now ${getDisplayName(nowDoc)}. These rows keep the study that established them`
+        + ` (the other studies were translated into its construct); no judgement was changed. Re-read each row, or make the new #1 its base.`
+        + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
+      fromVal: `#1: ${prevName}`,
+      toVal: `#1: ${getDisplayName(nowDoc)}`,
+      clusterIds: affected.map(c => c.id)
+    }));
   }
-  await recordAuditLog({
-    category: 'study_order',
-    action: `Study #1 changed: ${affected.length} 3rd Order row(s) established by an earlier #1 need re-reading`,
-    detail: `#1 was ${prevName || 'another study'}; it is now ${getDisplayName(nowDoc)}. These rows keep the study that established them`
-      + ` (the other studies were translated into its construct); no judgement was changed. Re-read each row, or make the new #1 its base.`
-      + `\nRows: ${affected.map(c => c.thirdOrderTitle || '(Untitled Row)').join('; ')}`,
-    fromVal: `#1: ${prevName}`,
-    toVal: `#1: ${getDisplayName(nowDoc)}`,
-    clusterIds: affected.map(c => c.id)
-  });
-  showSnackbar(`Study #1 changed: ${affected.length} row(s) marked for re-reading in the Synthesis Matrix.`);
+  return { ops, entries, affected: affected.length };
 }
 
 async function moveStudyOrder(fromIdx, toIdx) {
   if (toIdx < 0 || toIdx >= state.docs.length || fromIdx === toIdx) return;
-  const oldFirstId = state.docs[0] && state.docs[0].id; // by id: two studies can share a display name (Smith et al. 2020)
+  // The new order on a copy; asked about first (a change of #1), then stored with its entry
+  const list = state.docs.slice();
+  const [moved] = list.splice(fromIdx, 1);
+  list.splice(toIdx, 0, moved);
   const oldIndexPaper = getDisplayName(state.docs[0]);
-  const movedDoc = state.docs[fromIdx];
-  const [moved] = state.docs.splice(fromIdx, 1);
-  state.docs.splice(toIdx, 0, moved);
-  await persistDocOrder();
-  const newIndexPaper = getDisplayName(state.docs[0]);
-
-  if (oldFirstId !== (state.docs[0] && state.docs[0].id)) {
+  const newIndexPaper = getDisplayName(list[0]);
+  let entry;
+  if (state.docs[0].id !== list[0].id) { // by id: two studies can share a display name (Smith et al. 2020)
     const idxWhy = await askReason({
       title: `The #1 study (${firstStudyMeta().long}) has changed`,
       context: `From ${oldIndexPaper} to ${newIndexPaper}. Rows established by study #1 are marked for re-reading.`,
       label: 'Why this study first? (optional, saved in the Audit Trail as the rationale)',
       cancelLabel: null
     });
-    await recordAuditLog({
+    entry = auditEntry({
+      kind: 'study_order',
       category: 'study_order',
       rationale: idxWhy,
       action: `Changed the #1 Study (${firstStudyMeta().long})`,
-      detail: `Reordered "${getDisplayName(movedDoc)}" from position #${fromIdx + 1} to #${toIdx + 1}.`,
+      detail: `Reordered "${getDisplayName(moved)}" from position #${fromIdx + 1} to #${toIdx + 1}.`,
       fromVal: `#1: ${oldIndexPaper}`,
       toVal: `#1: ${newIndexPaper}`
     });
   } else {
-    await recordAuditLog({
+    entry = auditEntry({
+      kind: 'study_order',
       category: 'study_order',
       action: 'Reordered Study Sequence for Translation',
-      detail: `Moved "${getDisplayName(movedDoc)}" from #${fromIdx + 1} to #${toIdx + 1}.`
+      detail: `Moved "${getDisplayName(moved)}" from #${fromIdx + 1} to #${toIdx + 1}.`
     });
   }
+  await persistDocOrder(list, entry);
 
   renderStudyList();
   if (!divMatrix.classList.contains('hidden')) renderMatrixView();
@@ -412,9 +426,18 @@ function renderStudyList() {
         // "same primary study as" (purgeDocRefs, logic.js; a row's ◆ base is kept: it tells which rows study #1 established,
         // see checkBaselineChange)
         const refs = purgeDocRefs(state, doc.id);
-        // The study, its PDF, its constructs and the references to it go in one transaction; the records in memory change once
-        // all of it is stored (commitOps)
-        await commitOps([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refs.ops]);
+        const rest = state.docs.filter(d => d.id !== doc.id);
+        // The study, its PDF, its constructs, the references to it and the entry go in one transaction; the records in memory
+        // change once all of it is stored
+        await saveChange([{ store: 'docs', del: doc.id }, { store: 'pdf_binaries', del: doc.id }, ...toDel.map(a => ({ store: 'annotations', del: a.id })), ...refs.ops], auditEntry({
+          kind: 'study_remove',
+          category: 'study_order',
+          rationale: why,
+          action: `Removed Study from the Synthesis: ${getDisplayName(doc)}${wasIndex ? ' (was the #1 study)' : ''}`,
+          detail: `"${doc.title || doc.name}" was deleted together with ${toDel.length} extracted construct(s)/quote(s).${wasIndex && rest[0] ? ` New #1 study: ${getDisplayName(rest[0])}.` : ''}`,
+          fromVal: `${rest.length + 1} studies`,
+          toVal: `${rest.length} studies`
+        }));
         // On the undo stack only once it is stored (a refused write leaves the study, and nothing to undo)
         pushUndoAction({
           type: 'delete_study',
@@ -424,14 +447,6 @@ function renderStudyList() {
           annotations: toDel.map(a => JSON.parse(JSON.stringify(a))),
           position: idx,
           cellStatus: refs.cellStatus, companions: refs.companions
-        });
-        await recordAuditLog({
-          category: 'study_order',
-          rationale: why,
-          action: `Removed Study from the Synthesis: ${getDisplayName(doc)}${wasIndex ? ' (was the #1 study)' : ''}`,
-          detail: `"${doc.title || doc.name}" was deleted together with ${toDel.length} extracted construct(s)/quote(s).${wasIndex && state.docs[0] ? ` New #1 study: ${getDisplayName(state.docs[0])}.` : ''}`,
-          fromVal: `${state.docs.length + 1} studies`,
-          toVal: `${state.docs.length} studies`
         });
         await persistDocOrder(); // after the removal's entry: a change of #1 it causes is logged after it
         if (state.activeDocId === doc.id) state.activeDocId = state.docs[0]?.id || null;
@@ -756,87 +771,71 @@ async function saveCurrentMeta() {
   if (!doc) return;
   normalizeDoc(doc);
 
-  const prevSummary = `${doc.appraisalTool}:${doc.quality || 'None'}| Richness:${doc.richness || 'None'}`;
-  const prevCompanion = doc.companionOf || '';
-  const prevOverview = doc.studyOverview || '';
-
-  doc.author = document.getElementById('metaAuthor').value.trim();
-  doc.etAl = document.getElementById('metaEtAl').checked;
-  doc.year = document.getElementById('metaYear').value.trim();
-  doc.title = document.getElementById('metaTitle').value.trim();
+  // The dock's fields on a copy; stored with an audit entry for each part that changed, in one transaction
+  const val = id => document.getElementById(id).value.trim();
   const doiEl = document.getElementById('metaDoi'), doiRaw = doiEl.value.trim();
-  doc.doi = normalizeDoi(doiRaw) || '';
+  const next = {
+    ...doc,
+    author: val('metaAuthor'), etAl: document.getElementById('metaEtAl').checked, year: val('metaYear'), title: val('metaTitle'),
+    doi: normalizeDoi(doiRaw) || '',
+    setting: val('metaSetting'), participants: val('metaParticipants'), group: val('metaGroup'), methodology: val('metaMethodology'),
+    appraisalTool: document.getElementById('metaAppraisalTool').value || 'CASP',
+    quality: document.getElementById('metaQuality').value, richness: document.getElementById('metaRichness').value,
+    contextNote: val('metaContextNote'), funder: val('metaFunder'),
+    companionOf: document.getElementById('metaCompanionOf').value || '', studyOverview: val('metaStudyOverview')
+  };
   // The box shows what is stored (e.g. "https://doi.org/10.1/x" is kept as 10.1/x); text that is not a DOI is said so, not
   // silently kept on screen while nothing is stored
-  if (doiRaw && !doc.doi) showSnackbar('That is not a DOI (it starts with 10.…): it was not saved.');
-  if (document.activeElement !== doiEl) doiEl.value = doc.doi;
-  doc.setting = document.getElementById('metaSetting').value.trim();
-  doc.participants = document.getElementById('metaParticipants').value.trim();
-  const prevGroup = doc.group || '';
-  doc.group = document.getElementById('metaGroup').value.trim();
-  doc.methodology = document.getElementById('metaMethodology').value.trim();
-  doc.appraisalTool = document.getElementById('metaAppraisalTool').value || 'CASP';
-  doc.quality = document.getElementById('metaQuality').value;
-  doc.richness = document.getElementById('metaRichness').value;
-  doc.contextNote = document.getElementById('metaContextNote').value.trim();
-  doc.funder = document.getElementById('metaFunder').value.trim();
-  doc.companionOf = document.getElementById('metaCompanionOf').value || '';
-  doc.studyOverview = document.getElementById('metaStudyOverview').value.trim();
+  if (doiRaw && !next.doi) showSnackbar('That is not a DOI (it starts with 10.…): it was not saved.');
+  if (document.activeElement !== doiEl) doiEl.value = next.doi;
 
-  const newSummary = `${doc.appraisalTool}:${doc.quality || 'None'}| Richness:${doc.richness || 'None'}`;
-
-  await dbPut('docs', doc);
-
-  if (prevGroup !== doc.group) {
-    await recordAuditLog({
-      kind: 'subgroup',
-      category: 'context_appraisal',
-      action: `Set subgroup for ${getDisplayName(doc)}`,
-      fromVal: prevGroup || '(none)',
-      toVal: doc.group || '(none)'
-    });
-    if (typeof renderStudyVisibilityBar === 'function') renderStudyVisibilityBar();
+  const summary = d => `${d.appraisalTool}:${d.quality || 'None'}| Richness:${d.richness || 'None'}`;
+  const name = getDisplayName(next);
+  const entries = [];
+  if ((doc.group || '') !== next.group) {
+    entries.push(auditEntry({ kind: 'subgroup', category: 'context_appraisal', action: `Set subgroup for ${name}`, fromVal: doc.group || '(none)', toVal: next.group || '(none)' }));
   }
-
-  if (prevSummary !== newSummary) {
-    await recordAuditLog({
+  if (summary(doc) !== summary(next)) {
+    entries.push(auditEntry({
       kind: 'appraisal',
       category: 'context_appraisal',
-      action: `Updated Critical Appraisal / Richness for ${getDisplayName(doc)}`,
-      detail: `Setting: ${doc.setting || '-'} | Sample: ${doc.participants || '-'} | Note: ${doc.contextNote || '-'}`,
-      fromVal: prevSummary,
-      toVal: newSummary
-    });
+      action: `Updated Critical Appraisal / Richness for ${name}`,
+      detail: `Setting: ${next.setting || '-'} | Sample: ${next.participants || '-'} | Note: ${next.contextNote || '-'}`,
+      fromVal: summary(doc),
+      toVal: summary(next)
+    }));
   }
-
-  if (prevOverview !== doc.studyOverview) {
-    await recordAuditLog({
+  const overviewChanged = (doc.studyOverview || '') !== next.studyOverview;
+  if (overviewChanged) {
+    entries.push(auditEntry({
       kind: 'study_overview',
       category: 'reading_extraction',
-      action: `${prevOverview ? 'Revised' : 'Wrote'} Study Overview / Key Metaphors for ${getDisplayName(doc)}`,
+      action: `${doc.studyOverview ? 'Revised' : 'Wrote'} Study Overview / Key Metaphors for ${name}`,
       detail: 'Phase 3–4: the account read as a whole (storyline, key metaphors and how they relate) before / alongside construct extraction.',
-      fromVal: prevOverview || '(Empty)',
-      toVal: doc.studyOverview || '(Empty)'
-    });
+      fromVal: doc.studyOverview || '(Empty)',
+      toVal: next.studyOverview || '(Empty)'
+    }));
   }
-
-  if (prevCompanion !== doc.companionOf) {
-    const other = state.docs.find(d => d.id === doc.companionOf);
-    await recordAuditLog({
+  if ((doc.companionOf || '') !== next.companionOf) {
+    const other = state.docs.find(d => d.id === next.companionOf);
+    entries.push(auditEntry({
       kind: 'companion',
       category: 'context_appraisal',
-      action: doc.companionOf ? `Linked ${getDisplayName(doc)} as a companion paper (same primary study)` : `Unlinked companion paper: ${getDisplayName(doc)}`,
-      detail: doc.companionOf ? `Same primary study as ${getDisplayName(other)} (eMERGe item 10).` : '',
-      fromVal: prevCompanion ? getDisplayName(state.docs.find(d => d.id === prevCompanion)) : '(separate study)',
+      action: next.companionOf ? `Linked ${name} as a companion paper (same primary study)` : `Unlinked companion paper: ${name}`,
+      detail: next.companionOf ? `Same primary study as ${getDisplayName(other)} (eMERGe item 10).` : '',
+      fromVal: doc.companionOf ? getDisplayName(state.docs.find(d => d.id === doc.companionOf)) : '(separate study)',
       toVal: other ? getDisplayName(other) : '(separate study)'
-    });
+    }));
   }
+  const groupChanged = (doc.group || '') !== next.group;
+  await saveChange([{ store: 'docs', put: next }], entries);
+  if (groupChanged && typeof renderStudyVisibilityBar === 'function') renderStudyVisibilityBar();
 
   renderStudyList();
   // Only the open study's header and sidebar are drawn: if another study was opened meanwhile, they already show it
   if (doc.id === state.activeDocId) {
     updateDocHeaderUI();
-    if (prevOverview !== doc.studyOverview) updateSidebar();
+    if (overviewChanged) updateSidebar();
   }
 }
 
@@ -852,36 +851,37 @@ function renderAppraisalDomains(doc) {
   sumBox.innerHTML = '';
   if (!c) return;
   document.getElementById('metaDomainGuide').textContent = c.guidance ? `${c.name}: “${c.guidance}”` : '';
-  const items = appraisalItemsOf(doc, tool);
-  const summary = appraisalSummaryOf(doc, tool);
+  // (read each time: a saved answer replaces the study's appraisal objects)
+  const items = () => appraisalItemsOf(doc, tool);
   const updateStatus = () => {
-    const done = c.items.filter(it => items[it.id] && items[it.id].a).length;
+    const done = c.items.filter(it => items()[it.id] && items()[it.id].a).length;
     document.getElementById('metaDomainStatus').textContent = `· ${c.name} · ${done === c.items.length ? 'all questions answered' : `${c.items.length - done} question(s) not answered yet`}`;
   };
   updateStatus();
-  const logChange = async (what, detail, from, to) => {
-    await recordAuditLog({
+  // One answer, reason or summary text: the study's copy with it and its entry, in one transaction.
+  // field: 'appraisalItems' (patch for question id) or 'appraisalSummary' (patch of the summary)
+  const saveAnswer = async (field, id, patch, what, detail, from, to) => {
+    const cur = field === 'appraisalItems' ? appraisalItemsOf(doc, tool) : appraisalSummaryOf(doc, tool);
+    const part = id ? { ...cur, [id]: { ...(cur[id] || {}), ...patch } } : { ...cur, ...patch };
+    await saveChange([{ store: 'docs', put: { ...doc, [field]: { ...(doc[field] || {}), [tool]: part } } }], auditEntry({
       kind: 'appraisal_answer',
       category: 'context_appraisal',
       action: `Appraisal (${tool} ${what}) for ${getDisplayName(doc)}: ${from ? 'changed' : 'recorded'}`,
       detail, fromVal: from || '', toVal: to || ''
-    });
+    }));
+    updateStatus();
   };
-  const bindText = (el, get, set, what, detail) => {
+  const bindText = (el, get, save) => {
     let committed = get() || '';
     bindPendingCommit(el, async () => {
       const next = el.value.trim();
       if (next === committed) return;
-      const prev = committed;
-      committed = next;
-      set(next);
-      await dbPut('docs', doc);
-      await logChange(what, detail, prev, next);
-      updateStatus();
+      await save(committed, next);
+      committed = next; // (only once stored: a refused write is tried again, and logged then)
     });
   };
   c.items.forEach((it, i) => {
-    const cur = items[it.id] || {};
+    const cur = items()[it.id] || {};
     const row = document.createElement('div');
     row.className = 'text-xs';
     row.innerHTML = `
@@ -896,13 +896,11 @@ function renderAppraisalDomains(doc) {
       </div>`;
     const sel = row.querySelector('.dom-a');
     sel.onchange = async () => {
-      const prev = (items[it.id] || {}).a || '';
-      items[it.id] = { ...(items[it.id] || {}), a: sel.value };
-      await dbPut('docs', doc);
-      await logChange(it.id.toUpperCase(), it.text, appraisalAnswerLabel(tool, prev), appraisalAnswerLabel(tool, sel.value));
-      updateStatus();
+      const prev = (items()[it.id] || {}).a || '';
+      await saveAnswer('appraisalItems', it.id, { a: sel.value }, it.id.toUpperCase(), it.text, appraisalAnswerLabel(tool, prev), appraisalAnswerLabel(tool, sel.value));
     };
-    bindText(row.querySelector('.dom-note'), () => (items[it.id] || {}).note, v => { items[it.id] = { ...(items[it.id] || {}), note: v }; }, it.id.toUpperCase() + ' reason', it.text);
+    bindText(row.querySelector('.dom-note'), () => (items()[it.id] || {}).note,
+      (prev, next) => saveAnswer('appraisalItems', it.id, { note: next }, it.id.toUpperCase() + ' reason', it.text, prev, next));
     list.appendChild(row);
   });
   if (c.summary) {
@@ -910,8 +908,9 @@ function renderAppraisalDomains(doc) {
     c.summary.fields.forEach(([k, label]) => {
       const wrap = document.createElement('div');
       wrap.innerHTML = `<label class="block text-[11px] font-semibold text-slate-600">${escapeHtml(label)}</label>
-        <textarea rows="2" class="dom-sum w-full border border-slate-300 bg-white rounded px-1.5 py-0.5 text-xs resize-y focus:outline-none focus:border-indigo-500">${escapeHtml(summary[k] || '')}</textarea>`;
-      bindText(wrap.querySelector('textarea'), () => summary[k], v => { summary[k] = v; }, 'summary', label);
+        <textarea rows="2" class="dom-sum w-full border border-slate-300 bg-white rounded px-1.5 py-0.5 text-xs resize-y focus:outline-none focus:border-indigo-500">${escapeHtml(appraisalSummaryOf(doc, tool)[k] || '')}</textarea>`;
+      bindText(wrap.querySelector('textarea'), () => appraisalSummaryOf(doc, tool)[k],
+        (prev, next) => saveAnswer('appraisalSummary', null, { [k]: next }, 'summary', label, prev, next));
       sumBox.appendChild(wrap);
     });
   }
@@ -1343,8 +1342,7 @@ async function addAnno(type) {
     clusterIds: [],
     clusterComments: {}
   });
-  await dbPut('annotations', a);
-  state.annotations.push(a);
+  await commitOps([{ store: 'annotations', put: a }]);
   renderHighlights();
   updateSidebar();
 }
@@ -1799,8 +1797,9 @@ async function sortStudiesByMode(mode) {
   const oldOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
   const oldIds = state.docs.map(d => d.id).join('|'); // by id: two studies can share a display name
 
+  const list = state.docs.slice(); // sorted as a copy: state.docs follows once the order is stored
   if (mode === 'year') {
-    state.docs.sort((a, b) => {
+    list.sort((a, b) => {
       const yA = parseInt(a.year, 10) || 9999;
       const yB = parseInt(b.year, 10) || 9999;
       if (yA !== yB) return yA - yB;
@@ -1810,28 +1809,26 @@ async function sortStudiesByMode(mode) {
     const richScore = { 'Rich': 3, 'Moderate': 2, 'Thin': 1 };
     // Richness only: quality appraisal is not a ranking criterion for translation order.
     // Studies rated alike keep their current order (stable sort), so an order you set by hand survives the next sort.
-    state.docs.sort((a, b) => (richScore[b.richness] || 0) - (richScore[a.richness] || 0));
+    list.sort((a, b) => (richScore[b.richness] || 0) - (richScore[a.richness] || 0));
   }
 
-  const newOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
-  if (oldIds === state.docs.map(d => d.id).join('|')) {
+  const newOrderStr = list.map(d => getDisplayName(d)).join(' ➔ ');
+  if (oldIds === list.map(d => d.id).join('|')) {
     showSnackbar('Studies are already in this order.');
     if (mode === 'richness') await offerRichnessTieOrdering();
     return;
   }
 
-  await persistDocOrder();
-  const newIndexPaper = getDisplayName(state.docs[0]);
-
-  await recordAuditLog({
+  await persistDocOrder(list, auditEntry({
+    kind: 'study_order',
     category: 'study_order',
     action: mode === 'year'
       ? 'Sorted Studies Chronologically (by Publication Year) for Translation'
       : 'Sorted Studies by Conceptual Richness for Translation',
     detail: `New Translation Sequence: ${newOrderStr}`,
     fromVal: `#1: ${oldIndexPaper}`,
-    toVal: `#1: ${newIndexPaper}`
-  });
+    toVal: `#1: ${getDisplayName(list[0])}`
+  }));
   // Year sort = chronological translation (Atkins et al., 2008); Richness sort = choosing an index paper
   if (mode === 'year' && getOrderStrategy() !== 'chronological') {
     await setOrderStrategy('chronological', { reason: 'Set automatically by the Year▲ sort.' });
@@ -1911,29 +1908,30 @@ document.getElementById('richTieApplyBtn').addEventListener('click', async () =>
   if (!richTieWork) return;
   const oldIds = state.docs.map(d => d.id).join('|'); // by id: two studies can share a display name
   const oldIndexPaper = getDisplayName(state.docs[0]);
-  richTieWork.forEach(g => state.docs.splice(g.start, g.docs.length, ...g.docs));
-  const newOrderStr = state.docs.map(d => getDisplayName(d)).join(' ➔ ');
+  const list = state.docs.slice();
+  richTieWork.forEach(g => list.splice(g.start, g.docs.length, ...g.docs));
+  const newOrderStr = list.map(d => getDisplayName(d)).join(' ➔ ');
   const reason = document.getElementById('richTieReason').value.trim();
   closeRichnessTieModal();
-  if (reason) { state.loa = { ...state.loa, id: 'loa_main', orderRationale: reason, updatedAt: Date.now() }; await dbPut('meta', state.loa); }
-  if (oldIds === state.docs.map(d => d.id).join('|')) {
+  // The reason is reused in the Methods Summary: stored with the order (or alone, if the order stays)
+  const reasonOps = reason ? [{ store: 'meta', put: { ...state.loa, id: 'loa_main', orderRationale: reason, updatedAt: Date.now() } }] : [];
+  if (oldIds === list.map(d => d.id).join('|')) {
     // The order stays, but the reasoning about it is a decision too
     if (reason) {
-      await recordAuditLog({ category: 'study_order', action: 'Kept the order of studies tied on Conceptual Richness, with a reason', detail: `Translation sequence: ${newOrderStr}`, rationale: reason });
+      await saveChange(reasonOps, auditEntry({ kind: 'study_order', category: 'study_order', action: 'Kept the order of studies tied on Conceptual Richness, with a reason', detail: `Translation sequence: ${newOrderStr}`, rationale: reason }));
       showSnackbar('Order kept; the reason is recorded.');
     }
     return;
   }
-  await persistDocOrder();
-  const newIndexPaper = getDisplayName(state.docs[0]);
-  await recordAuditLog({
+  await persistDocOrder(list, auditEntry({
+    kind: 'study_order',
     category: 'study_order',
     action: 'Ordered studies tied on Conceptual Richness by reviewer judgement',
     detail: `New Translation Sequence: ${newOrderStr}${reason ? '\nReason: ' + reason : ''}`,
     fromVal: `#1: ${oldIndexPaper}`,
-    toVal: `#1: ${newIndexPaper}`,
+    toVal: `#1: ${getDisplayName(list[0])}`,
     rationale: reason
-  });
+  }), reasonOps);
   renderStudyList();
   if (!divMatrix.classList.contains('hidden')) renderMatrixView();
   showSnackbar('Order of tied studies saved.');

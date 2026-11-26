@@ -223,13 +223,9 @@ function renderAuditTimeline() {
       rationaleEl.defaultValue = next;
       if (next === prev) return;
       // A reason written later is not the same as one written at the time: keep when it was written and every earlier wording
-      if (prev) {
-        if (!Array.isArray(log.rationaleHistory)) log.rationaleHistory = [];
-        log.rationaleHistory.push({ text: prev, at: log.rationaleAt || log.timestamp });
-      }
-      log.rationale = next;
-      log.rationaleAt = Date.now();
-      await dbPut('logs', log);
+      const history = Array.isArray(log.rationaleHistory) ? log.rationaleHistory : [];
+      await commitOps([{ store: 'logs', put: { ...log, rationale: next, rationaleAt: Date.now(),
+        rationaleHistory: prev ? [...history, { text: prev, at: log.rationaleAt || log.timestamp }] : history } }]); // (the entry in memory changes once stored)
       const stamp = card.querySelector('.rationale-stamp');
       if (stamp) { stamp.textContent = rationaleStampText(log); stamp.classList.remove('hidden'); }
     });
@@ -241,10 +237,8 @@ function renderAuditTimeline() {
       const change = beginChange(`Audit Log (${log.action.slice(0, 30)})`, [{ store: 'logs', id: log.id }], { undoLogs: [{
         kind: 'trail_restore', targetId: log.id, category: 'audit_edit', action: `Restored a deleted audit trail entry (Undo): ${log.action}`,
         detail: '', clusterIds: log.clusterIds || null }] });
-      await commitOps([{ store: 'logs', del: log.id }]);
-      finishChange(change);
-      // Keep the trail honest: the deletion itself is recorded (with the removed entry's content)
-      await recordAuditLog({
+      // Keep the trail honest: the deletion itself is recorded (with the removed entry's content), in the same transaction
+      await saveChange([{ store: 'logs', del: log.id }], auditEntry({
         kind: 'trail_delete', targetId: log.id,
         category: 'audit_edit',
         action: `Deleted an audit trail entry: ${log.action}`,
@@ -252,7 +246,8 @@ function renderAuditTimeline() {
         fromVal: log.fromVal || '',
         toVal: log.toVal || '',
         clusterIds: log.clusterIds || null // so a row's history shows that one of its entries was deleted
-      }); // (recordAuditLog updates the badge and redraws the Audit Trail)
+      })); // (saveChange updates the badge and redraws the Audit Trail)
+      finishChange(change);
       showUndoSnackbar('Deleted the audit trail entry (the deletion itself is recorded)');
     };
 

@@ -132,17 +132,20 @@ function bindPendingCommit(el, commitFn) {
 }
 
 // A text field of a record (a row's Step A, a construct's label…): the ONE way such a box saves and logs.
-//  - While typing, the text goes into the record (set) and the record is saved after a short pause (a draft, so nothing is
-//    lost if the browser closes while the box is still being written in).
+//  - While typing, the text goes into the record (set: the record in memory changes as the reviewer types) and the record is
+//    saved after a short pause (a draft, so nothing is lost if the browser closes while the box is still being written in).
 //  - When the box is left (or on a tab switch, a re-render, the page closing: bindPendingCommit), a draft still waiting is
-//    dropped and the commit runs once: the trimmed text is set and saved, and commit(prev, next) is called only if it changed
-//    since the last commit (it writes the audit entry and anything else that follows from the change).
+//    dropped and the commit runs once: the trimmed text is set, and the record is saved together with its audit entry
+//    (log(prev, next), only if the text changed since the last commit) in one transaction (saveChange). after(prev, next)
+//    then does what follows from the change (e.g. constructs waiting for a row of that title).
 // So a record is never saved by two paths for one edit, and a saved text never lacks its audit entry.
-// get(): the text as stored; set(v): put it into the record; save(): write the record; onInput(v): e.g. a live preview.
-/** @param {any} el @param {{ get: () => any, set: (v: string) => void, save: () => any, commit?: (prev: string, next: string) => any, onInput?: (v: string) => void, delay?: number }} o */
-function bindTextField(el, { get, set, save, commit, onInput, delay = 350 }) {
+// get(): the text as stored; set(v): put it into the record; record(): the record as a write ({ store, put });
+// save(): a different draft save (default: write record()); onInput(v): e.g. a live preview.
+/** @param {any} el @param {{ get: () => any, set: (v: string) => void, record: () => DbOp, save?: () => any, log?: (prev: string, next: string) => any, after?: (prev: string, next: string) => any, onInput?: (v: string) => void, delay?: number }} o */
+function bindTextField(el, { get, set, record, save, log, after, onInput, delay = 350 }) {
   let committed = String(get() || '').trim();
   let timer = null, editing = false;
+  const saveDraft = save || (() => { const r = record(); return dbPut(r.store, r.put); });
   el.addEventListener('input', () => {
     // An edit starts from the text as stored now (it may have been changed elsewhere since the box was built, e.g. on the
     // same construct's card in another row), so its audit entry says what it changed
@@ -151,16 +154,18 @@ function bindTextField(el, { get, set, save, commit, onInput, delay = 350 }) {
     if (onInput) onInput(el.value);
     flashSaveStatus('saving');
     clearTimeout(timer);
-    timer = setTimeout(() => { timer = null; trackSave(Promise.resolve().then(save)).catch(e => console.error('Save error:', e)); }, delay);
+    timer = setTimeout(() => { timer = null; trackSave(Promise.resolve().then(saveDraft)).catch(e => console.error('Save error:', e)); }, delay);
   });
   return bindPendingCommit(el, async () => {
     clearTimeout(timer); timer = null; // the commit writes the record itself
     const next = el.value.trim();
     set(next);
     const prev = committed;
-    await save(); // only once it is stored is it the committed text (a failed save is tried again, and logged then)
+    const changed = next !== prev;
+    // Only once it is stored is it the committed text (a refused write stays pending: tried again, and logged then)
+    await saveChange([record()], changed && log ? log(prev, next) : []);
     committed = next; editing = false;
-    if (next !== prev && commit) await commit(prev, next);
+    if (changed && after) await after(prev, next);
   });
 }
 
@@ -574,7 +579,6 @@ function linkQuote(f, secId) {
 function unlinkQuote(f, secId) {
   f.parentIds = quoteParentIds(f).filter(id => id !== secId);
 }
-function clearQuoteLinks(f) { f.parentIds = []; }
 // A project code or reviewer ID as part of a download's file name: characters that file systems refuse (/ \ : * ? " < > |,
 // control characters) and spaces become _, so any code still gives a valid name; letters of any script are kept
 function fileNamePart(s) {
@@ -583,25 +587,6 @@ function fileNamePart(s) {
 // (A construct's place in a row — rowFieldsOf / takeOutOfRow / putIntoRow — and every other field that names a row or a
 // study: the reference graph in logic.js)
 
-// A construct is in a row (placed, imported, or brought back by Undo): what that changes in the row, in one place.
-// A row whose base is not set yet ('') takes this study's; an empty-cell record for this study ("— not addressed" /
-// "◇ different aspect") no longer applies now that the study has a construct there. Returns the rows changed (to write).
-function rowsTouchedByPlacement(a) {
-  if (!a || a.type !== 'second_order') return [];
-  const changed = [];
-  (a.clusterIds || []).forEach(id => {
-    const row = state.clusters.find(c => c.id === id);
-    if (!row) return;
-    if (applyPlacementToRow(row, a.docId)) changed.push(row); // (the rule itself: logic.js)
-  });
-  return changed;
-}
-// The same for several constructs, as dbBatch ops (each row once)
-function placementRowOps(annos) {
-  const rows = new Map();
-  annos.forEach(a => rowsTouchedByPlacement(a).forEach(r => rows.set(r.id, r)));
-  return [...rows.values()].map(r => ({ store: 'clusters', put: r }));
-}
 // Drop links to what no longer exists, for an annotation brought back (Undo, split off a passage, a restored file): a construct's
 // placements in deleted rows (its clusterIds and every per-row field), a quote's links to deleted 2nd Order constructs.
 // A quote keeps links only to constructs of its own study (as checkInvariants requires).

@@ -2,9 +2,10 @@
 // Reads the code only (TypeScript parser, no browser). Writes docs/operations-inventory.md (generated: do not edit by hand).
 //   node tools/dev/list-operations.mjs            write the file
 //   node tools/dev/list-operations.mjs --check    exit 1 when the file is out of date (nothing written)
-// A "unit" is the innermost event handler (onclick / addEventListener / bindTextField commit …) around a call, or else the
-// innermost named function. A unit is listed when it writes (dbPut / dbDelete / dbBatch / dbClear / commitOps), logs
-// (recordAuditLog) or records an Undo step (beginChange / pushUndoAction). For each it shows what it writes, what it logs,
+// A "unit" is the innermost event handler (onclick / addEventListener / bindTextField log …) around a call, or else the
+// innermost named function. A unit is listed when it writes (saveChange / commitOps / dbPut / dbDelete / dbBatch / dbClear),
+// logs (auditEntry, written by saveChange with the change; recordAuditLog, written on its own) or records an Undo step
+// (beginChange / pushUndoAction). For each it shows what it writes, what it logs,
 // how Ctrl+Z covers it, and the signs of the rules that are easy to forget (docs/ARCHITECTURE.md, "Known gaps").
 // The flags are heuristics read from the code's shape: they point at places to look at, they do not prove a bug.
 import fs from 'node:fs';
@@ -19,10 +20,10 @@ const outFile = path.join(root, 'docs/operations-inventory.md');
 // In load order (me_canvas.html); logic.js is pure and writes nothing
 const FILES = ['core.js', 'app.js', 'undo-audit.js', 'loa.js', 'studies-pdf.js', 'extraction.js', 'matrix.js', 'audit-view.js', 'compare.js', 'export.js', 'backup.js', 'demo.js'];
 
-const WRITE_FNS = new Set(['dbPut', 'dbDelete', 'dbBatch', 'dbClear', 'commitOps']);
-const TRACKED = new Set([...WRITE_FNS, 'recordAuditLog', 'beginChange', 'finishChange', 'pushUndoAction', 'flushAllPendingSaves']);
+const WRITE_FNS = new Set(['saveChange', 'dbPut', 'dbDelete', 'dbBatch', 'dbClear', 'commitOps']);
+const TRACKED = new Set([...WRITE_FNS, 'recordAuditLog', 'auditEntry', 'beginChange', 'finishChange', 'pushUndoAction', 'flushAllPendingSaves']);
 // The helpers themselves (their own bodies are not operations)
-const HELPERS = new Set([...TRACKED, 'trackSave', 'bindTextField', 'bindPendingCommit', 'logExtractedTextEdit', 'performUndoStep', 'dbGetAll']);
+const HELPERS = new Set([...TRACKED, 'trackSave', 'bindTextField', 'bindPendingCommit', 'showNewAuditEntries', 'performUndoStep', 'dbGetAll']);
 const EVENT_PROP = /^on[a-z]+$/;
 const BIND_FNS = new Set(['bindTextField', 'bindPendingCommit']);
 
@@ -115,22 +116,23 @@ for (const file of FILES) {
           const u = unit(node);
           const a0 = node.arguments[0];
           if (WRITE_FNS.has(name)) {
-            const what = name === 'commitOps' || name === 'dbBatch' ? name : `${name}(${strOf(sf, a0)})`;
+            const what = ['commitOps', 'dbBatch', 'saveChange'].includes(name) ? name : `${name}(${strOf(sf, a0)})`;
             u.writes.set(what, (u.writes.get(what) || 0) + 1);
             if (name === 'dbPut' && node.arguments[1] && ts.isIdentifier(node.arguments[1])) u.putVars.add(node.arguments[1].text);
             if (name === 'dbPut' || name === 'dbDelete') u.awaitsPut = true;
-          } else if (name === 'recordAuditLog') {
+          } else if (name === 'recordAuditLog' || name === 'auditEntry') {
             const kind = propOf(a0, 'kind'), cat = propOf(a0, 'category'), act = propOf(a0, 'action');
             u.logs.push({
-              kind: kind ? strOf(sf, kind) : '', category: cat ? strOf(sf, cat) : '',
-              action: act ? short(strOf(sf, act), 64) : '', rows: !!propOf(a0, 'clusterIds')
+              // (an entry built from a stored one, e.g. Undo's undoLogs: { ...l, … }, carries that one's kind)
+              kind: kind ? strOf(sf, kind) : a0 && ts.isObjectLiteralExpression(a0) && a0.properties.some(ts.isSpreadAssignment) ? '(as stored)' : '',
+              category: cat ? strOf(sf, cat) : '',
+              action: act ? short(strOf(sf, act), 64) : '', rows: !!propOf(a0, 'clusterIds'),
+              alone: name === 'recordAuditLog' // written on its own, not in the transaction of a change
             });
           } else if (name === 'beginChange') u.undo.push('change');
           else if (name === 'pushUndoAction') { const t = propOf(a0, 'type'); u.undo.push(t ? strOf(sf, t) : 'own'); }
           else if (name === 'flushAllPendingSaves') u.flush = true;
         }
-      } else if (name === 'logExtractedTextEdit' && ts.isIdentifier(node.expression)) {
-        unit(node).logs.push({ kind: 'extract_edit', category: 'reading_extraction', action: '(logExtractedTextEdit: corrected extracted text)', rows: false });
       } else if (ts.isIdentifier(node.expression)) {
         const o = ownerOf(sf, node);
         const key = file + ':' + (o.node ? o.node.getStart(sf) : 'top');
@@ -194,7 +196,9 @@ const flagsOf = u => {
   const f = [];
   const writes = u.writes.size > 0, logs = u.logs.length > 0;
   const directPut = [...u.writes.keys()].some(k => /^db(Put|Delete)\((annotations|clusters|docs|meta)/.test(k));
-  if (directPut && logs) f.push('split-write'); // record and its audit entry in two transactions
+  // A record and an audit entry about it in two transactions: a direct write with any entry, or any write with an entry
+  // written on its own (recordAuditLog)
+  if ((directPut && logs) || (writes && u.logs.some(l => l.alone))) f.push('split-write');
   if (u.assigned.size && directPut) f.push('mutate-first');  // the record is changed in memory, then written
   // A bindTextField draft save is logged by the same field's commit (its own unit), and is not flagged
   const draft = /^bindTextField\(.*\)\.save$/.test(u.trigger || '') || draftSavers.has(u.own);
@@ -221,7 +225,7 @@ lines.push('');
 lines.push('| Flag | Units | Meaning |');
 lines.push('|---|---|---|');
 const FLAG_TEXT = {
-  'split-write': 'writes a record with `dbPut` / `dbDelete` and its audit entry with `recordAuditLog`: two transactions, so one can be saved without the other',
+  'split-write': 'writes records and an audit entry about them in two transactions (a direct `dbPut` / `dbDelete`, or an entry written on its own with `recordAuditLog`), so one can be saved without the other',
   'mutate-first': 'changes the record it then `dbPut`s in memory first (if the write is refused, memory and database differ)',
   'no-log': 'writes project data and logs nothing, here or in a unit it calls (a draft save of `bindTextField`, logged by its commit, is not flagged): check whether the change is interpretive',
   'no-kind': 'an audit entry without `kind` (Appendix A falls back to the action text)',
@@ -233,11 +237,11 @@ for (const file of FILES) {
   if (!us.length) continue;
   lines.push(`## app/js/${file} (${us.length})`);
   lines.push('');
-  lines.push('| Line | In | Trigger | Writes | Audit entries (kind · category · action) | Undo | Calls | Flags |');
+  lines.push('| Line | In | Trigger | Writes | Audit entries (kind · category · action; "alone" = written on its own) | Undo | Calls | Flags |');
   lines.push('|---|---|---|---|---|---|---|---|');
   us.forEach(u => {
     const writes = [...u.writes].map(([k, n]) => n > 1 ? `${k}×${n}` : k).join(', ');
-    const logs = u.logs.map(l => `${l.kind ? '`' + l.kind + '`' : '—'} · ${l.category || '—'} · ${esc(l.action)}${l.rows ? ' [rows]' : ''}`).join('<br>');
+    const logs = u.logs.map(l => `${l.kind ? '`' + l.kind + '`' : '—'} · ${l.category || '—'} · ${esc(l.action)}${l.rows ? ' [rows]' : ''}${l.alone ? ' (alone)' : ''}`).join('<br>');
     const viaUndo = u.undo.length ? [] : u.via.filter(n => resolve(u, n).undo.length);
     const undo = u.undo.length ? [...new Set(u.undo)].join(', ') : viaUndo.length ? `change (via ${viaUndo.join(', ')})` : '';
     const via = u.via.join(', ');

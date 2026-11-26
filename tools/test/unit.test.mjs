@@ -16,7 +16,7 @@ const L = vm.runInContext(`({ LOG_KINDS, LOG_ACTION, appendixSeries, isMemoLog, 
   mergeFillTexts, MERGE_FILL_TEXT, stableJson, sameRecord, computeTextSimilarity, isDirectedLink, linkPairOffsets, flowColumnRanks,
   joinSeparator, joinTextItems, extractSurnameFromAuthorString, YEAR_RE, yearFromPdfDate, remapRowDocIds, checkInvariants,
   remapDocIds, remapDocRecord, purgeDocRefs, dropGoneDocRefs, purgeClusterRefs, moveRowLinks, liveRowLinks, takeOutOfRow, putIntoRow, rowFieldsOf,
-  setAsideConceptLinks, attachWaitingConceptLinks, placementOpsFor })`, ctx);
+  setAsideConceptLinks, attachWaitingConceptLinks, placementOpsFor, sortRows, sortStudies, rowOrderOps })`, ctx);
 // Objects made inside the context have that context's prototypes: compare them as plain JSON
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -318,4 +318,43 @@ test('PDF text and citations: CJK joins, author surnames, years', () => {
   assert.equal(L.yearFromPdfDate('D:18990101'), '');
   assert.equal(year('Smith_2021_nursing.pdf'), '2021');
   assert.equal(year('ID 12019 and 1939'), '', 'no year inside a longer number, none before 1940');
+});
+
+test('order of rows and studies: sorted as at startup, numbered by their place (only the rows whose number changes, as copies)', () => {
+  const rows = [{ id: 'c', order: 2 }, { id: 'a', order: 0 }, { id: 'n', createdAt: 5 }, { id: 'b', order: 1 }];
+  assert.deepEqual(L.sortRows(rows.slice()).map(r => r.id), ['a', 'b', 'c', 'n'], 'by order, else by when it was made');
+  assert.deepEqual(L.sortStudies([{ id: 'x' }, { id: 'y', order: 1 }, { id: 'z', order: 0 }]).map(d => d.id), ['z', 'y', 'x'], 'a study without a number goes last');
+  const list = [{ id: 'a', order: 0 }, { id: 'c', order: 2 }, { id: 'b', order: 1 }];
+  const ops = plain(L.rowOrderOps(list));
+  assert.deepEqual(ops, [{ store: 'clusters', put: { id: 'c', order: 1 } }, { store: 'clusters', put: { id: 'b', order: 2 } }]);
+  assert.equal(list[1].order, 2, 'the rows given are not changed');
+});
+
+test('kinds registered for entries that were read by their category: each keeps the Appendix A meaning it had', () => {
+  // [kind, category, action as written] -> the same answer with the kind as without it (rows named, no reason)
+  const cases = [
+    ['row_create', 'third_order', 'Created New 3rd Order Row'], ['row_delete', 'third_order', 'Deleted 3rd Order Row'],
+    ['row_restore', 'third_order', 'Restored 3rd Order Row (Undo)'], ['row_base', 'third_order', 'Changed the study that established "R"'],
+    ['row_reread', 'third_order', 'Re-read row after study #1 changed: "R"'], ['row_merge', 'third_order', 'Merged row "A" into "B"'],
+    ['row_split', 'third_order', 'Split 1 construct(s) off "A" into a new row "B"'], ['row_undo', 'third_order', 'Undid: Merge "A" into "B"'],
+    ['seed_choice', 'translation_process', 'Rows start from study #1: its 2nd Order constructs become provisional 3rd Order rows'],
+    ['seed_confirm', 'third_order', 'Confirmed auto-placed row as a working 3rd Order construct: "R"'],
+    ['aspect_use', 'line_of_argument', 'Line of argument draws on a different aspect: S (in "R")'],
+    ['map_relation', 'line_of_argument', 'Added relation: "A" ➔ "B"'], ['map_relation', 'line_of_argument', 'Removed relation: "A" ➔ "B"'],
+    ['team_model', 'team_model', 'Recorded independent model of @B'], ['team_merge_note', 'team_model', 'Updated How the team models were merged'],
+    ['peer_relations', 'team_model', 'Imported 2 concept relation(s) from @B\'s model'], ['order_strategy', 'study_order', 'Set translation-order strategy: X'],
+    ['study_order', 'study_order', 'Reordered Study Sequence for Translation'], ['study_remove', 'study_order', 'Removed Study from the Synthesis: S'],
+    ['study_restore', 'study_order', 'Restored Study (Undo): S'], ['baseline_rows', 'study_order', 'Study #1 changed: 2 3rd Order row(s) established by an earlier #1 need re-reading'],
+    ['order_difference', 'concordance', 'Noted a different translation order from @B'], ['peer_set_aside', 'concordance', 'Set Aside Peer-Only Construct from @B'],
+    ['peer_row_import', 'concordance', 'Imported 3rd Order Row from @B'], ['peer_placement', 'concordance', 'Placed 2 construct(s) imported from @B in "R"'],
+    ['project_setup', 'aim_question', 'Configured Project [P] & Phase 1 Research Aim'], ['restore', 'project_data', 'Merged a JSON backup into the project'],
+    ['reviewer_bulk', 'audit_edit', 'Attributed all items of @A to @B'],
+    ['empty_cell', 'relating_studies', 'S in "R": Checked: not addressed in this study'], ['undo_placement', 'matrix_mapping', 'Undid: Unassign "x" from "R"']
+  ];
+  cases.forEach(([kind, category, action]) => {
+    assert.ok(L.LOG_KINDS[kind], `${kind} is registered`);
+    const entry = { category, action, clusterIds: ['r1'], fromVal: '' };
+    assert.equal(L.isKeyDecisionLog({ ...entry, kind }), L.isKeyDecisionLog(entry), `${kind}: ${action}`);
+  });
+  assert.equal(L.isKeyDecisionLog({ kind: 'passage_remove', category: 'reading_extraction', action: 'Removed a further passage' }), false, 'removing a passage is routine, like adding one');
 });

@@ -5,7 +5,8 @@ database and the audit trail, and where the code does not yet follow its own rul
 change must do) see `CLAUDE.md`; for the list of every place that changes data see
 [`docs/operations-inventory.md`](docs/operations-inventory.md) (generated from the code).
 
-Written for v1.4.13. Numbers below (counts of units, flags) come from `node tools/dev/list-operations.mjs`.
+Written for v1.4.13 and updated for the one-transaction change after it. Numbers below (counts of units, flags) come
+from `node tools/dev/list-operations.mjs`.
 
 ---
 
@@ -28,12 +29,12 @@ no server and no build step.
  │ app.js  loa.js  studies-pdf.js  extraction.js  matrix.js  audit-view.js  compare.js       │
  │ export.js (read only)   backup.js   demo.js                                                │
  │   render…()  builds DOM from `state`, and inside it attaches onclick / onchange handlers   │
- │   handler    changes a record, writes it, writes an audit entry, redraws                   │
+ │   handler    builds the changed copies + audit entry, saveChange() stores both, redraws    │
  └───────────────▲───────────────────────────────▲───────────────────────────────▲───────────┘
                  │ uses                          │ uses                          │ uses
  ┌───────────────┴──────────────┐ ┌──────────────┴─────────────┐ ┌───────────────┴────────────┐
  │ core.js                      │ │ undo-audit.js              │ │ logic.js  (pure)           │
- │ `state` (the project in      │ │ recordAuditLog()           │ │ no DOM, no state, no DB    │
+ │ `state` (the project in      │ │ saveChange(), auditEntry() │ │ no DOM, no state, no DB    │
  │  memory), dbPut / dbDelete / │ │ beginChange / finishChange │ │ consistency rules, ref.    │
  │ dbBatch / commitOps,         │ │ undo stack, performUndo    │ │ graph, undo planning,      │
  │ bindTextField, normalize*(), │ │                            │ │ merge / split plans,       │
@@ -54,7 +55,8 @@ function at run time; only top-level code is limited to what was loaded before i
 **The important fact about this structure:** the feature files have no separate "operations" layer. A view's render
 function also contains the code that changes data when its buttons are used. `renderMatrixTable` (matrix.js) builds rows
 lazily, and the row builder `buildRowBody` holds about a dozen such handlers; `updateSidebar` (extraction.js) and
-`renderComparisonTabContent` (compare.js) are the same shape. Section 6 shows what that means for bugs.
+`renderComparisonTabContent` (compare.js) are the same shape. Every one of those handlers stores its change through the
+same path (section 6), so the rules for storing live in one place; where the handlers live is the next step (section 12).
 
 ## 3. Files
 
@@ -63,7 +65,7 @@ lazily, and the row builder `buildRowBody` holds about a dozen such handlers; `u
 | `core.js` | 53 KB | storage engine, `state`, normalisation, save path for text, dialogs, small helpers | `initDB`, `dbPut`, `dbDelete`, `dbBatch`, `commitOps`, `bindTextField`, `bindPendingCommit`, `flushAllPendingSaves`, `normalizeDoc/Annotation/Cluster`, `upgradeProjectData`, `askReason`, `askChoice`, `showNotice`, `showSnackbar` |
 | `logic.js` | 81 KB | everything that can be decided without the page (unit-tested in Node) | `checkInvariants`, `putIntoRow` / `takeOutOfRow` / `rowFieldsOf`, `applyOps`, `revertChange`, `tidyRefsOps`, `planMergeRows` / `planSplitRow` (+ undo plans), `rowDeletionOps`, `remapDocIds`, `purgeDocRefs`, `purgeClusterRefs`, `isKeyDecisionLog`, `LOG_KINDS`, `sanitizeProjectData` |
 | `app.js` | 36 KB | start-up, project / reviewer setup, tab switching, settings, PDF drag & drop | `DOMContentLoaded` handler, `setActiveTab`, `refreshOpenViews`, `openProjectSetupModal` |
-| `undo-audit.js` | 12 KB | audit entries and the undo stack | `recordAuditLog`, `beginChange`, `finishChange`, `pushUndoAction`, `performUndo` |
+| `undo-audit.js` | 12 KB | the one save path for changes, audit entries and the undo stack | `saveChange`, `auditEntry`, `recordAuditLog`, `beginChange`, `finishChange`, `pushUndoAction`, `performUndo` |
 | `loa.js` | 52 KB | the Research Aim & Overall Model drawer, concept map (SVG), team models, Tab 4 write-up fields | `populateLoaInputs`, `saveLoaDrawer` / `commitLoaDrawer`, `renderLoaMap`, `renderTeamModels`, `addTeamModel` |
 | `studies-pdf.js` | 95 KB | studies: import, order, details / appraisal dock; PDF rendering, selection, highlights, search, citation auto-fill | `handleFiles`, `renderStudyList`, `switchStudy`, `persistDocOrder`, `checkBaselineChange`, `saveCurrentMeta`, `addAnno` |
 | `extraction.js` | 66 KB | Tab 1 sidebar: quote and construct cards, links, passages, wrap, manual entry, 1st ⇄ 2nd switch | `updateSidebar`, `makeFirstCard`, `deleteSecondOrder`, `absorbAsPassage`, `splitOffPassage`, `toggleAnnotationOrderType` |
@@ -84,7 +86,7 @@ lazily, and the row builder `buildRowBody` holds about a dozen such handlers; `u
 | `pdf_binaries` | `id` (= doc id) | the PDF bytes of a study | kept apart so `docs` stays small; never held in `state` |
 | `annotations` | `id` | a 1st order quote (`type: 'first_order'`) or a 2nd order construct (`type: 'second_order'`) | shape: `normalizeAnnotation()` (core.js) |
 | `clusters` | `id` | a 3rd order row | shape: `normalizeCluster()` (core.js) |
-| `logs` | `id` | an audit entry | written only by `recordAuditLog()` (and merged in from backups / Compare) |
+| `logs` | `id` | an audit entry | built by `auditEntry()`, written with its change by `saveChange()` (and merged in from backups / Compare) |
 | `meta` | `'loa_main'` | the one project-wide record | aim, review question, write-up fields, line of argument, map links and positions, team models, study order strategy, study #1 … (`state.loa`) |
 
 ### 4.2 How the records point at each other
@@ -148,149 +150,132 @@ change that can touch anything (Undo, closing Compare), `refreshOpenViews()` (ap
 are built lazily: only rows near the viewport have content (`renderMatrixTable`), so code must not look for row DOM across
 the table.
 
-## 6. How a change happens today
+## 6. How a change is stored
 
-There are four ways a change reaches the database. They behave differently, and each handler picks one.
+Every change goes the same way: the changed records are built as **copies**, and written **together with the audit
+entries about them** in **one transaction**; only then does `state` (and so the screen) follow. A write the browser
+refuses therefore changes nothing — not the database, not memory, not the trail.
 
-### Path A — a text field: `bindTextField` (core.js)
+### The one path: `saveChange(ops, entries)` (undo-audit.js)
+
+```js
+await saveChange(
+  [{ store: 'clusters', put: { ...cluster, concordanceStatus: status, concordanceNote: note } }],  // copies (or { store, del })
+  auditEntry({ kind: 'row_team', clusterIds: [cluster.id], category: 'concordance', action: '…', fromVal, toVal })
+);
+// stored in one transaction (commitOps); then applied to state: `cluster` itself now has the new status
+```
+
+- `auditEntry({ … })` builds an entry (same arguments as `recordAuditLog`; `null` for a minor operation that is not
+  logged). `saveChange` takes one entry, a list, or none, and skips `null`s.
+- `saveChange` writes with `commitOps(ops)` (core.js): a deletion first lets every save still waiting finish
+  (`flushAllPendingSaves`); one transaction (`dbBatch`); then the same ops are applied to `state` (`applyOps`, logic.js):
+  a record already in memory keeps its object (its content is replaced), a new one is appended, a deleted one leaves.
+- `recordAuditLog(args)` is `saveChange([], auditEntry(args))`: for an entry that is not about a change being stored at the
+  same moment (a memo, a note on a difference in Compare).
+- `commitOps(ops)` alone is for writes without an entry: layout (map positions), bookkeeping (PDF fingerprints, study #1
+  remembered), a new quote or construct, a reason added to a trail entry.
+
+Entries made in the same millisecond keep their order (`auditEntry` keeps time strictly increasing), so an operation that
+writes several entries shows them in the trail in the order it made them.
+
+### Text fields: `bindTextField` (core.js)
 
 ```js
 bindTextField(el, {
   get: () => cluster.synthesisNote,
-  set: v => { cluster.synthesisNote = v; },
-  save: saveRow,                                   // draft save after a short pause while typing
-  commit: (prev, next) => recordAuditLog({ … })    // once, when the box is left, if the text changed
+  set: v => { cluster.synthesisNote = v; },             // the record in memory follows the typing
+  record: () => ({ store: 'clusters', put: cluster }),   // the record as a write
+  log: (prev, next) => auditEntry({ kind: 'step_b', … }), // the entry, only if the text changed
+  after: (prev, next) => …                               // optional: what follows from the change
 });
 ```
 
-One save path per field; the audit entry is written once per edit. `bindPendingCommit(el, fn)` is the same idea for a box
-whose commit is not one record's text. **This path is consistent and needs no change**, except that its `save` and its
-`commit` are still two separate writes (see 7.1).
+While typing, a draft of the record is saved after a short pause (`dbPut`, no entry). When the box is left (or on a tab
+switch, a re-render, the page closing), the text is trimmed and the record is written **with** its entry by `saveChange`.
+A text field is the one place where memory changes before the write (that is what typing is); its commit stays pending and
+is tried again if the write is refused. `bindPendingCommit(el, fn)` is the same idea for a box whose commit is not one
+record's text (the study dock, an appraisal reason); its `fn` uses `saveChange`.
 
-### Path B — one record, written directly: `dbPut` + `recordAuditLog`
-
-The most common shape. Example: the team status of a row (matrix.js, `updateClusterConcordance`):
-
-```js
-cluster.concordanceStatus = newStatus;      // 1. change the record in memory (state is changed now)
-cluster.concordanceNote = newNote;
-await dbPut('clusters', cluster);           // 2. write it (transaction 1)
-… update the badge in the DOM …
-await recordAuditLog({ kind: 'row_team', … });   // 3. write the audit entry (transaction 2)
-```
-
-Memory is changed **before** the write, and the record and its audit entry are written in **two** transactions.
-
-### Path C — several records at once: `commitOps(ops)` (core.js)
+### Undo: `beginChange` … `finishChange` (undo-audit.js)
 
 ```js
-const ops = [{ store: 'annotations', put: { ...sec, … } }, { store: 'clusters', del: rowId }, …];
-await commitOps(ops);   // one transaction; THEN the same ops are applied to `state` (applyOps, logic.js)
-```
-
-Records are built as copies, written in one transaction, and only then applied to memory, so a refused write changes
-nothing. Deletions flush pending saves first. Used for merge / split / delete a row, delete a study, orders, placing,
-passages, restore. The audit entry is still written afterwards by `recordAuditLog` (a second transaction).
-
-### Path D — Undo: `beginChange` … `finishChange` (undo-audit.js)
-
-```js
-const change = beginChange('Delete row "…"', [{ store: 'clusters', id }, …], { undoLogs: [ … ] }); // copies "before"
-… do the work (path B or C) …
-finishChange(change, created);   // copies "after", pushes the change on the undo stack
+await flushAllPendingSaves();
+const change = beginChange('Relation "A" → "B"', [{ store: 'meta', id: 'loa_main' }], { undoLogs: [{ kind: 'map_relation', … }] });
+await saveChange(ops, auditEntry({ … }));
+finishChange(change);   // copies "after", pushes the change on the undo stack
+showUndoSnackbar('Relation removed');
 ```
 
 Ctrl+Z runs `revertChange()` + `tidyRefsOps()` (logic.js): it puts back what the operation changed and is still as the
-operation left it, keeps later work, and brings nothing back that points at something deleted since. Row merge / split
-and study deletion keep their own undo (`pushUndoAction({ type: 'row_merge' | 'row_split' | 'delete_study' })`), planned
-on copies in logic.js. Undo covers deletions and a few structural steps; ordinary edits are not on the stack (they are
-logged, and can be edited back).
+operation left it, keeps later work, and brings nothing back that points at something deleted since; it writes that and
+its `undoLogs` entries in one `saveChange`. Row merge / split and study deletion keep their own undo
+(`pushUndoAction({ type: 'row_merge' | 'row_split' | 'delete_study' })`), planned on copies in logic.js. Undo covers
+deletions and structural steps; ordinary edits are not on the stack (they are logged, and can be edited back). A deletion
+that Ctrl+Z undoes does not ask first.
 
-### Who uses which path
+### Shared helpers for changes made from several views
 
-From the inventory (104 units that write, log or record an undo step):
+| Helper | File | Used by |
+|---|---|---|
+| `linkQuoteToConstruct(f, sec)` | extraction.js | dragging a quote onto a card, the link menus in Tab 1 and the Tab 2 pool |
+| `saveExtractedText(anno, text)` | extraction.js | correcting the extracted text in Tab 1 (quotes, constructs) and on a matrix card |
+| `setConstructTeamStatus(sec, status, note, entry)` | extraction.js | a construct's team status in Tab 1, "Flag for Discussion" in Compare |
+| `teamStatusText(status, note)` | extraction.js | how a construct's or row's team status reads in the trail |
+| `persistDocOrder(list, entries, extraOps)` | studies-pdf.js | moving a study, sorting by year / richness, ordering tied studies, deleting / restoring a study |
+| `rowOrderOps(list)`, `sortRows(list)`, `sortStudies(list)` | logic.js | row order (▲ / ▼), every place that puts rows / studies in their stored order |
+| `peerRowPlacementOps(peerRowId, rowId, newRow)` | compare.js | placing constructs that waited in Compare for their row (row import, a row of that title made here) |
+| `studyNameOf(rec)` | studies-pdf.js | the display name of the study a quote / construct belongs to |
+
+### What the inventory shows now
+
+From `docs/operations-inventory.md` (89 units that write, log or record an Undo step):
 
 | | Units |
 |---|---|
-| write with `dbPut` / `dbDelete` directly (path B) | 61 |
-| write with `commitOps` (path C) | 23 |
-| record an undo step (path D), themselves or through a helper | 17 |
-| write a record and its audit entry in two transactions (`split-write`) | 41 |
-| change the record in memory before writing it (`mutate-first`) | 24 |
+| write with `saveChange` (records and entries together) | 62 |
+| write with `commitOps` alone (no entry: layout, bookkeeping, new extractions) | 11 |
+| write with `dbPut` directly | 3 (the title's draft save, map positions while dragging, the PDF copy in a clean restore) |
+| record an Undo step, themselves or through a helper | 19 |
+| `split-write` · `mutate-first` · `no-kind` | 0 · 0 · 0 |
 
-So the rules in `CLAUDE.md` (copies before the write, one transaction, flush before deleting, log every interpretive
-change with its `kind` and `clusterIds`, undo for deletions, redraw what changed) are kept by each handler on its own.
-Paths C and D already do most of it in one place; path B does it by hand in every handler. Many of the bugs fixed in
-v1.4.8 – 1.4.13 were a handler that missed one of those rules.
+## 7. Decisions on the gaps found by the first inventory (v1.4.13)
 
-## 7. Known gaps (found by the inventory)
+The first inventory (before this change) found records and their entries saved in two transactions (41 units), records
+changed in memory before the write (24), entries without a `kind` (33), and four places that did not do what the reviewer
+would expect. All are fixed:
 
-These are places to look at, not confirmed bugs. Line numbers are those in `docs/operations-inventory.md` at the time
-of writing.
-
-### 7.1 A record and its audit entry are saved separately (41 units, `split-write`)
-
-Every path B handler, and every path C handler, writes the audit entry in a second transaction. If the second write is
-refused (storage full, tab closed between the two), the change is saved without its entry in the trail — the one thing
-the audit trail promises not to happen. Fix: write the entry in the same transaction (an op `{ store: 'logs', put }` in
-the same `commitOps`).
-
-### 7.2 Memory is changed before the write (24 units, `mutate-first`)
-
-When the write is refused, `state` (and the screen) shows a change the database does not have; the next save of that
-record writes it anyway, possibly with other changes. `commitOps` was made to avoid this; path B handlers still do it.
-Examples: `updateClusterConcordance`, `saveCerqualChanges`, `setRowBase`, the empty-cell status (matrix.js),
-`updateSecConcordance`, label source (extraction.js), `saveCurrentMeta` (studies-pdf.js).
-
-### 7.3 Interpretive changes that leave no audit entry (`no-log`, 9 units; some are on purpose)
-
-| Unit | Kind of change | Comment |
-|---|---|---|
-| compare.js `renderLocalOnly` → "flag for discussion" | sets a construct's team status to Discuss **and replaces its team note** | not logged; the reviewer's earlier note is overwritten without a trace. Likely a real gap. |
-| extraction.js `removePassage` | removes a further passage from a construct | undoable, but not logged, while adding a passage (`passage_add`) is |
-| studies-pdf.js `addAnno`, extraction.js `submitManualAddForm` | a new quote / construct | not logged anywhere; check whether that is intended (the record itself carries `by` and its id carries the time) |
-| loa.js map positions / reset, compare.js `savePeerSetAside`, matrix.js `persistClusterOrder`, compare.js `reattachPeerRowPlacements` | layout, or bookkeeping whose caller logs | fine (layout is not logged on purpose; the callers log the others) |
-
-### 7.4 Audit entries without a `kind` (33 units, `no-kind`)
-
-Appendix A falls back to matching the action text (`APPENDIX_ROUTINE` etc. in logic.js) for these, so rewording the UI
-text can silently move an entry in or out of Appendix A. `CLAUDE.md` requires a kind only for the calls those patterns
-recognise; the smoke test checks that. Examples without a kind: row created / deleted / merged / split, row base changed,
-seed confirmed, empty-cell status, map relations, team models, Compare imports, study order.
-
-### 7.5 Deletions that Ctrl+Z does not undo
-
-| Unit | Asks first? |
+| Was | Now |
 |---|---|
-| loa.js `renderLoaMap` → remove a map relation | no, and no undo |
-| extraction.js `buildStudyConceptLinksBox` → remove a within-study relationship | no, and no undo |
-| loa.js `renderTeamModels` → remove a team model | yes (says it cannot be undone) |
+| A record and its audit entry in two transactions | One transaction (`saveChange`), everywhere |
+| The record changed in memory first | Copies are written; memory follows once stored (text fields: see section 6) |
+| Entries without a `kind` (Appendix A fell back to the action text) | Every entry has a kind registered in `LOG_KINDS`, with the same Appendix A meaning it had by category before (checked case by case) |
+| Compare, "Flag for Discussion": replaced the construct's team note, no entry | Adds its reason to the note (the note stays) and logs the change (`construct_team`) |
+| Removing a further passage: not logged (adding one is) | Logged (`passage_remove`) |
+| Removing a map relation / a within-study relationship: no question, no Undo | No question, Ctrl+Z undoes it (and the undoing is logged) |
+| Merge restore: one `dbPut` per record (a refused write left a half-merged project) | Worked out on copies, written in one transaction with its entry |
 
-The rule "a deletion that Ctrl+Z undoes does not ask first" leaves open what a deletion without undo does; two of the
-three neither ask nor undo.
+Still on purpose without an entry (`no-log` in the inventory): moving / resetting the map's boxes and its layout (layout),
+a new quote or construct (the record carries its reviewer and its time), and the reason added to a trail entry (it keeps
+its own history in the entry).
 
-### 7.6 Writes that are not one transaction
-
-- Merge restore (backup.js, `jsonFileInput` handler): each added or filled record is a separate `dbPut` in a loop. A
-  refused write half way leaves a half-merged project. The clean restore clears the stores and then writes in one
-  `commitOps`, with a hand-made rollback snapshot if that fails.
-- Auto-placement (matrix.js `seedIndexPaperRows`): rows and constructs are created with several `dbPut`s.
-- 1st ⇄ 2nd switch (extraction.js `toggleAnnotationOrderType`): one branch uses `dbPut`, the other `commitOps`.
+Removing a team model still asks first and cannot be undone with Ctrl+Z (the dialog says so).
 
 ## 8. Audit trail
 
-`recordAuditLog({ category, action, detail, fromVal, toVal, rationale, clusterIds, kind, targetLabel, targetId })`
-(undo-audit.js) writes one entry and adds it to `state.logs`. `category` groups entries in Tab 3; `clusterIds` puts an
-entry in a row's history; `kind` (registry `LOG_KINDS`, logic.js) decides whether it is a key decision in Appendix A.
-Entries are never edited by the app except for their `rationale` (Tab 3) and the reviewer name (bulk re-attribution);
-they can be deleted (undoable) from Tab 3.
+Entries are built by `auditEntry({ category, action, detail, fromVal, toVal, rationale, clusterIds, kind, targetLabel,
+targetId, isMinorOp })` and written with the change by `saveChange` (or alone by `recordAuditLog`). `category` groups
+entries in Tab 3; `clusterIds` puts an entry in a row's history; `kind` (registry `LOG_KINDS`, logic.js) decides whether it
+is a key decision in Appendix A. Entries are never edited by the app except for their `rationale` (Tab 3, with the earlier
+wording kept) and the reviewer name (re-attribution); they can be deleted (undoable) from Tab 3.
 
 ## 9. Compare, backup, restore
 
 - **Backup** (backup.js): every store except PDF bytes, plus `formatVersion`, as JSON. `flushAllPendingSaves()` first.
 - **Clean restore**: `upgradeProjectData()` → build the project in start-up order → every record through `tidyRefsOps()`
-  → clear stores → one `commitOps()`.
-- **Merge restore**: add what is new, fill empty texts of what exists (`mergeFillEmpty`), keep local values on conflict.
+  → clear stores → one `saveChange()` with the trail and the entry about the restore (rolled back by hand if refused).
+- **Merge restore**: add what is new, fill empty texts of what exists (`mergeFillEmpty`, on copies), keep local values on
+  conflict; everything, tidied (`tidyRefsOps`), in one `saveChange` with the entry about the merge.
 - **Compare** (compare.js): match the peer's studies to local ones (`matchPeerDocs`: id, file hash, DOI, name, title),
   then constructs by text similarity. The reviewer imports, sets aside or marks agreed, item by item. Items imported
   before what they belong to keep the peer's links in `_peerParentIds` / `_peerRows` until it arrives.
@@ -304,35 +289,34 @@ they can be deleted (undoable) from Tab 3.
 | `tools/test/scenario.test.mjs` | chains of pure steps (place, judge, merge, split, delete, undo …) with `checkInvariants()` after each, fixed and seeded random walks |
 | `tools/test/smoke.mjs` | the real app in Chromium on the demo project; after every step `settle()` waits for idle and runs `checkInvariants()`; plus checks for wording, CSP, layout widths, compatibility, audit kinds, no browser dialogs, shared global names |
 
-What the tests cannot see well today: path B handlers (they live inside render functions, so only the smoke test reaches
-them, one click at a time), and failures between the two writes of 7.1.
+The smoke group "One transaction per change" checks that a refused write leaves memory and the trail as they were, and
+the fixes of section 7. What the tests still cannot reach well: handlers that live inside render functions (only the smoke
+test reaches them, one click at a time).
 
 ## 11. Operations inventory
 
 [`docs/operations-inventory.md`](docs/operations-inventory.md) is generated by `node tools/dev/list-operations.mjs`
 (`--check` reports whether it is out of date; it is not part of `npm test`, because any edit moves its line numbers).
 The script parses `app/js/*.js` with the TypeScript parser and lists every **unit** — the innermost event handler, or
-else the named function — that writes (`dbPut`, `dbDelete`, `dbBatch`, `dbClear`, `commitOps`), logs (`recordAuditLog`,
-`logExtractedTextEdit`) or records an undo step (`beginChange`, `pushUndoAction`).
+else the named function — that writes (`saveChange`, `commitOps`, `dbPut`, `dbDelete`, `dbBatch`, `dbClear`), logs
+(`auditEntry`; `recordAuditLog`, shown as "alone") or records an undo step (`beginChange`, `pushUndoAction`).
 
 Columns: **Line** where the unit starts · **In** the named function it is in · **Trigger** the event or text field
 (empty: called from elsewhere) · **Writes** · **Audit entries** (kind · category · action text) · **Undo** (`change` =
 generic undo, otherwise the own undo type; "via" = through a function it calls) · **Calls** other units it calls (where
-the work may really be done) · **Flags** (section 7).
+the work may really be done) · **Flags**: `split-write` (records and an entry about them in two transactions),
+`mutate-first` (a record changed in memory, then written), `no-log` (project data written, no entry here or in a unit it
+calls), `no-kind` (an entry without a kind).
 
 The flags are read from the shape of the code. A flag says "look here", not "this is wrong": for example a `no-log` on
 map positions is intended.
 
-## 12. Direction (proposal, not yet started)
+## 12. Direction (next steps, not started)
 
-The gaps in section 7 have one cause: there is no single path for "an operation". The proposed refactoring keeps the data
-format and the behaviour, and changes where the code lives:
+Section 6 gives every change one path; the code that makes a change still lives inside the render functions
+(`buildRowBody`, `updateSidebar`, `renderComparisonTabContent`). Next, if wanted:
 
-1. **Operations as pure functions** (logic.js or a new pure file): `(project, args) → { label, ops, log, undo }`. No DOM,
-   no `state`. Each one can then run in the scenario tests with `checkInvariants()`.
-2. **One entry point in the browser**, `runOperation(op, args)`: flush pending saves, begin the undo change, write the ops
-   **and the audit entry in one `commitOps`**, finish the change, redraw (`refreshOpenViews`). A handler becomes one call.
-3. **Render functions only draw**: buttons carry `data-action`, one delegated listener per view calls `runOperation`.
-   `bindTextField` commits through `runOperation` too.
-4. **One file at a time**, starting with matrix.js, each as its own pull request, with the smoke tests as the safety net;
-   then a test that only `runOperation` may call `dbPut` / `recordAuditLog` (like the existing check for `dbBatch`).
+1. **Operations as pure functions** (logic.js or a new pure file): `(project, args) → { label, ops, entries, undo }`. No
+   DOM, no `state`. Each one can then run in the scenario tests with `checkInvariants()`.
+2. **Render functions only draw**: buttons carry `data-action`, one delegated listener per view runs the operation.
+3. **A test that only `saveChange` / `commitOps` write project data** (like the existing check for `dbBatch`).

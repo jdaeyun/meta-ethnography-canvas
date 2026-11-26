@@ -274,10 +274,7 @@ document.addEventListener('click', async ev => {
   const lb = ev.target && ev.target.closest && ev.target.closest('.loa-layout-btn');
   if (lb) {
     const layout = lb.dataset.layout === 'flow' ? 'flow' : 'circle';
-    if (getLoaMapLayout() !== layout) {
-      state.loa.mapLayout = layout;
-      await dbPut('meta', state.loa);
-    }
+    if (getLoaMapLayout() !== layout) await commitOps([{ store: 'meta', put: { ...state.loa, mapLayout: layout } }]); // (layout: not logged)
     renderLoaMap();
     return;
   }
@@ -311,18 +308,22 @@ function renderLoaAspects() {
     </label>`).join('');
   box.querySelectorAll('.loa-aspect-use').forEach(cb => cb.onchange = async () => {
     const x = cells[+cb.dataset.i];
+    /** @type {DbOp} */
+    let op;
     if (x.sec) {
       if (secRelation(x.sec, x.cluster.id) !== 'other_aspect') { renderLoaAspects(); return; }
-      x.sec.aspectUsedInLoa = { ...(x.sec.aspectUsedInLoa || {}) };
-      if (cb.checked) x.sec.aspectUsedInLoa[x.cluster.id] = true; else delete x.sec.aspectUsedInLoa[x.cluster.id];
-      await dbPut('annotations', x.sec);
+      const marks = { ...(x.sec.aspectUsedInLoa || {}) };
+      if (cb.checked) marks[x.cluster.id] = true; else delete marks[x.cluster.id];
+      op = { store: 'annotations', put: { ...x.sec, aspectUsedInLoa: marks } };
     } else {
       const v = x.cluster.cellStatus && x.cluster.cellStatus[x.doc.id];
       if (!v || v.status !== 'other_aspect') { renderLoaAspects(); return; }
-      if (cb.checked) v.usedInLoa = true; else delete v.usedInLoa;
-      await dbPut('clusters', x.cluster);
+      const cell = { ...v };
+      if (cb.checked) cell.usedInLoa = true; else delete cell.usedInLoa;
+      op = { store: 'clusters', put: { ...x.cluster, cellStatus: { ...x.cluster.cellStatus, [x.doc.id]: cell } } };
     }
-    await recordAuditLog({
+    await saveChange([op], auditEntry({
+      kind: 'aspect_use',
       clusterIds: [x.cluster.id],
       category: 'line_of_argument',
       // (a card placed in the row and judged ◇, or an empty cell marked ◇ beside it)
@@ -331,7 +332,7 @@ function renderLoaAspects() {
       detail: x.note,
       fromVal: cb.checked ? 'Not used' : 'Used in the line of argument',
       toVal: cb.checked ? 'Used in the line of argument' : 'Not used'
-    });
+    }));
   });
   box.querySelectorAll('.loa-aspect-jump').forEach(btn => btn.onclick = e => {
     e.preventDefault();
@@ -359,16 +360,21 @@ function renderLoaMap() {
     row.className = 'flex items-start justify-between gap-1 border border-slate-200 rounded px-1.5 py-1 bg-white';
     row.innerHTML = `<div><b>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.from)))}</b> <span style="color:${m.color}; font-weight:bold;">${m.sym}</span> <b>${escapeHtml(clusterLabel(state.clusters.find(c => c.id === l.to)))}</b>${l.note ? `<div class="text-slate-500">${escapeHtml(l.note)}</div>` : ''}</div><button type="button" class="text-slate-400 hover:text-rose-600 cursor-pointer" title="Remove relation">✕</button>`;
     row.querySelector('button').onclick = async () => {
-      state.loa.links = (state.loa.links || []).filter(x => x.id !== l.id);
-      state.loa.updatedAt = Date.now();
-      await dbPut('meta', state.loa);
-      await recordAuditLog({
+      // Undoable (Ctrl+Z), so it does not ask first
+      await flushAllPendingSaves();
+      const what = `"${clusterLabel(state.clusters.find(c => c.id === l.from))}" ${m.sym} "${clusterLabel(state.clusters.find(c => c.id === l.to))}"`;
+      const change = beginChange(`Relation ${what}`, [{ store: 'meta', id: 'loa_main' }], { undoLogs: [{ kind: 'map_relation', clusterIds: [l.from, l.to],
+        category: 'line_of_argument', action: `Restored relation (Undo): ${what}`, detail: l.note || '' }] });
+      await saveChange([{ store: 'meta', put: { ...state.loa, links: (state.loa.links || []).filter(x => x.id !== l.id), updatedAt: Date.now() } }], auditEntry({
+        kind: 'map_relation',
         clusterIds: [l.from, l.to],
         category: 'line_of_argument',
-        action: `Removed relation: "${clusterLabel(state.clusters.find(c => c.id === l.from))}" ${m.sym} "${clusterLabel(state.clusters.find(c => c.id === l.to))}"`,
+        action: `Removed relation: ${what}`,
         detail: l.note || ''
-      });
+      }));
+      finishChange(change);
       renderLoaMap();
+      showUndoSnackbar('Relation removed');
     };
     list.appendChild(row);
   });
@@ -488,9 +494,9 @@ async function resetLoaMapLayout() {
   const layout = getLoaMapLayout();
   const before = mapPositionsCopy(layout);
   if (!before) return;
-  state.loa.mapPositions = { ...(state.loa.mapPositions || {}) };
-  delete state.loa.mapPositions[layout];
-  await dbPut('meta', state.loa);
+  const mapPositions = { ...(state.loa.mapPositions || {}) };
+  delete mapPositions[layout];
+  await commitOps([{ store: 'meta', put: { ...state.loa, mapPositions } }]); // (layout: not logged)
   pushMapLayoutUndo(layout, before, 'Reset the map layout');
   drawLoaMapBox();
   showUndoSnackbar('The boxes are back in their computed places');
@@ -504,16 +510,14 @@ document.addEventListener('click', async (ev) => {
   const dup = (state.loa.links || []).some(l => l.type === type && ((l.from === from && l.to === to) || (!isDirectedLink(type) && l.from === to && l.to === from)));
   if (dup) { showSnackbar('This relation already exists.'); return; }
   const link = { id: 'lk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, type, note };
-  state.loa.links = [...(state.loa.links || []), link];
-  state.loa.updatedAt = Date.now();
-  await dbPut('meta', state.loa);
   const m = LINK_TYPES[type];
-  await recordAuditLog({
+  await saveChange([{ store: 'meta', put: { ...state.loa, links: [...(state.loa.links || []), link], updatedAt: Date.now() } }], auditEntry({
+    kind: 'map_relation',
     clusterIds: [from, to],
     category: 'line_of_argument',
     action: `Added relation: "${clusterLabel(state.clusters.find(c => c.id === from))}" ${m.sym} "${clusterLabel(state.clusters.find(c => c.id === to))}"`,
     detail: `${m.label}${note ? ' — ' + note : ''}`
-  });
+  }));
   document.getElementById('loaLinkNote').value = '';
   renderLoaMap();
 });
@@ -551,14 +555,12 @@ function modelFromPeerLoa(peerLoa, peerClusters, reviewer) {
 function modelIsEmpty(m) { return !(m.title || m.flow || m.narrative || (m.links && m.links.length)); }
 async function addTeamModel(model, how) {
   if (modelIsEmpty(model)) { showSnackbar('This model is empty (no title, sketch, narrative or relations).'); return false; }
-  state.loa.teamModels = [...(Array.isArray(state.loa.teamModels) ? state.loa.teamModels : []), model];
-  state.loa.updatedAt = Date.now();
-  await dbPut('meta', state.loa);
-  await recordAuditLog({
+  await saveChange([{ store: 'meta', put: { ...state.loa, teamModels: [...(Array.isArray(state.loa.teamModels) ? state.loa.teamModels : []), model], updatedAt: Date.now() } }], auditEntry({
+    kind: 'team_model',
     category: 'team_model',
     action: `Recorded independent model of @${model.reviewer}${model.title ? ': "' + model.title + '"' : ''}`,
     detail: `${how}\n${model.flow ? 'Flow: ' + model.flow + '\n' : ''}${model.links.length ? 'Relations: ' + model.links.map(l => `${l.from} ${(LINK_TYPES[l.type] || LINK_TYPES.leads).sym} ${l.to}`).join('; ') + '\n' : ''}${model.narrative ? 'Narrative: ' + model.narrative : ''}`
-  });
+  }));
   renderTeamModels();
   return true;
 }
@@ -613,10 +615,8 @@ function renderTeamModels() {
     };
     card.querySelector('.tm-del').onclick = async () => {
       if (!(await askChoice({ title: `Remove @${m.reviewer}'s model record?`, body: 'The removal is recorded in the Audit Trail; it cannot be undone with Ctrl+Z.', choices: [{ value: 'remove', tone: 'danger', label: 'Remove the model record' }] }))) return;
-      state.loa.teamModels = models.filter(x => x.id !== m.id);
-      state.loa.updatedAt = Date.now();
-      await dbPut('meta', state.loa);
-      await recordAuditLog({ category: 'team_model', action: `Removed independent model record of @${m.reviewer}${m.title ? ': "' + m.title + '"' : ''}`, detail: '' });
+      await saveChange([{ store: 'meta', put: { ...state.loa, teamModels: models.filter(x => x.id !== m.id), updatedAt: Date.now() } }],
+        auditEntry({ kind: 'team_model', category: 'team_model', action: `Removed independent model record of @${m.reviewer}${m.title ? ': "' + m.title + '"' : ''}`, detail: '' }));
       renderTeamModels();
     };
     grid.appendChild(card);
@@ -691,15 +691,13 @@ WRITEUP_FIELDS.forEach(([key, id, category]) => {
     const oldVal = state.loa[key] || '';
     const newVal = (el.value || '').trim();
     if (oldVal === newVal) return;
-    state.loa = { ...state.loa, id: 'loa_main', [key]: newVal, updatedAt: Date.now() };
-    await dbPut('meta', state.loa);
-    await recordAuditLog({
+    await saveChange([{ store: 'meta', put: { ...state.loa, id: 'loa_main', [key]: newVal, updatedAt: Date.now() } }], auditEntry({
       kind: key === 'reviewQuestion' ? 'review_question' : 'writeup', targetLabel: key,
       category,
       action: `Updated ${LOA_FIELD_LABELS[key]}`,
       fromVal: oldVal ? writeupFieldText(key, oldVal) : '(empty)',
       toVal: newVal ? writeupFieldText(key, newVal) : '(cleared)'
-    });
+    }));
     if (!divPub.classList.contains('hidden')) renderPublicationView();
   });
 });
@@ -765,53 +763,50 @@ async function saveLoaDrawer({ quiet = false } = {}) {
     return;
   }
 
-  state.loa = { ...state.loa, id: 'loa_main', projectCode: state.projectCode || '', ...newV, updatedAt: Date.now() };
-  await dbPut('meta', state.loa);
-  populateLoaInputs();
-  updateHeaderProjectUI();
-
+  // The drawer's fields and one audit entry per part that changed, in one transaction
+  const entries = [];
   if (aimChanged) {
-    await recordAuditLog({
+    entries.push(auditEntry({
       kind: 'aim',
       category: 'aim_question',
       action: 'Updated Phase 1 Research Aim',
       detail: newV.aim || '(cleared)',
       fromVal: oldV.aim ? oldV.aim.slice(0, 90) : '(none)',
       toVal: newV.aim ? newV.aim.slice(0, 90) : '(cleared)'
-    });
+    }));
   }
   if (loaChanged) {
-    await recordAuditLog({
+    entries.push(auditEntry({
       kind: 'line_of_argument',
       category: 'line_of_argument',
       action: `Updated Line of Argument Synthesis${newV.title ? ': "' + newV.title + '"' : ''}`,
       detail: `${newV.flow ? 'Model Flow: ' + newV.flow + '\n' : ''}${newV.narrative ? 'Narrative: ' + newV.narrative : ''}`,
       fromVal: oldV.title || oldV.flow || oldV.narrative ? `${oldV.title || '(Untitled)'} — ${(oldV.narrative || oldV.flow).slice(0, 70)}...` : '(Initial Draft)',
       toVal: `${newV.title || '(Untitled)'} — ${(newV.narrative || newV.flow).slice(0, 70)}...`
-    });
+    }));
   }
-  // One audit entry per section that changed (alternative interpretations, Item 16, team merge)
-  const byCat = {};
-  extraChanged.forEach(([k, , cat]) => { (byCat[cat] = byCat[cat] || []).push(k); });
-  for (const cat of Object.keys(byCat)) {
-    const keys = byCat[cat];
-    await recordAuditLog({
-      kind: keys.length === 1 ? ({ alternativeInterpretations: 'alternative_interpretations', modelContext: 'model_context' })[keys[0]] : undefined, targetLabel: keys.join(' / '),
+  // One audit entry per field of LOA_EXTRA_FIELDS that changed (alternative interpretations, Item 16, team merge)
+  extraChanged.forEach(([k, , cat]) => {
+    entries.push(auditEntry({
+      kind: ({ alternativeInterpretations: 'alternative_interpretations', modelContext: 'model_context', teamMergeNote: 'team_merge_note' })[k], targetLabel: k,
       category: cat,
-      action: `Updated ${keys.map(k => LOA_FIELD_LABELS[k]).join(' / ')}`,
-      detail: keys.map(k => `${LOA_FIELD_LABELS[k]}: ${newV[k] || '(cleared)'}`).join('\n'),
-      fromVal: keys.map(k => oldV[k]).filter(Boolean).join(' | ').slice(0, 90) || '(Initial Draft)',
-      toVal: keys.map(k => newV[k]).filter(Boolean).join(' | ').slice(0, 90) || '(cleared)'
-    });
-  }
+      action: `Updated ${LOA_FIELD_LABELS[k]}`,
+      detail: `${LOA_FIELD_LABELS[k]}: ${newV[k] || '(cleared)'}`,
+      fromVal: (oldV[k] || '').slice(0, 90) || '(Initial Draft)',
+      toVal: (newV[k] || '').slice(0, 90) || '(cleared)'
+    }));
+  });
   if (relChanged) {
-    await recordAuditLog({
+    entries.push(auditEntry({
       kind: 'relate_outcome',
       category: 'relating_studies',
       action: 'Updated Phase 4: Outcome of Relating Studies (eMERGe item 12)',
       detail: newV.relateOutcome ? 'Outcome: ' + newV.relateOutcome : '(cleared)',
       fromVal: oldV.relateOutcome ? `${oldV.relateOutcome.slice(0, 70)}...` : '(Initial Draft)',
       toVal: newV.relateOutcome ? `${newV.relateOutcome.slice(0, 70)}...` : '(cleared)'
-    });
+    }));
   }
+  await saveChange([{ store: 'meta', put: { ...state.loa, id: 'loa_main', projectCode: state.projectCode || '', ...newV, updatedAt: Date.now() } }], entries);
+  populateLoaInputs();
+  updateHeaderProjectUI();
 }

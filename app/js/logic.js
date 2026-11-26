@@ -34,9 +34,18 @@ const LOG_KINDS = {
   judgement: { changedKey: true },
   trail_delete: { key: true },
   trail_restore: { key: true },
-  undo_extraction: { routine: true }
+  undo_extraction: { routine: true },
+  // Kinds of entries that were matched by category alone before (each keeps the meaning it had in Appendix A then)
+  team_merge_note: { key: true },
+  row_create: { key: true }, row_delete: { key: true }, row_restore: { key: true }, row_base: { key: true }, row_reread: { key: true },
+  row_merge: { key: true }, row_split: { key: true }, row_undo: { key: true }, seed_choice: { key: true }, seed_confirm: { key: true },
+  aspect_use: { key: true }, map_relation: { key: true }, team_model: { key: true }, peer_relations: { key: true },
+  order_strategy: { key: true }, study_order: { key: true }, study_remove: { key: true }, study_restore: { key: true }, baseline_rows: { key: true },
+  order_difference: { key: true }, peer_set_aside: { key: true }, peer_row_import: { key: true }, reviewer_bulk: { key: true }, peer_placement: { key: true }, project_setup: { key: true }, restore: { key: true },
+  empty_cell: { routine: true }, // empty-cell statuses are shown in Table 2b
+  undo_placement: { routine: true }
 };
-['quote_link', 'quote_unlink', 'order_switch', 'wrap', 'label_source', 'construct_label', 'place', 'unplace', 'passage_add', 'passage_absorb',
+['quote_link', 'quote_unlink', 'order_switch', 'wrap', 'label_source', 'construct_label', 'place', 'unplace', 'passage_add', 'passage_remove', 'passage_absorb',
   'passage_split', 'within_study_link', 'within_study_unlink', 'extract_edit', 'study_overview', 'quote_delete', 'quote_restore', 'peer_import',
   'peer_logs', 'provisional_agreement', 'construct_team', 'row_reorder', 'cell_note', 'not_translated', 'subgroup', 'appraisal_answer',
   'appraisal', 'companion', 'reviewer_change'].forEach(k => { LOG_KINDS[k] = { routine: true }; });
@@ -392,7 +401,7 @@ function takeOutOfRow(a, rowId) {
   return had;
 }
 // Into the row, with exactly the given fields: anything left there from an earlier placement does not come back (a new
-// placement starts unjudged). What it changes in the row itself (base, empty-cell note): placementRowOps.
+// placement starts unjudged). What it changes in the row itself (base, empty-cell note): placementOpsFor.
 function putIntoRow(a, rowId, fields = {}) {
   if (!Array.isArray(a.clusterIds)) a.clusterIds = [];
   if (!a.clusterIds.includes(rowId)) a.clusterIds.push(rowId);
@@ -472,8 +481,8 @@ function applyPlacementToRow(row, docId) {
 }
 
 // What placing constructs does in their rows, as copies of the rows it changes ([{ store, put }], each row once): the
-// constructs given as they will be written. Nothing in the project is changed (core.js placementRowOps changes the rows in
-// memory instead, for the paths that write those rows again in the same batch).
+// constructs given as they will be written. Nothing in the project is changed: every path that places a construct (placing,
+// Compare import, split off a passage, Undo through tidyRefsOps) writes these with it.
 /** @param {any} project @param {any[]} annos */
 function placementOpsFor(project, annos) {
   const rows = new Map();
@@ -828,6 +837,14 @@ function planSplitRow(project, srcId, secIds, newRow, helpers) {
 // fields, the map relations).
 const sameJ = (x, y) => JSON.stringify(x === undefined ? null : x) === JSON.stringify(y === undefined ? null : y);
 const rowOrderKey = c => c.order ?? c.createdAt ?? 0;
+// The rows / studies of a list in their stored order (sorted in place, as at startup). Returns the list.
+/** @param {any[]} list */
+function sortRows(list) { return list.sort((x, y) => rowOrderKey(x) - rowOrderKey(y)); }
+/** @param {any[]} list */
+function sortStudies(list) { return list.sort((x, y) => (x.order ?? 999) - (y.order ?? 999)); }
+// The writes that number the rows by their place in the list (only the rows whose number changes; copies)
+/** @param {any[]} list @returns {DbOp[]} */
+function rowOrderOps(list) { return list.flatMap((c, i) => c.order === i ? [] : [{ store: 'clusters', put: { ...c, order: i } }]); }
 // The cards' places in the two rows; returns the cards' copies (and fills kept)
 function revertRowCards(project, entry, ids, kept, splitBasesDiffer) {
   const isSplit = entry.type === 'row_split';

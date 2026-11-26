@@ -90,15 +90,17 @@ async function undoOneStep(last) {
   if (last.type === 'change') {
     const { ops, kept } = revertChange(last, state);
     const { ops: tidy, dropped } = tidyRefsOps(state, ops); // never back pointing at what was deleted since
-    await commitOps(tidy);
-    state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0)); // a row back in its place
+    // The rows there will be once it is written (an entry names only those)
     const rows = new Set(state.clusters.map(c => c.id));
+    tidy.forEach(o => { if (o.store === 'clusters') { if ('del' in o) rows.delete(o.del); else rows.add(o.put.id); } });
     const keptText = kept.length ? `Kept what was changed after it: ${describeKept(kept)}.` : '';
     const droppedText = dropped.length ? `Not brought back (deleted since): ${dropped.join('; ')}.` : '';
-    for (const l of (last.undoLogs || [])) {
+    const entries = (last.undoLogs || []).map(l => {
       const ids = (l.clusterIds || []).filter(id => rows.has(id));
-      await recordAuditLog({ ...l, clusterIds: ids.length ? ids : null, detail: [l.detail, keptText, droppedText].filter(Boolean).join('\n') });
-    }
+      return auditEntry({ ...l, clusterIds: ids.length ? ids : null, detail: [l.detail, keptText, droppedText].filter(Boolean).join('\n') });
+    });
+    await saveChange(tidy, entries); // what it puts back and its entries, in one transaction
+    sortRows(state.clusters); // a row back in its place
     if (kept.length || dropped.length) showSnackbar(`Undone: ${last.label}` + (droppedText ? `\n${droppedText}` : '') + (keptText ? `\n${keptText}` : ''));
     refreshOpenViews({ loa: last.records.some(r => r.store === 'meta') });
   } else if (last.type === 'delete_study') {
@@ -122,18 +124,19 @@ async function undoOneStep(last) {
     (last.companions || []).forEach(id => { const o = state.docs.find(x => x.id === id); if (o && !o.companionOf) ops.push({ store: 'docs', put: { ...o, companionOf: d.id } }); });
     const tidy = tidyRefsOps(state, ops);
     ops.length = 0; ops.push(...tidy.ops);
-    await commitOps(ops); // (the study is added at the end of state.docs: moved to where it was)
+    // (the study is added at the end of state.docs: moved to where it was)
+    await saveChange(ops, auditEntry({
+      kind: 'study_restore',
+      category: 'study_order',
+      action: `Restored Study (Undo): ${getDisplayName(d)}`,
+      detail: `${(last.annotations || []).length} construct(s)/quote(s) restored.`
+    }));
     if (isNew) {
       const at = state.docs.findIndex(x => x.id === d.id);
       if (at >= 0) state.docs.splice(at, 1);
       const pos = Math.max(0, Math.min(state.docs.length, last.position ?? state.docs.length));
       state.docs.splice(pos, 0, d);
     }
-    await recordAuditLog({
-      category: 'study_order',
-      action: `Restored Study (Undo): ${getDisplayName(d)}`,
-      detail: `${(last.annotations || []).length} construct(s)/quote(s) restored.`
-    });
     if (isNew) await persistDocOrder(); // after the entry: a change of #1 it causes is logged after it
     await switchStudy(d.id);
     refreshOpenViews();
@@ -141,10 +144,9 @@ async function undoOneStep(last) {
     // Put back only what the merge / split changed and is still as it left it; later edits are kept (and named in the log).
     // Worked out on copies (planUndoRowMerge / planUndoRowSplit, logic.js), tidied, written in one transaction.
     const plan = last.type === 'row_merge' ? planUndoRowMerge(state, last) : planUndoRowSplit(state, last, ROW_PLAN_HELPERS);
-    await commitOps(tidyRefsOps(state, plan.ops).ops);
-    state.clusters.sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
-    await recordAuditLog({ category: 'third_order', action: `Undid: ${last.label}`, clusterIds: [last.srcId, last.type === 'row_merge' ? last.tgtId : last.newId],
-      detail: plan.kept.length ? `Kept what was changed after it: ${plan.kept.join('; ')}.` : '' });
+    await saveChange(tidyRefsOps(state, plan.ops).ops, auditEntry({ kind: 'row_undo', category: 'third_order', action: `Undid: ${last.label}`,
+      clusterIds: [last.srcId, last.type === 'row_merge' ? last.tgtId : last.newId], detail: plan.kept.length ? `Kept what was changed after it: ${plan.kept.join('; ')}.` : '' }));
+    sortRows(state.clusters);
     refreshOpenViews({ loa: true });
   }
 }
@@ -152,15 +154,22 @@ async function undoOneStep(last) {
 // ========================================================
 // AUDIT LOGGING ENGINE (With Reviewer Stamp & Minor Op Filter)
 // ========================================================
+// An audit entry is built by auditEntry() and written by saveChange() together with the records it describes (one
+// transaction: the change and its entry are both stored, or neither). recordAuditLog() writes an entry on its own (a memo,
+// or an entry about something already stored).
 // kind: what kind of entry this is (LOG_KINDS in logic.js): Appendix A goes by it, not by the action's wording.
 // targetLabel: what it is about, as named at the time (a row's title, a field); targetId: the record it is about (e.g. the
 // trail entry a deletion removed). All three are optional and stored only when given.
-async function recordAuditLog({ category, action, detail = '', fromVal = '', toVal = '', rationale = '', reviewer = null, isMinorOp = false, clusterIds = null, kind = undefined, targetLabel = undefined, targetId = undefined }) {
+// isMinorOp: an entry kept only when "log minor operations" is on (auditEntry returns null otherwise).
+let lastLogTime = 0; // entries made in the same millisecond still keep their order (newest first in the trail)
+/** @returns {any} */
+function auditEntry({ category, action, detail = '', fromVal = '', toVal = '', rationale = '', reviewer = null, isMinorOp = false, clusterIds = null, kind = undefined, targetLabel = undefined, targetId = undefined }) {
   if (isMinorOp && !state.logMinorOps) return null;
+  const now = lastLogTime = Math.max(Date.now(), lastLogTime + 1);
   const entry = {
-    id: 'log_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-    timestamp: Date.now(),
-    isoTime: new Date().toISOString(),
+    id: 'log_' + now + '_' + Math.random().toString(36).slice(2, 6),
+    timestamp: now,
+    isoTime: new Date(now).toISOString(),
     reviewer: reviewer || state.reviewerId || 'Reviewer',
     category,
     action,
@@ -175,28 +184,30 @@ async function recordAuditLog({ category, action, detail = '', fromVal = '', toV
   // Tag the entry with the 3rd Order row(s) it concerns, so a row's history survives title changes
   const cids = (Array.isArray(clusterIds) ? clusterIds : []).filter(Boolean);
   if (cids.length) entry.clusterIds = [...new Set(cids)];
-  await dbPut('logs', entry);
-  state.logs.unshift(entry);
-  invalidateMatrixIndex('logs'); // the entry joined the in-memory trail after the write
-  updateAuditBadge();
-  if (entry.clusterIds && typeof refreshRowHistoryButtons === 'function') refreshRowHistoryButtons(entry.clusterIds);
-  if (!divAudit.classList.contains('hidden')) renderAuditView();
   return entry;
 }
 
-// Extracted text is evidence from the primary study: every correction of it is logged with the old and new wording.
-async function logExtractedTextEdit(anno, oldText) {
-  const doc = state.docs.find(d => d.id === anno.docId);
-  const isSec = anno.type === 'second_order';
-  await recordAuditLog({
-    kind: 'extract_edit',
-    category: 'reading_extraction',
-    action: isSec ? 'Edited the extracted text of a 2nd Order Construct' : 'Edited the extracted text of a 1st Order Quote',
-    detail: `${getDisplayName(doc)} (p.${anno.page})${anno.note ? ': ' + anno.note : ''}`,
-    fromVal: oldText || '',
-    toVal: anno.text || '',
-    clusterIds: isSec ? liveClusterIds(anno) : null
-  });
+// The one way a change is stored: the records (ops, built as copies: { store, put: { ...rec, field } } or { store, del })
+// and the audit entries about them (auditEntry(), one or a list; null entries are skipped) in ONE transaction (commitOps),
+// then applied to `state`. A refused write changes nothing, in the database or in memory. Returns the entries written.
+/** @param {DbOp[]} ops @param {any} [entries] */
+async function saveChange(ops, entries = []) {
+  const logs = (Array.isArray(entries) ? entries : [entries]).filter(Boolean);
+  await commitOps([...ops, ...logs.map(e => ({ store: 'logs', put: e }))]);
+  if (logs.length) showNewAuditEntries(logs);
+  return logs;
+}
+// Writes one audit entry on its own. Returns it (null for a minor operation that is not logged).
+async function recordAuditLog(args) {
+  const [entry] = await saveChange([], auditEntry(args));
+  return entry || null;
+}
+// After entries joined the trail: the count in the header, the rows' History buttons, the Audit Trail if it is open
+function showNewAuditEntries(entries) {
+  updateAuditBadge();
+  const rowIds = entries.flatMap(e => e.clusterIds || []);
+  if (rowIds.length && typeof refreshRowHistoryButtons === 'function') refreshRowHistoryButtons([...new Set(rowIds)]);
+  if (!divAudit.classList.contains('hidden')) renderAuditView();
 }
 
 function updateAuditBadge() {
