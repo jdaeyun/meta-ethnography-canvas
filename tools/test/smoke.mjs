@@ -336,6 +336,15 @@ await group('Matrix with many studies: lazy rows keep the scroll position', asyn
     return worst;
   });
   check('scroll drift <= 5px', drift <= 5, `drift=${Math.round(drift)}`);
+  // Scrolled, the study names and the theme column sit at the very edge of the scroll area: no cell text shows above or beside them
+  const edge = await p.evaluate(async () => {
+    const t = document.getElementById('matrixTable'), c = t.parentElement;
+    c.scrollTop = 400; c.scrollLeft = 300; await __mecIdle();
+    const cr = c.getBoundingClientRect();
+    return { top: t.querySelector('thead th:nth-child(2)').getBoundingClientRect().top - cr.top,
+      left: t.querySelector('tbody tr[data-cluster-id] td:first-child').getBoundingClientRect().left - cr.left };
+  });
+  check('scrolled, the study-name row and the theme column stick to the edge of the matrix (no gap above or beside them)', Math.abs(edge.top) < 1 && Math.abs(edge.left) < 1, JSON.stringify(edge));
   check('no page errors', p.pageErrors.length === 0, p.pageErrors.join(' | '));
   await p.context().close();
 });
@@ -908,7 +917,11 @@ await group('Translation: placements start unjudged; empty cells can say why; ro
   // Empty cell: different aspect
   const empty = p.locator('.empty-cell .empty-status').first();
   await empty.selectOption('other_aspect'); await settle(p);
-  await p.locator('.empty-cell .empty-note').first().fill('Discusses night handover, not staffing');
+  // The note reads and is written like a placed card's note: a preview, click to edit in a multi-line box
+  const noteCell = p.locator('.empty-cell:has(.empty-note)').first();
+  await noteCell.locator('.empty-note-view').click();
+  check('the empty-cell note opens a multi-line box, like the note on a placed card', await noteCell.locator('textarea.empty-note').isVisible());
+  await noteCell.locator('.empty-note').fill('Discusses night handover, not staffing');
   await tab(p, 'pub'); await settle(p);
   check('empty-cell status and note are saved and logged', await p.evaluate(() => state.clusters.some(c => Object.values(c.cellStatus).some(v => v.status === 'other_aspect' && v.note === 'Discusses night handover, not staffing')) && state.logs.some(l => l.category === 'relating_studies')));
   await p.locator('[data-pub=table2_grid]').click(); await settle(p);

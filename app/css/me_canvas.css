@@ -21,13 +21,15 @@
 #dropOverlay.active { display: flex; }
 
 /* Matrix Table Styles */
+/* The header row and the theme column stick to the very edge of the scroll area (its padding is 1rem): -1rem, so no cell
+   text shows above the study names or beside the theme column while scrolling */
 .matrix-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: max-content; min-width: 100%; }
 .matrix-table th, .matrix-table td { border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; padding: 0.9rem; vertical-align: top; box-sizing: border-box; overflow-wrap: break-word; word-break: break-word; }
-.matrix-table thead th { background: #f8fafc; position: sticky; top: 0; z-index: 15; border-top: 1px solid #e2e8f0; font-size: 0.875rem; color: #334155; width: 290px; min-width: 290px; max-width: 290px; }
+.matrix-table thead th { background: #f8fafc; position: sticky; top: -1rem; z-index: 15; border-top: 1px solid #e2e8f0; font-size: 0.875rem; color: #334155; width: 290px; min-width: 290px; max-width: 290px; }
 .matrix-table td { width: 290px; min-width: 290px; max-width: 290px; }
-.matrix-table thead th:first-child, .matrix-table td:first-child { left: 0; border-left: 1px solid #e2e8f0; width: 390px; min-width: 390px; max-width: 390px; }
+.matrix-table thead th:first-child, .matrix-table td:first-child { left: -1rem; border-left: 1px solid #e2e8f0; width: 390px; min-width: 390px; max-width: 390px; }
 .matrix-table thead th:first-child { z-index: 25; }
-.matrix-table td:first-child { position: sticky; left: 0; background: #ffffff; z-index: 10; border-left: 1px solid #e2e8f0; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.05); }
+.matrix-table td:first-child { position: sticky; left: -1rem; background: #ffffff; z-index: 10; border-left: 1px solid #e2e8f0; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.05); }
 .matrix-context-row td { background-color: #f8fafc; font-size: 0.8125rem; }
 .matrix-context-row td:first-child { background-color: #f1f5f9; }
 .matrix-row-drop.drag-over td { background-color: #eef2ff !important; }
@@ -38,7 +40,10 @@
 #zoomPercentInput { -webkit-appearance: none; -moz-appearance: none; appearance: none; }
 
 /* Matrix cell note ("how this concept fits"): 3-line preview, click to edit the full text */
-.sec-comment-view { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sec-comment-view, .empty-note-view { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* Clamped text is clipped at the padding edge, so a bottom padding would show the top of the 4th line: the space below the
+   text is a transparent border instead (outside the clip), and the grey line is drawn by a shadow */
+.matrix-table .sec-comment-view, .matrix-table .empty-note-view { padding-bottom: 0; border-bottom: 0.25rem solid transparent; box-shadow: 0 1px 0 0 #e2e8f0; }
 
 /* Compact Matrix Mode (Bird's-eye Overview) */
 .matrix-compact .matrix-card-detail { display: none !important; }

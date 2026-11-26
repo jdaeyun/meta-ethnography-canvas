@@ -14,6 +14,26 @@ It puts two jobs in one place: reading full-text PDFs and extracting constructs 
 
 ---
 
+## 🧭 Design Principles
+
+* **For researchers who have read Noblit and Hare (1988) and France et al. (2019).** The workspace does not teach the method, and it does not impose one reading of it: starting from an Index Paper, for example, is a choice you make, not a default you have to work around.
+* **It takes the clerical load off.** Keeping each quote linked to its page, construct and theme, recording what was changed and why, laying out the tables and matching two reviewers' files are done for you, so your attention stays on reading and interpretation.
+* **It does not think for you.** Everything it does automatically is an extension of what you would otherwise do by hand. No workspace is neutral, so its structure (rows, columns, the symbols in the cells) is named, optional where it can be, and can be changed or undone: how it shaped your reading is something to reflect on, like any other influence.
+
+**What it does not do**
+
+* Search or screen the literature.
+* Identify or suggest constructs or themes: no AI or machine learning reads your papers. Text similarity is used only to pair the same passage in two reviewers' files.
+* Decide how studies relate (reciprocal, refutational, a different aspect), which study comes first, or what a theme means.
+* Score quality appraisal, or use it to rank or exclude studies.
+* Compute agreement statistics between reviewers: different readings are there to be discussed.
+* Write interpretation for you: the Methods Summary restates what you entered and leaves the gaps open.
+* Judge whether a manuscript meets eMERGe: it shows where each criterion is addressed, not whether that is enough.
+* Apply GRADE-CERQual to the line of argument.
+* Send your data anywhere: projects and PDFs stay in your browser.
+
+---
+
 ## 🚀 Live Application & Documentation
 
 Nothing to install and no account needed. Open it in a desktop browser:
