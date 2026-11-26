@@ -2145,7 +2145,8 @@ await group('Audit entries carry their kind: Appendix A does not depend on the w
   const calls = [];
   for (const f of fs.readdirSync(path.join(ROOT, 'app/js'))) {
     const src = fs.readFileSync(path.join(ROOT, 'app/js', f), 'utf8');
-    const starts = [...src.matchAll(/(?:recordAuditLog|auditEntry)\(\{|undoLogs: \[\{/g)].map(m => m.index + m[0].length - 1); // at the '{'
+    // (and each entry an operation of logic.js returns: entries: [{ … }] / entries.push({ … }))
+    const starts = [...src.matchAll(/(?:recordAuditLog|auditEntry)\(\{|undoLogs: \[\{|entries: \[\{|entries\.push\(\{/g)].map(m => m.index + m[0].length - 1); // at the '{'
     for (const i of starts) {
       let depth = 0, j = i;
       for (; j < src.length; j++) { if (src[j] === '{') depth++; else if (src[j] === '}' && --depth === 0) break; }
@@ -2568,7 +2569,7 @@ await group('Review fixes 12: memos on rows that share a title, the last study d
   await settle(p);
   const sel = p.locator(`#matrixTable tr[data-cluster-id="${nb.id}"] .cl-base-select`);
   const shownUnset = await sel.evaluate(s => s.selectedOptions[0].value === '__unset');
-  await sel.evaluate(s => { s.value = ''; s.dispatchEvent(new Event('change')); }); // (the selector sits in the row's ⋯ tools)
+  await sel.evaluate(s => { s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true })); }); // (the selector sits in the row's ⋯ tools)
   await settle(p);
   const nbr = await p.evaluate(async ({ id, was }) => { const c = state.clusters.find(x => x.id === id); const r = c.baseDocId; c.baseDocId = was; await dbPut('clusters', c); return r; }, nb);
   check('a row whose base is not set yet says so, and "No single base" chosen there is stored', shownUnset && nbr === null, JSON.stringify({ shownUnset, nbr }));
@@ -2875,7 +2876,7 @@ await group('Review fixes 10: saves still running are waited for, a refused save
   await p.evaluate(({ id, rid }) => {
     const card = document.querySelector(`tr[data-cluster-id="${rid}"] .matrix-cell-card[data-sec-card="${id}"]`) || document.querySelector(`[data-cluster-id="${rid}"] [data-sec-card="${id}"]`);
     const sel = card && card.querySelector('.rel-select');
-    if (sel) { sel.value = 'reciprocal'; sel.dispatchEvent(new Event('change')); }
+    if (sel) { sel.value = 'reciprocal'; sel.dispatchEvent(new Event('change', { bubbles: true })); }
   }, mk);
   await settle(p);
   const mark = await p.evaluate(({ id, rid }) => { const a = state.annotations.find(x => x.id === id); return { rel: a.clusterRelations[rid], mark: !!(a.aspectUsedInLoa || {})[rid] }; }, mk);
@@ -3011,7 +3012,8 @@ await group('One transaction per change: a record and its audit entry together; 
     await switchStudy(doc.id);
     await commitOps([{ store: 'docs', put: { ...doc, conceptLinks: [...(doc.conceptLinks || []), { id: 'cl_smoke', from: x.id, to: y.id, type: 'leads', note: '' }] } }]);
     updateSidebar();
-    await document.querySelector('.study-links .del-link[data-id="cl_smoke"]').onclick();
+    const btn = document.querySelector('.study-links .del-link[data-id="cl_smoke"]');
+    await SIDEBAR_ACTIONS[btn.dataset.action](sidebarActionContext(btn)); // (what a click on it runs: one listener on the list)
     const asked = !document.getElementById('choiceModal').classList.contains('hidden');
     const gone = !doc.conceptLinks.some(l => l.id === 'cl_smoke');
     const kind = state.logs[0].kind;

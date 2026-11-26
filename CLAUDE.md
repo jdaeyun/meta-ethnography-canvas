@@ -196,6 +196,14 @@ The website's offline-ZIP link is built from that tag (`site/js/site.js`), becau
   while dragging. The inventory (`npm run inventory`) flags `split-write` / `mutate-first` / `no-kind`: keep them at zero.
   Changes made from several views share a helper (`linkQuoteToConstruct`, `saveExtractedText`, `setConstructTeamStatus`,
   `persistDocOrder(list, entries)`, `rowOrderOps`, `peerRowPlacementOps`: ARCHITECTURE.md, section 6).
+- An operation that one reviewer action makes is worked out in logic.js as `op…(project, args, names)` → `{ ops, entries }` or
+  null (nothing changes; no DOM, no `state`) and run with `runOperation(result, { undo })` (undo-audit.js: pending saves first
+  when undoable, then `beginChange`, `saveChange`, `finishChange`). Give it a step in tools/test/scenario.test.mjs. In the views
+  that are done (matrix, Tab 1 sidebar: ARCHITECTURE.md, section 12), a button or menu that changes data carries `data-action`
+  and its code is an entry of `MATRIX_ACTIONS` / `SIDEBAR_ACTIONS`, run by the view's one listener; do not attach a new
+  data-changing handler in a render function there. `npm test` runs `node tools/dev/list-operations.mjs --rules` (the one
+  save path: no split writes, no change in memory before the write, every entry with a kind, `dbPut` / `recordAuditLog`
+  only where `ALLOWED_DIRECT` says why).
 - A text field of a record uses `bindTextField(el, { get, set, record, log, after })` (core.js): the one save path. While typing, the
   record gets the text (`set`) and a draft save after a short pause (`save`, default `dbPut` of `record()`); when the box is left (or on
   tab switch, matrix re-render, page leave, through `bindPendingCommit`) the draft is dropped and the trimmed text is saved once

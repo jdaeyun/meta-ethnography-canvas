@@ -128,13 +128,13 @@ function updateSidebar() {
         <div class="flex items-center space-x-1">
           <button type="button" class="toggle-order-btn text-[11px] text-blue-700 hover:bg-blue-100 border border-blue-200 bg-white px-1.5 py-0.5 rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Switch this construct to a 1st Order Participant Quote"><i class="ph ph-arrows-left-right"></i><span>To 1st</span></button>
           <button type="button" class="edit-quote-btn text-xs text-emerald-800 hover:bg-emerald-100 px-1.5 py-0.5 rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Edit extracted quote text (clean up 2-column PDF line breaks or headers)"><i class="ph ph-pencil-simple"></i><span>Edit Quote</span></button>
-          <button class="del text-slate-400 hover:text-rose-500 cursor-pointer" title="Delete 2nd Order Construct"><i class="ph ph-trash"></i></button>
+          <button data-action="delete" class="del text-slate-400 hover:text-rose-500 cursor-pointer" title="Delete 2nd Order Construct"><i class="ph ph-trash"></i></button>
         </div>
       </div>
       <div class="p-2.5 space-y-1.5">
         <label class="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-0.5 mt-1">${sec.origin === 'wrapped_first_order' ? "Reviewer's own label (wraps a participant quote — not the authors' interpretation)" : "Authors' own term for this concept (leave blank if they name none)"}</label>
         <textarea class="sec-note-input w-full text-[13px] font-bold text-slate-800 border border-emerald-300 p-2 rounded bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-y min-h-[48px]" placeholder="${sec.origin === 'wrapped_first_order' ? 'Your label for this quote (a reviewer wording)…' : 'Use the authors\' own term. If you paraphrase, switch the source below to Reviewer wording.'}">${escapeHtml(sec.note)}</textarea>
-        ${sec.origin === 'wrapped_first_order' ? '' : `<div class="flex items-center gap-1.5 text-[11px] text-slate-500"><span>Label source:</span><select class="sec-notesrc text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white"><option value="author" ${sec.noteSource === 'author' ? 'selected' : ''}>Authors\' own term</option><option value="reviewer" ${sec.noteSource === 'reviewer' ? 'selected' : ''}>Reviewer wording (paraphrase)</option></select></div>`}
+        ${sec.origin === 'wrapped_first_order' ? '' : `<div class="flex items-center gap-1.5 text-[11px] text-slate-500"><span>Label source:</span><select data-action="label-source" class="sec-notesrc text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white"><option value="author" ${sec.noteSource === 'author' ? 'selected' : ''}>Authors\' own term</option><option value="reviewer" ${sec.noteSource === 'reviewer' ? 'selected' : ''}>Reviewer wording (paraphrase)</option></select></div>`}
         
         <div class="mt-2">
           <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Original Source Passage (Evidence)</label>
@@ -145,8 +145,8 @@ function updateSidebar() {
               <div class="flex items-center justify-between not-italic mb-0.5 gap-1">
                 <button type="button" class="passage-jump text-[11px] bg-violet-100 hover:bg-violet-200 text-violet-900 px-1.5 rounded-full font-bold cursor-pointer"><i class="ph ph-crosshair"></i> p.${escapeHtml(p.page)}</button>
                 <span class="flex items-center gap-1">
-                  <button type="button" class="passage-split text-[11px] text-violet-700 hover:bg-violet-100 border border-violet-200 bg-white px-1.5 rounded cursor-pointer" title="This passage is actually a different interpretation: make it a separate 2nd Order construct again">↗ Split off</button>
-                  <button type="button" class="passage-del text-slate-400 hover:text-rose-500 cursor-pointer" title="Remove this passage"><i class="ph ph-x"></i></button>
+                  <button type="button" data-action="passage-split" class="passage-split text-[11px] text-violet-700 hover:bg-violet-100 border border-violet-200 bg-white px-1.5 rounded cursor-pointer" title="This passage is actually a different interpretation: make it a separate 2nd Order construct again">↗ Split off</button>
+                  <button type="button" data-action="passage-remove" class="passage-del text-slate-400 hover:text-rose-500 cursor-pointer" title="Remove this passage"><i class="ph ph-x"></i></button>
                 </span>
               </div>"${escapeHtml(p.text)}"</div>`).join('')}
           </div>` : ''}
@@ -181,7 +181,7 @@ function updateSidebar() {
           <div class="mt-1.5 space-y-1.5">
             <div class="flex items-center space-x-1.5">
               <label class="text-xs text-slate-600 font-medium shrink-0">Status:</label>
-              <select class="sec-conc-status flex-1 text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
+              <select data-action="construct-team" class="sec-conc-status flex-1 text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-semibold">
                 <option value="pending" ${sec.concordanceStatus === 'pending' ? 'selected' : ''}>⏳ Pending Review</option>
                 <option value="discuss" ${sec.concordanceStatus === 'discuss' ? 'selected' : ''}>💬 Needs Discussion</option>
                 <option value="agreed" ${sec.concordanceStatus === 'agreed' ? 'selected' : ''}>✅ Agreed (for now)</option>
@@ -201,8 +201,6 @@ function updateSidebar() {
       const p = sec.passages.find(x => x.id === pid);
       if (!p) return;
       el.querySelector('.passage-jump').onclick = () => jumpToPdfAnnotation(sec.id, p.firstPage || parseInt(p.page, 10));
-      el.querySelector('.passage-split').onclick = () => splitOffPassage(sec, pid);
-      el.querySelector('.passage-del').onclick = () => removePassage(sec, pid);
     });
     w.querySelector('.merge-drag-handle').ondragstart = e => {
       e.dataTransfer.setData('text/merge-sec-id', sec.id);
@@ -242,34 +240,12 @@ function updateSidebar() {
         toVal: newNote
       })
     });
-    const noteSrcSel = w.querySelector('.sec-notesrc');
-    if (noteSrcSel) noteSrcSel.onchange = async e => {
-      const next = e.target.value;
-      await saveChange([{ store: 'annotations', put: { ...sec, noteSource: next } }], auditEntry({
-        kind: 'label_source',
-        category: 'linking',
-        action: `Set 2nd Order label source to "${next === 'author' ? "Authors' own term" : 'Reviewer wording'}" (${studyNameOf(sec)}, p.${sec.page})`,
-        detail: sec.note ? `Label: ${sec.note}` : '(no label)',
-        fromVal: sec.noteSource, toVal: next
-      }));
-    };
+    // (label source, team status, deleting: SIDEBAR_ACTIONS)
     // The construct's private memo: saved while typed and when left (a working note, no audit entry)
     bindTextField(w.querySelector('.sec-nuance-input'), { get: () => sec.nuanceNote, set: v => { sec.nuanceNote = v; }, record: () => ({ store: 'annotations', put: sec }) });
 
-    const updateSecConcordance = async () => {
-      const newStatus = w.querySelector('.sec-conc-status').value;
-      const newNote = w.querySelector('.sec-conc-note').value.trim();
-      if (!(await setConstructTeamStatus(sec, newStatus, newNote))) return;
-      const pill = w.querySelector('.concordance-pill');
-      const meta = getConcordanceBadgeMeta(newStatus);
-      pill.className = `concordance-pill text-[11px] px-1.5 py-px rounded border font-semibold ${meta.cls}`;
-      pill.textContent = meta.label;
-    };
-
-    w.querySelector('.sec-conc-status').onchange = updateSecConcordance;
-    bindPendingCommit(w.querySelector('.sec-conc-note'), updateSecConcordance);
-
-    w.querySelector('.del').onclick = () => deleteSecondOrder(sec);
+    // The team note commits like the status menu (SIDEBAR_ACTIONS['construct-team'])
+    bindPendingCommit(w.querySelector('.sec-conc-note'), () => SIDEBAR_ACTIONS['construct-team'](sidebarActionContext(w.querySelector('.sec-conc-status'))));
 
     const clist = w.querySelector('.child-list');
     linked.forEach(f => clist.appendChild(makeFirstCard(f, true, sec, seconds)));
@@ -342,48 +318,16 @@ function buildStudyConceptLinksBox(doc, seconds) {
   box.innerHTML = `
     <summary class="font-semibold text-violet-900 cursor-pointer select-none">🔗 How this study's concepts relate <span class="font-normal text-violet-700">(${links.length})</span></summary>
     <div class="mt-1 text-[11px] text-slate-500 leading-snug">Keep the account whole: record how the authors' concepts relate to one another in this study, so the relationships can be kept in view when you translate (eMERGe criterion 13). Reported in Appendix C.</div>
-    <ul class="mt-1.5 space-y-1">${links.map(l => `<li class="flex items-start gap-1.5"><span class="flex-1 text-slate-700"><b style="color:${(LINK_TYPES[l.type] || LINK_TYPES.leads).color}">${escapeHtml(conceptLinkText(l))}</b>${l.note ? ` <span class="text-slate-500">— ${escapeHtml(l.note)}</span>` : ''}</span><button type="button" class="del-link text-slate-400 hover:text-rose-500 cursor-pointer" data-id="${escapeHtml(l.id)}" title="Remove this relationship"><i class="ph ph-x"></i></button></li>`).join('') || '<li class="text-slate-400">None recorded yet.</li>'}</ul>
+    <ul class="mt-1.5 space-y-1">${links.map(l => `<li class="flex items-start gap-1.5"><span class="flex-1 text-slate-700"><b style="color:${(LINK_TYPES[l.type] || LINK_TYPES.leads).color}">${escapeHtml(conceptLinkText(l))}</b>${l.note ? ` <span class="text-slate-500">— ${escapeHtml(l.note)}</span>` : ''}</span><button type="button" data-action="concept-unlink" class="del-link text-slate-400 hover:text-rose-500 cursor-pointer" data-id="${escapeHtml(l.id)}" title="Remove this relationship"><i class="ph ph-x"></i></button></li>`).join('') || '<li class="text-slate-400">None recorded yet.</li>'}</ul>
     <div class="mt-2 grid grid-cols-1 gap-1">
       <select class="cl-from border border-slate-300 rounded px-1 py-0.5 bg-white">${seconds.map(opt).join('')}</select>
       <select class="cl-type border border-slate-300 rounded px-1 py-0.5 bg-white">${Object.entries(LINK_TYPES).map(([k, t]) => `<option value="${k}">${t.sym} ${escapeHtml(t.label)}</option>`).join('')}</select>
       <select class="cl-to border border-slate-300 rounded px-1 py-0.5 bg-white">${seconds.map(opt).join('')}</select>
       <input type="text" class="cl-note border border-slate-300 rounded px-1.5 py-0.5" placeholder="In the authors' account… (optional; page or reason)">
-      <button type="button" class="cl-add px-2 py-1 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded cursor-pointer">Add relationship</button>
+      <button type="button" data-action="concept-link" class="cl-add px-2 py-1 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded cursor-pointer">Add relationship</button>
     </div>`;
   if (seconds[1]) box.querySelector('.cl-to').value = seconds[1].id;
-  box.querySelector('.cl-add').onclick = async () => {
-    const from = box.querySelector('.cl-from').value, to = box.querySelector('.cl-to').value, type = box.querySelector('.cl-type').value;
-    const note = box.querySelector('.cl-note').value.trim();
-    if (!from || !to || from === to) { showSnackbar('Choose two different concepts.'); return; }
-    // (for a relation without direction, B–A is the same as A–B: relationKey, as in the backup merge)
-    const key = relationKey({ from, to, type });
-    if (studyConceptLinks(doc).some(l => relationKey(l) === key)) { showSnackbar('This relationship is already recorded.'); return; }
-    const link = { id: 'cl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, type, note };
-    const secs = [from, to].map(id => state.annotations.find(a => a.id === id));
-    await saveChange([{ store: 'docs', put: { ...doc, conceptLinks: [...(doc.conceptLinks || []), link] } }], auditEntry({
-      kind: 'within_study_link',
-      category: 'reading_extraction',
-      action: `Recorded how two concepts relate within ${getDisplayName(doc)}`,
-      detail: note, toVal: conceptLinkText(link),
-      clusterIds: [...new Set(secs.flatMap(s => s ? liveClusterIds(s) : []))]
-    }));
-    conceptLinksOpen = true;
-    updateSidebar();
-  };
-  box.querySelectorAll('.del-link').forEach(btn => btn.onclick = async () => {
-    const link = doc.conceptLinks.find(l => l.id === btn.dataset.id);
-    if (!link) return;
-    // Undoable (Ctrl+Z), so it does not ask first
-    await flushAllPendingSaves();
-    const what = conceptLinkText(link) + (link.note ? ' — ' + link.note : '');
-    const change = beginChange(`Relationship within ${getDisplayName(doc)}`, [{ store: 'docs', id: doc.id }], { undoLogs: [{ kind: 'within_study_link',
-      category: 'reading_extraction', action: `Restored a relationship between concepts within ${getDisplayName(doc)} (Undo)`, toVal: what }] });
-    await saveChange([{ store: 'docs', put: { ...doc, conceptLinks: doc.conceptLinks.filter(l => l !== link) } }],
-      auditEntry({ kind: 'within_study_unlink', category: 'reading_extraction', action: `Removed a relationship between concepts within ${getDisplayName(doc)}`, fromVal: what }));
-    finishChange(change);
-    updateSidebar();
-    showUndoSnackbar('Relationship removed');
-  });
+  // (adding and removing a relationship: SIDEBAR_ACTIONS)
   return box;
 }
 
@@ -391,52 +335,96 @@ function buildStudyConceptLinksBox(doc, seconds) {
 // CHANGES OF ONE QUOTE OR CONSTRUCT (used by Tab 1 and Tab 2 alike)
 // Each saves the changed copy and its audit entry in one transaction (saveChange); `state` follows once stored.
 // ========================================================
-// A quote linked to a 2nd Order construct of its study (drag onto the card, the link menus). Returns false if it already was.
-async function linkQuoteToConstruct(f, sec) {
-  if (!f || !sec || isQuoteLinkedTo(f, sec.id)) return false;
-  await saveChange([{ store: 'annotations', put: { ...f, parentIds: [...quoteParentIds(f), sec.id] } }], auditEntry({
-    kind: 'quote_link',
-    category: 'linking',
-    action: `Linked 1st Order Quote to 2nd Order Construct (${studyNameOf(f)})`,
-    detail: `Quote (p.${f.page}): "${f.text.slice(0, 80)}..."`,
-    toVal: `2nd Order: ${sec.note || '"' + sec.text.slice(0, 60) + '..."'}`,
-    isMinorOp: true
-  }));
-  return true;
+// The operations are worked out in logic.js (opLinkQuote …) and run by runOperation: the changed copy and its audit entry in
+// one transaction; `state` follows once stored. Each returns false when there was nothing to change.
+function linkQuoteToConstruct(f, sec) { return runOperation(opLinkQuote(state, { quoteId: f.id, secId: sec.id }, OP_NAMES)); }
+function saveExtractedText(anno, text) { return runOperation(opExtractedText(state, { annoId: anno.id, text }, OP_NAMES)); }
+// (entry: { action } for another wording of the entry, e.g. from Compare)
+function setConstructTeamStatus(sec, status, note, entry = {}) {
+  return runOperation(opConstructTeamStatus(state, { secId: sec.id, status, note, action: entry.action }, OP_NAMES));
 }
-// A corrected extracted text. It is evidence from the primary study, so every correction is logged with the old and new
-// wording. Returns false when there is nothing to save (empty or unchanged).
-async function saveExtractedText(anno, text) {
-  if (!text || text === anno.text) return false;
-  const isSec = anno.type === 'second_order';
-  await saveChange([{ store: 'annotations', put: { ...anno, text } }], auditEntry({
-    kind: 'extract_edit',
-    category: 'reading_extraction',
-    action: isSec ? 'Edited the extracted text of a 2nd Order Construct' : 'Edited the extracted text of a 1st Order Quote',
-    detail: `${studyNameOf(anno)} (p.${anno.page})${anno.note ? ': ' + anno.note : ''}`,
-    fromVal: anno.text || '',
-    toVal: text,
-    clusterIds: isSec ? liveClusterIds(anno) : null
-  }));
-  return true;
+
+// ======================= What the sidebar's buttons and menus do =======================
+// The cards only draw: a button or menu carries data-action, and one listener on the list runs the action named here with
+// the card it belongs to (the quote or construct; for a quote inside a construct's card, that construct too).
+function sidebarActionContext(el) {
+  const card = el.closest('[data-sidebar-anno]');
+  const outer = card && card.parentElement ? card.parentElement.closest('[data-sidebar-anno]') : null;
+  const anno = card ? state.annotations.find(a => a.id === card.dataset.sidebarAnno) || null : null;
+  const parent = outer ? state.annotations.find(a => a.id === outer.dataset.sidebarAnno && a.type === 'second_order') || null : null;
+  const passage = el.closest('.sec-passage');
+  return { el, anno, parent, pid: passage ? passage.dataset.pid : null, doc: state.docs.find(d => d.id === state.activeDocId) || null };
 }
-// "STATUS (note)": how a team status is shown in the trail (constructs and rows)
-function teamStatusText(status, note) { return `${String(status || 'pending').toUpperCase()}${note ? ' (' + note + ')' : ''}`; }
-// The team status and discussion note of a construct (Tab 1 card, Compare). entry: the audit entry's wording, if not the
-// default. Returns false when nothing changed.
-async function setConstructTeamStatus(sec, status, note, entry = {}) {
-  if (sec.concordanceStatus === status && (sec.concordanceNote || '') === note) return false;
-  await saveChange([{ store: 'annotations', put: { ...sec, concordanceStatus: status, concordanceNote: note } }], auditEntry({
-    kind: 'construct_team',
-    category: 'concordance',
-    action: `2nd Order Team Perspective Updated (${studyNameOf(sec)}, p.${sec.page})`,
-    detail: `Construct: ${sec.note || '"' + sec.text.slice(0, 60) + '..."'}${note ? '\nTeam Discussion Note: ' + note : ''}`,
-    fromVal: teamStatusText(sec.concordanceStatus, sec.concordanceNote),
-    toVal: teamStatusText(status, note),
-    ...entry
-  }));
-  return true;
-}
+/** @type {Record<string, (ctx: any) => any>} */
+const SIDEBAR_ACTIONS = {
+  delete: async ({ anno }) => {
+    if (!anno) return;
+    if (anno.type === 'second_order') { await deleteSecondOrder(anno); return; }
+    const name = studyNameOf(anno);
+    await runOperation(project => opDeleteQuote(project, { quoteId: anno.id }, OP_NAMES), { undo: { label: `1st Order Quote (p.${anno.page})`,
+      undoLogs: [{ kind: 'quote_restore', category: 'reading_extraction', action: `Restored a deleted 1st Order quote (Undo): ${name}, p.${anno.page}`, detail: `"${String(anno.text || '').slice(0, 80)}..."` }] } });
+    updateSidebar();
+    renderHighlights();
+    showUndoSnackbar('Deleted the 1st Order quote');
+  },
+  'quote-link': async ({ anno, el }) => {
+    const target = state.annotations.find(x => x.id === el.value);
+    if (anno && target && await linkQuoteToConstruct(anno, target)) updateSidebar();
+  },
+  'quote-unlink': async ({ anno, parent }) => { if (anno && await runOperation(opUnlinkQuote(state, { quoteId: anno.id, secId: parent ? parent.id : null }))) updateSidebar(); },
+  'quote-wrap': async ({ anno }) => { if (anno && await wrapFirstOrderInSecondOrder(anno)) updateSidebar(); },
+  'label-source': ({ anno, el }) => anno && runOperation(opLabelSource(state, { secId: anno.id, source: el.value }, OP_NAMES)),
+  'construct-team': async ({ anno, el }) => {
+    const w = el.closest('[data-sidebar-anno]');
+    const status = el.value;
+    if (!anno || !(await setConstructTeamStatus(anno, status, w.querySelector('.sec-conc-note').value.trim()))) return;
+    const pill = w.querySelector('.concordance-pill');
+    const meta = getConcordanceBadgeMeta(status);
+    if (pill) { pill.className = `concordance-pill text-[11px] px-1.5 py-px rounded border font-semibold ${meta.cls}`; pill.textContent = meta.label; }
+  },
+  'passage-remove': ({ anno, pid }) => anno && pid && removePassage(anno, pid),
+  'passage-split': ({ anno, pid }) => anno && pid && splitOffPassage(anno, pid),
+  'concept-link': async ({ el, doc }) => {
+    const box = el.closest('.study-links');
+    if (!doc || !box) return;
+    const from = box.querySelector('.cl-from').value, to = box.querySelector('.cl-to').value, type = box.querySelector('.cl-type').value;
+    const note = box.querySelector('.cl-note').value.trim();
+    if (!from || !to || from === to) { showSnackbar('Choose two different concepts.'); return; }
+    // (for a relation without direction, B–A is the same as A–B: relationKey, as in the backup merge)
+    const key = relationKey({ from, to, type });
+    if (studyConceptLinks(doc).some(l => relationKey(l) === key)) { showSnackbar('This relationship is already recorded.'); return; }
+    const link = { id: 'cl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from, to, type, note };
+    if (!(await runOperation(opAddConceptLink(state, { docId: doc.id, link, text: conceptLinkText(link) }, OP_NAMES)))) return;
+    conceptLinksOpen = true;
+    updateSidebar();
+  },
+  'concept-unlink': async ({ el, doc }) => {
+    const link = doc && (doc.conceptLinks || []).find(l => l.id === el.dataset.id);
+    if (!link) return;
+    // Undoable (Ctrl+Z), so it does not ask first
+    const text = conceptLinkText(link);
+    const name = getDisplayName(doc);
+    await runOperation(project => opRemoveConceptLink(project, { docId: doc.id, linkId: link.id, text }, OP_NAMES), { undo: { label: `Relationship within ${name}`,
+      undoLogs: [{ kind: 'within_study_link', category: 'reading_extraction', action: `Restored a relationship between concepts within ${name} (Undo)`, toVal: text + (link.note ? ' — ' + link.note : '') }] } });
+    updateSidebar();
+    showUndoSnackbar('Relationship removed');
+  }
+};
+(() => {
+  const list = document.getElementById('annotationsList');
+  if (!list) return;
+  // Buttons on click, menus on change; dragging, text boxes and the editors' own buttons are not touched here
+  const run = (ev, wantChange) => {
+    const el = ev.target && ev.target.closest && ev.target.closest('[data-action]');
+    if (!el || !list.contains(el) || (el.tagName === 'SELECT') !== wantChange) return;
+    const action = SIDEBAR_ACTIONS[el.dataset.action];
+    if (!action) return;
+    ev.stopPropagation();
+    Promise.resolve(action(sidebarActionContext(el))).catch(err => console.error('Sidebar action failed:', err));
+  };
+  list.addEventListener('click', ev => run(ev, false));
+  list.addEventListener('change', ev => run(ev, true));
+})();
 
 // ========================================================
 // ONE AUTHOR INTERPRETATION, SEVERAL PASSAGES
@@ -447,40 +435,24 @@ function newPassageId() { return 'p_' + Date.now().toString(36) + Math.random().
 // Deleting a 2nd Order construct: its quotes' links to it and its within-study relationships (Appendix C) go with it;
 // Ctrl+Z puts all of it back (a change: beginChange / finishChange)
 async function deleteSecondOrder(sec) {
-  await flushAllPendingSaves(); // as for a quote: no save of it left to land after the deletion
   const linked = quotesOf(sec.id);
-  const ownDoc = state.docs.find(d => d.id === sec.docId);
-  const removedConceptLinks = ((ownDoc && ownDoc.conceptLinks) || []).filter(l => l.from === sec.id || l.to === sec.id);
-  const docName = getDisplayName(ownDoc);
-  const change = beginChange(`2nd Order Construct (${sec.note || sec.text.slice(0, 30)})`,
-    [{ store: 'annotations', id: sec.id }, ...linked.map(f => ({ store: 'annotations', id: f.id })), ...(ownDoc ? [{ store: 'docs', id: ownDoc.id }] : [])],
-    { undoLogs: [{ kind: 'construct_restore', category: 'reading_extraction', action: `Restored a deleted 2nd Order construct (Undo): ${docName}, p.${sec.page}`,
-      detail: `${sec.note ? sec.note + ': ' : ''}"${String(sec.text || '').slice(0, 80)}..."`, clusterIds: [...(sec.clusterIds || [])] }] });
-  // (copies: the quotes and the study in memory change once all of it is stored)
-  /** @type {DbOp[]} */
-  const ops = linked.map(f => ({ store: 'annotations', put: { ...f, parentIds: quoteParentIds(f).filter(id => id !== sec.id) } }));
-  if (removedConceptLinks.length) ops.push({ store: 'docs', put: { ...ownDoc, conceptLinks: ownDoc.conceptLinks.filter(l => !removedConceptLinks.includes(l)) } });
-  ops.push({ store: 'annotations', del: sec.id });
-  // The construct, its quotes' links, its within-study relationships and the entry in one transaction. Deleting a construct
-  // is part of the reading (and of the matrix, if it was placed): the trail records it, like its undoing
-  await saveChange(ops, auditEntry({
-    kind: 'construct_delete',
-    category: 'reading_extraction',
-    action: `Deleted a 2nd Order construct (${docName}, p.${sec.page})`,
-    detail: `${sec.note ? sec.note + ': ' : ''}"${String(sec.text || '').slice(0, 80)}..."${(sec.clusterIds || []).length ? `\nIt was placed in ${sec.clusterIds.length} 3rd Order row(s).` : ''}${linked.length ? `\n${linked.length} linked quote(s) unlinked.` : ''}`,
-    clusterIds: (sec.clusterIds || []).length ? sec.clusterIds : null
-  }));
-  finishChange(change);
+  const docName = studyNameOf(sec);
+  await runOperation(project => opDeleteConstruct(project, { secId: sec.id }, OP_NAMES), { undo: { label: `2nd Order Construct (${sec.note || sec.text.slice(0, 30)})`,
+    undoLogs: [{ kind: 'construct_restore', category: 'reading_extraction', action: `Restored a deleted 2nd Order construct (Undo): ${docName}, p.${sec.page}`,
+      detail: `${sec.note ? sec.note + ': ' : ''}"${String(sec.text || '').slice(0, 80)}..."`, clusterIds: [...(sec.clusterIds || [])] }] } });
   updateSidebar();
   renderHighlights();
   showUndoSnackbar(`Deleted the 2nd Order construct${linked.length ? ` (${linked.length} quote(s) unlinked)` : ''}`);
 }
 // An undoable change of constructs / quotes (passages): begun before they change, finished (finishChange) once written.
 // Its undoing belongs to the history of the rows the constructs are placed in.
-function beginAnnoChange(label, annos) {
+function annoUndo(label, annos) {
   const rows = [...new Set(annos.flatMap(a => (a.type === 'second_order' && a.clusterIds) || []))];
-  return beginChange(label, annos.map(a => ({ store: 'annotations', id: a.id })),
-    { undoLogs: [{ kind: 'undo_extraction', category: 'reading_extraction', action: `Undid: ${label}`, detail: '', clusterIds: rows }] });
+  return { label, undoLogs: [{ kind: 'undo_extraction', category: 'reading_extraction', action: `Undid: ${label}`, detail: '', clusterIds: rows }] };
+}
+function beginAnnoChange(label, annos) {
+  const u = annoUndo(label, annos);
+  return beginChange(label, annos.map(a => ({ store: 'annotations', id: a.id })), { undoLogs: u.undoLogs });
 }
 function secShortLabel(s) { return s.note || ('"' + (s.text || '').slice(0, 40) + '…"'); }
 
@@ -489,7 +461,6 @@ async function addSelectionAsPassage(secId) {
   const sec = state.annotations.find(a => a.id === secId && a.type === 'second_order');
   if (!sec || !state.pendingSelection?.txt) return;
   normalizeAnnotation(sec);
-  const change = beginAnnoChange(`Added passage to "${secShortLabel(sec)}"`, [sec]);
   const p = {
     id: newPassageId(),
     text: stripOuterQuotes(state.pendingSelection.txt),
@@ -499,14 +470,7 @@ async function addSelectionAsPassage(secId) {
     by: state.reviewerId || 'Reviewer',
     addedAt: new Date().toISOString()
   };
-  await saveChange([{ store: 'annotations', put: { ...sec, passages: [...sec.passages, p] } }], auditEntry({
-    kind: 'passage_add',
-    category: 'reading_extraction',
-    action: `Added a further passage (p.${p.page}) to 2nd Order construct "${secShortLabel(sec)}" (${studyNameOf(sec)})`,
-    detail: `Same author interpretation stated elsewhere in the paper: "${p.text.slice(0, 120)}${p.text.length > 120 ? '…' : ''}"`,
-    isMinorOp: true
-  }));
-  finishChange(change);
+  await runOperation(project => opAddPassage(project, { secId: sec.id, passage: p }, OP_NAMES), { undo: annoUndo(`Added passage to "${secShortLabel(sec)}"`, [sec]) });
   document.getElementById('selectionTooltip').classList.add('hidden');
   window.getSelection().removeAllRanges();
   renderHighlights();
@@ -621,15 +585,7 @@ async function removePassage(sec, pid) {
   if (!p) return;
   // Only the construct changes (its quotes stay linked to it): Undo puts back the construct alone, so later edits of those
   // quotes are not undone with it
-  const change = beginAnnoChange(`Removed passage p.${p.page} from "${secShortLabel(sec)}"`, [sec]);
-  await saveChange([{ store: 'annotations', put: { ...sec, passages: sec.passages.filter(x => x.id !== pid) } }], auditEntry({
-    kind: 'passage_remove',
-    category: 'reading_extraction',
-    action: `Removed a further passage (p.${p.page}) from 2nd Order construct "${secShortLabel(sec)}" (${studyNameOf(sec)})`,
-    detail: `"${String(p.text || '').slice(0, 120)}${String(p.text || '').length > 120 ? '…' : ''}"`,
-    clusterIds: liveClusterIds(sec)
-  }));
-  finishChange(change);
+  await runOperation(project => opRemovePassage(project, { secId: sec.id, passageId: pid }, OP_NAMES), { undo: annoUndo(`Removed passage p.${p.page} from "${secShortLabel(sec)}"`, [sec]) });
   updateSidebar();
   renderHighlights();
   showUndoSnackbar(p.absorbed ? 'Passage removed (it was a separate construct before; ↗ Split off keeps it as its own)' : 'Passage removed');
@@ -661,16 +617,7 @@ async function wrapFirstOrderInSecondOrder(f, initialConceptLabel = '') {
     clusterRelations: {}
   });
   // The new construct, the quote's link to it and the entry: one transaction
-  await saveChange([
-    { store: 'annotations', put: wrapperSec },
-    { store: 'annotations', put: { ...f, parentIds: [...quoteParentIds(f), wrapperSec.id] } }
-  ], auditEntry({
-    kind: 'wrap',
-    category: 'linking',
-    action: `[Reviewer-wrapped] Created 2nd Order Concept Wrapper from Unlinked 1st Order Quote (${getDisplayName(doc)}, p.${f.page})`,
-    detail: `Quote: "${f.text.slice(0, 80)}..."`,
-    toVal: `2nd Order Concept: ${wrapperSec.note}`
-  }));
+  await runOperation(opWrapQuote(state, { quoteId: f.id, construct: wrapperSec }, OP_NAMES));
   return wrapperSec;
 }
 
@@ -692,7 +639,7 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
   const alsoHtml = (isLinked && otherParents.length) ? `<div class="text-[11px] text-violet-800 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5">🔗 Also illustrates: ${otherParents.map(s => `<b>${escapeHtml(s.note || s.text.slice(0, 30) + '…')}</b>`).join(', ')}</div>` : '';
   const linkDropdownHtml = linkableSeconds.length > 0 ? `
     <div class="pt-0.5">
-      <select class="quick-link-sec-sel w-full text-xs border border-emerald-300 rounded px-1.5 py-1 bg-emerald-50/70 hover:bg-emerald-50 text-emerald-950 font-semibold focus:outline-none focus:border-emerald-600 cursor-pointer">
+      <select data-action="quote-link" class="quick-link-sec-sel w-full text-xs border border-emerald-300 rounded px-1.5 py-1 bg-emerald-50/70 hover:bg-emerald-50 text-emerald-950 font-semibold focus:outline-none focus:border-emerald-600 cursor-pointer">
         <option value="">🔗 ${isLinked ? 'Also link to another' : 'Link to'} 2nd Order Construct in this study (${linkableSeconds.length})...</option>
         ${linkableSeconds.map(s => `<option value="${escapeHtml(s.id)}">🟩 p.${escapeHtml(s.page)}: ${escapeHtml(s.note || s.text.slice(0, 48) + '...')}</option>`).join('')}
       </select>
@@ -710,9 +657,9 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
         <button type="button" class="toggle-order-btn text-[11px] text-emerald-800 hover:bg-emerald-100 border border-emerald-300 bg-white px-1.5 py-px rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Switch type directly to 2nd Order Construct"><i class="ph ph-arrows-left-right"></i><span>To 2nd</span></button>
         <button type="button" class="edit-f-quote-btn text-[11px] text-blue-700 hover:bg-blue-100 px-1 py-px rounded font-semibold cursor-pointer flex items-center space-x-0.5" title="Edit quote text (clean up 2-column PDF artifacts)"><i class="ph ph-pencil-simple"></i><span>Edit</span></button>
         ${isLinked
-          ? `<button class="unl mr-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Unlink from this 2nd Order Construct (other links are kept)"><i class="ph ph-link-break"></i></button>`
-          : `<button class="promote-sec px-1.5 py-px bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 rounded text-[11px] font-semibold cursor-pointer" title="Keep this 1st Order quote and wrap it in a new parent 2nd Order Concept">+ Wrap</button>`}
-        <button class="del text-slate-400 hover:text-rose-500 cursor-pointer" title="Delete Quote"><i class="ph ph-trash"></i></button>
+          ? `<button data-action="quote-unlink" class="unl mr-1 text-slate-400 hover:text-slate-700 cursor-pointer" title="Unlink from this 2nd Order Construct (other links are kept)"><i class="ph ph-link-break"></i></button>`
+          : `<button data-action="quote-wrap" class="promote-sec px-1.5 py-px bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 rounded text-[11px] font-semibold cursor-pointer" title="Keep this 1st Order quote and wrap it in a new parent 2nd Order Concept">+ Wrap</button>`}
+        <button data-action="delete" class="del text-slate-400 hover:text-rose-500 cursor-pointer" title="Delete Quote"><i class="ph ph-trash"></i></button>
       </div>
     </div>
     <div class="f-quote-display text-xs italic bg-white p-1.5 rounded border border-blue-100 text-slate-600 leading-snug cursor-pointer hover:border-blue-300" title="Double-click or click 'Edit' to clean up extracted quote text">"${escapeHtml(f.text)}"</div>
@@ -759,52 +706,7 @@ function makeFirstCard(f, isLinked, parentSec, sameStudySeconds = []) {
   bindTextField(c.querySelector('.f-note-input'), { get: () => f.note, set: v => { f.note = v; }, record: () => ({ store: 'annotations', put: f }) });
   bindTextField(c.querySelector('.f-nuance-input'), { get: () => f.nuanceNote, set: v => { f.nuanceNote = v; }, record: () => ({ store: 'annotations', put: f }) });
 
-  const quickLinkSel = c.querySelector('.quick-link-sec-sel');
-  if (quickLinkSel) {
-    quickLinkSel.onchange = async (e) => {
-      const targetSecId = e.target.value;
-      if (!targetSecId) return;
-      const targetSec = state.annotations.find(x => x.id === targetSecId);
-      if (targetSec && await linkQuoteToConstruct(f, targetSec)) updateSidebar();
-    };
-  }
-
-  c.querySelector('.del').onclick = async () => {
-    // A save still waiting for this quote (a note typed a moment ago) is written first: written after the deletion, it would
-    // bring the quote back on the next load; and the undo copy then has that edit
-    await flushAllPendingSaves();
-    const fDoc = studyNameOf(f);
-    const change = beginChange(`1st Order Quote (p.${f.page})`, [{ store: 'annotations', id: f.id }], { undoLogs: [{ kind: 'quote_restore', category: 'reading_extraction',
-      action: `Restored a deleted 1st Order quote (Undo): ${fDoc}, p.${f.page}`, detail: `"${String(f.text || '').slice(0, 80)}..."` }] });
-    await saveChange([{ store: 'annotations', del: f.id }], auditEntry({
-      kind: 'quote_delete',
-      category: 'reading_extraction',
-      action: `Deleted a 1st Order quote (${fDoc}, p.${f.page})`,
-      detail: `"${String(f.text || '').slice(0, 80)}..."`
-    }));
-    finishChange(change);
-    updateSidebar();
-    renderHighlights();
-    showUndoSnackbar('Deleted the 1st Order quote');
-  };
-  if (isLinked) {
-    c.querySelector('.unl').onclick = async () => {
-      await saveChange([{ store: 'annotations', put: { ...f, parentIds: parentSec ? quoteParentIds(f).filter(id => id !== parentSec.id) : [] } }], auditEntry({
-        kind: 'quote_unlink',
-        category: 'linking',
-        action: 'Unlinked 1st Order Quote from 2nd Order Construct',
-        detail: `Quote (p.${f.page}): "${f.text.slice(0, 70)}..."`,
-        fromVal: parentSec ? (parentSec.note || parentSec.text.slice(0, 50)) : '',
-        isMinorOp: true
-      }));
-      updateSidebar();
-    };
-  } else {
-    c.querySelector('.promote-sec').onclick = async () => {
-      const created = await wrapFirstOrderInSecondOrder(f);
-      if (created) updateSidebar();
-    };
-  }
+  // (linking, unlinking, wrapping and deleting the quote: SIDEBAR_ACTIONS)
   return c;
 }
 

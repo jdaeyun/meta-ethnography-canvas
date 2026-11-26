@@ -9,7 +9,7 @@
     "serve": "http-server . -p 8080 -c-1",
     "sync-version": "node tools/sync-version.mjs",
     "inventory": "node tools/dev/list-operations.mjs",
-    "test": "tsc -p tsconfig.json && tsc -p tsconfig.logic.json && node --test tools/test/unit.test.mjs tools/test/scenario.test.mjs && node tools/test/smoke.mjs",
+    "test": "tsc -p tsconfig.json && tsc -p tsconfig.logic.json && node tools/dev/list-operations.mjs --rules && node --test tools/test/unit.test.mjs tools/test/scenario.test.mjs && node tools/test/smoke.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.logic.json",
     "test:unit": "node --test tools/test/unit.test.mjs tools/test/scenario.test.mjs",
     "test:smoke": "node tools/test/smoke.mjs",

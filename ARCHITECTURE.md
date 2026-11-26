@@ -179,6 +179,34 @@ await saveChange(
 Entries made in the same millisecond keep their order (`auditEntry` keeps time strictly increasing), so an operation that
 writes several entries shows them in the trail in the order it made them.
 
+### Operations: `op*()` (logic.js) run by `runOperation(result, { undo })` (undo-audit.js)
+
+The change itself is worked out without the page: an operation in logic.js takes the project, what the reviewer chose and
+the names its entries need, and returns `{ ops, entries }` (copies to write, audit-entry arguments) or `null` when nothing
+changes. It changes nothing; the scenario tests run it on a small project and check `checkInvariants()` after it.
+
+```js
+// matrix.js: the team status menu of a row
+const status = tr.querySelector('.cl-conc-status').value;
+await runOperation(opRowTeamStatus(state, { rowId: row.id, status, note }));          // stored with its entry, or nothing
+// extraction.js: deleting a construct, undoable
+await runOperation(project => opDeleteConstruct(project, { secId }, OP_NAMES), { undo: { label, undoLogs } });
+```
+
+`runOperation` stores the result with `saveChange`. With `undo`, it first writes saves still pending (and then works the
+operation out, when it is given as a function), names the records the ops touch with `beginChange`, and pushes the change
+once stored. `OP_NAMES` gives the entries the studies' display names and the judgements' labels. The list of operations,
+with the kinds of entry each writes and where it is run from, is at the end of `docs/operations-inventory.md`.
+
+### Views only draw: `data-action` and one listener
+
+The matrix (`#matrixTable`) and the Tab 1 sidebar (`#annotationsList`) do not attach a handler to each button or menu that
+changes data. The element carries `data-action="…"`; one listener per view (click for buttons, change for menus) finds
+what it belongs to (`matrixActionContext` / `sidebarActionContext`: the row, the card, the construct, the study of an
+empty cell) and runs the action of that name in `MATRIX_ACTIONS` / `SIDEBAR_ACTIONS`. A text box commits through the same
+action (`bindPendingCommit(el, () => MATRIX_ACTIONS['row-team'](…))`). Buttons that only change the view (sub-tabs, folding,
+editors opening) keep their own small handlers.
+
 ### Text fields: `bindTextField` (core.js)
 
 ```js
@@ -311,12 +339,14 @@ calls), `no-kind` (an entry without a kind).
 The flags are read from the shape of the code. A flag says "look here", not "this is wrong": for example a `no-log` on
 map positions is intended.
 
-## 12. Direction (next steps, not started)
+## 12. Where each view stands
 
-Section 6 gives every change one path; the code that makes a change still lives inside the render functions
-(`buildRowBody`, `updateSidebar`, `renderComparisonTabContent`). Next, if wanted:
+| View | Operations in logic.js | `data-action` + one listener | Still written in the view (one path: `saveChange`) |
+|---|---|---|---|
+| Tab 2 matrix (matrix.js) | row team status, seed confirmed, row base, re-read, CERQual, empty cell (status, note), judgement, place, unplace, not translated, move row | yes (`MATRIX_ACTIONS`) | create / delete a row, merge / split (pure plans already: `planMergeRows` …), auto-placement, row texts (`bindTextField`) |
+| Tab 1 sidebar (extraction.js) | link / unlink a quote, label source, extracted text, team status, within-study relationships, delete a construct / quote, add / remove a passage, wrap a quote | yes (`SIDEBAR_ACTIONS`) | absorb / split off a passage, 1st ⇄ 2nd switch, manual entry, labels and notes (`bindTextField`) |
+| studies-pdf.js, loa.js, compare.js, audit-view.js, app.js, backup.js | — | — | all of their changes (each through `saveChange`; order and study #1: `persistDocOrder`) |
 
-1. **Operations as pure functions** (logic.js or a new pure file): `(project, args) → { label, ops, entries, undo }`. No
-   DOM, no `state`. Each one can then run in the scenario tests with `checkInvariants()`.
-2. **Render functions only draw**: buttons carry `data-action`, one delegated listener per view runs the operation.
-3. **A test that only `saveChange` / `commitOps` write project data** (like the existing check for `dbBatch`).
+A test keeps the one path: `npm test` runs `node tools/dev/list-operations.mjs --rules`, which fails when a change is
+stored without its entry, a record is changed in memory before it is written, an entry has no kind, or `dbPut` /
+`recordAuditLog` is called outside the few places listed (with their reasons) in `ALLOWED_DIRECT`.

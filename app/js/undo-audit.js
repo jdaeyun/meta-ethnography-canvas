@@ -197,6 +197,27 @@ async function saveChange(ops, entries = []) {
   if (logs.length) showNewAuditEntries(logs);
   return logs;
 }
+// Runs an operation worked out in logic.js (an op*() result: { ops, entries }, or null when nothing changes): the records and
+// their entries are stored in one transaction (saveChange); memory and the trail follow once stored. With undo
+// ({ label, undoLogs }), saves still pending are written first, the records the operation touches are copied as they are,
+// and the change goes on the undo stack once stored (Ctrl+Z). `work` may be a function (project → result), worked out after
+// those pending saves. Returns true if something was stored.
+/** @param {any} work @param {{ undo?: { label: string, undoLogs?: any[], before?: Record<string, any> } | null }} [opts] */
+async function runOperation(work, { undo = null } = {}) {
+  if (undo || typeof work === 'function') await flushAllPendingSaves();
+  const result = typeof work === 'function' ? work(state) : work;
+  if (!result || !result.ops.length) return false;
+  const keys = result.ops.filter(o => o.store !== 'logs' && o.store !== 'pdf_binaries').map(o => ({ store: o.store, id: 'del' in o ? o.del : o.put.id }));
+  const change = undo ? beginChange(undo.label, keys, { undoLogs: undo.undoLogs || [], before: undo.before || {} }) : null;
+  await saveChange(result.ops, (result.entries || []).map(e => auditEntry(e)));
+  if (change) finishChange(change);
+  return true;
+}
+// The names an operation's entries need (logic.js: OpNames)
+const OP_NAMES = {
+  docName: id => { const d = state.docs.find(x => x.id === id); return d ? getDisplayName(d) : null; },
+  relLabel: rel => getCellRelationMeta(rel).label
+};
 // Writes one audit entry on its own. Returns it (null for a minor operation that is not logged).
 async function recordAuditLog(args) {
   const [entry] = await saveChange([], auditEntry(args));

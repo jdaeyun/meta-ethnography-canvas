@@ -677,10 +677,7 @@ function contribSymbol(docSecs, cid) {
 // An empty cell (no construct of this study in this row) says nothing by itself. The reviewer can record that the study was
 // checked and does not address the theme, or that it addresses a different aspect of the topic (Noblit & Hare's third way
 // studies relate, which leads to a line of argument; eMERGe S4, criterion 11).
-const EMPTY_CELL_STATUS = {
-  absent: { symbol: '—', label: 'Checked: not addressed in this study' },
-  other_aspect: { symbol: '◇', label: 'Addresses a different aspect of the topic' }
-};
+// (EMPTY_CELL_STATUS: logic.js)
 function emptyCellInfo(c, docId) {
   const v = c.cellStatus && c.cellStatus[docId];
   return v && EMPTY_CELL_STATUS[v.status] ? { ...v, ...EMPTY_CELL_STATUS[v.status] } : null;
