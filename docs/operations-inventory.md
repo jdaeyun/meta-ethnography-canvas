@@ -94,25 +94,25 @@ section "Operations inventory".
 | 252 | `seedIndexPaperRows` |  | commitOps, saveChange | `auto_place` · matrix_mapping · Auto-placed … 2nd Order construct(s) of the #1 study (…; …) as … [rows] |  | createNewClusterRow |  |
 | 334 | `setSeedChoice` |  | saveChange | `seed_choice` · translation_process · choice === 'seed' ? 'Rows start from study #1: its 2nd Order co… |  |  |  |
 | 620 | `renderSecondOrderPool` | `bindPendingCommit(ntInput)` | runOperation(opNotTranslated) |  |  |  |  |
-| 736 | `buildEmptyCell` | `bindPendingCommit(note)` | runOperation(opEmptyCellNote) |  |  |  |  |
-| 1138 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-title')).save` | dbPut(clusters) |  |  |  |  |
-| 1139 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-title')).log` |  | `row_title` · third_order · LOG_ACTION.rowTitle [rows] |  |  |  |
-| 1160 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-trans')).log` |  | `step_a` · translation_process · Updated Step A Translation Summary for "…" [rows] |  |  |  |
-| 1172 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-note')).log` |  | `step_b` · third_order · Updated Step B 3rd Order Definition & Interpretation for "…" [rows] |  |  |  |
-| 1184 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-reflex')).log` |  | `row_reflexive` · reflexive_memo · Reflexive note on "…" [rows] |  |  |  |
-| 1342 | `buildRowBody` | `bindTextField(card.querySelector('.sec-label-input')).log` |  | `construct_label` · matrix_mapping · Updated 2nd Order Summary Label (…) [rows] |  |  |  |
-| 1371 | `buildRowBody` | `bindTextField(cmtInput).log` |  | `cell_note` · third_order · Updated note on how a concept fits "…" (…, p.…) [rows] |  |  |  |
-| 1495 | `MATRIX_ACTIONS['row-team']` |  | runOperation(opRowTeamStatus) |  |  |  |  |
-| 1501 | `MATRIX_ACTIONS['row-seed-confirm']` |  | runOperation(opConfirmSeed) |  |  |  |  |
-| 1502 | `MATRIX_ACTIONS['row-base']` |  | runOperation(opSetRowBase) |  |  |  |  |
-| 1506 | `MATRIX_ACTIONS['row-rebase']` |  | runOperation(opSetRowBase) |  |  |  |  |
-| 1509 | `MATRIX_ACTIONS['row-reread']` |  | runOperation(opRereadRow) |  |  |  |  |
-| 1521 | `MATRIX_ACTIONS['row-cerqual']` |  | runOperation(opRowCerqual) |  |  |  |  |
-| 1529 | `MATRIX_ACTIONS['cell-judge']` |  | runOperation(opJudge) |  |  |  |  |
-| 1544 | `MATRIX_ACTIONS['empty-status']` |  | runOperation(opEmptyCellStatus) |  |  |  |  |
-| 1576 | `moveClusterOrder` |  | runOperation(opMoveRow) |  |  |  |  |
-| 1766 | `mergeRows` |  | saveChange | `row_merge` · third_order · Merged row "…" into "…" [rows] | row_merge |  |  |
-| 1784 | `splitRow` |  | saveChange | `row_split` · third_order · Split … construct(s) off "…" into a new row "…" [rows] | row_split | createNewClusterRow |  |
+| 753 | `buildEmptyCell` | `bindPendingCommit(note)` | runOperation(opEmptyCellNote) |  |  |  |  |
+| 1156 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-title')).save` | dbPut(clusters) |  |  |  |  |
+| 1157 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-title')).log` |  | `row_title` · third_order · LOG_ACTION.rowTitle [rows] |  |  |  |
+| 1178 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-trans')).log` |  | `step_a` · translation_process · Updated Step A Translation Summary for "…" [rows] |  |  |  |
+| 1190 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-note')).log` |  | `step_b` · third_order · Updated Step B 3rd Order Definition & Interpretation for "…" [rows] |  |  |  |
+| 1202 | `buildRowBody` | `bindTextField(tdMeta.querySelector('.cluster-reflex')).log` |  | `row_reflexive` · reflexive_memo · Reflexive note on "…" [rows] |  |  |  |
+| 1360 | `buildRowBody` | `bindTextField(card.querySelector('.sec-label-input')).log` |  | `construct_label` · matrix_mapping · Updated 2nd Order Summary Label (…) [rows] |  |  |  |
+| 1389 | `buildRowBody` | `bindTextField(cmtInput).log` |  | `cell_note` · third_order · Updated note on how a concept fits "…" (…, p.…) [rows] |  |  |  |
+| 1513 | `MATRIX_ACTIONS['row-team']` |  | runOperation(opRowTeamStatus) |  |  |  |  |
+| 1519 | `MATRIX_ACTIONS['row-seed-confirm']` |  | runOperation(opConfirmSeed) |  |  |  |  |
+| 1520 | `MATRIX_ACTIONS['row-base']` |  | runOperation(opSetRowBase) |  |  |  |  |
+| 1524 | `MATRIX_ACTIONS['row-rebase']` |  | runOperation(opSetRowBase) |  |  |  |  |
+| 1527 | `MATRIX_ACTIONS['row-reread']` |  | runOperation(opRereadRow) |  |  |  |  |
+| 1539 | `MATRIX_ACTIONS['row-cerqual']` |  | runOperation(opRowCerqual) |  |  |  |  |
+| 1547 | `MATRIX_ACTIONS['cell-judge']` |  | runOperation(opJudge) |  |  |  |  |
+| 1562 | `MATRIX_ACTIONS['empty-status']` |  | runOperation(opEmptyCellStatus) |  |  |  |  |
+| 1594 | `moveClusterOrder` |  | runOperation(opMoveRow) |  |  |  |  |
+| 1784 | `mergeRows` |  | saveChange | `row_merge` · third_order · Merged row "…" into "…" [rows] | row_merge |  |  |
+| 1802 | `splitRow` |  | saveChange | `row_split` · third_order · Split … construct(s) off "…" into a new row "…" [rows] | row_split | createNewClusterRow |  |
 
 ## app/js/audit-view.js (3)
 
@@ -157,18 +157,18 @@ Pure: `(project, args, names) → { ops, entries }` or null. Run by `runOperatio
 
 | Line | Operation | Entry kinds | Run from |
 |---|---|---|---|
-| 708 | `opRowTeamStatus` | `row_team` | matrix.js:1495 |
-| 721 | `opConfirmSeed` | `seed_confirm` | matrix.js:1501 |
-| 733 | `opSetRowBase` | `row_base` | matrix.js:1502, matrix.js:1506 |
-| 758 | `opRereadRow` | `row_reread` | matrix.js:1509 |
-| 775 | `opRowCerqual` | `row_cerqual` | matrix.js:1521 |
-| 798 | `opEmptyCellStatus` | `empty_cell` | matrix.js:1544 |
-| 818 | `opEmptyCellNote` | `empty_cell` | matrix.js:736 |
-| 832 | `opJudge` | `judgement` | matrix.js:1529 |
+| 708 | `opRowTeamStatus` | `row_team` | matrix.js:1513 |
+| 721 | `opConfirmSeed` | `seed_confirm` | matrix.js:1519 |
+| 733 | `opSetRowBase` | `row_base` | matrix.js:1520, matrix.js:1524 |
+| 758 | `opRereadRow` | `row_reread` | matrix.js:1527 |
+| 775 | `opRowCerqual` | `row_cerqual` | matrix.js:1539 |
+| 798 | `opEmptyCellStatus` | `empty_cell` | matrix.js:1562 |
+| 818 | `opEmptyCellNote` | `empty_cell` | matrix.js:753 |
+| 832 | `opJudge` | `judgement` | matrix.js:1547 |
 | 851 | `opPlace` | `empty_cell`, `place` | matrix.js:99 |
 | 871 | `opUnplace` | `unplace` | matrix.js:144 |
 | 885 | `opNotTranslated` | `not_translated` | matrix.js:620 |
-| 899 | `opMoveRow` | `row_reorder` | matrix.js:1576 |
+| 899 | `opMoveRow` | `row_reorder` | matrix.js:1594 |
 | 928 | `opLinkQuote` | `quote_link` | extraction.js:340 |
 | 939 | `opUnlinkQuote` | `quote_unlink` | extraction.js:374 |
 | 952 | `opLabelSource` | `label_source` | extraction.js:376 |

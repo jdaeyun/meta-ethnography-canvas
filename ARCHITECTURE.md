@@ -319,13 +319,15 @@ wording kept) and the reviewer name (re-attribution); they can be deleted (undoa
 | `npm run typecheck` | names, `state` fields and option names across all scripts; `logic.js` alone with `strictNullChecks` |
 | `tools/test/unit.test.mjs` | `logic.js` functions one by one (Node, no browser) |
 | `tools/test/scenario.test.mjs` | chains of pure steps (place, judge, merge, split, delete, undo …) with `checkInvariants()` after each, fixed and seeded random walks |
-| `tools/test/smoke.mjs` | the real app in Chromium on the demo project; after every step `settle()` waits for idle and runs `checkInvariants()`; plus checks for wording, CSP, layout widths, compatibility, audit kinds, no browser dialogs, shared global names |
+| `tools/test/smoke.mjs` | the real app in Chromium on the demo project, in sections by feature (`[Matrix]`, `[Compare]` …; `ONLY="[Matrix]"` runs one); after every step `settle()` waits for idle and runs `checkInvariants()`; plus checks for wording, CSP, layout widths, compatibility, audit kinds, no browser dialogs, shared global names |
 
 The smoke group "One transaction per change" checks that a refused write leaves memory and the trail as they were, and
 the fixes of section 7. Inside `page.evaluate`, a smoke test waits with `__mecIdle()` (the same idea as `settle`), never a
 fixed time; a promise of an event handler that fails is reported as a page error, so the group's "no page errors" check
 sees it. What the tests still cannot reach well: the code still written in the views (section 12, last column), which only
 the smoke test reaches, one click at a time.
+
+`.github/workflows/test.yml` runs `npm test` on every pull request and every push to main.
 
 ## 11. Operations inventory
 

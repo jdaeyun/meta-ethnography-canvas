@@ -14,6 +14,26 @@ It puts two jobs in one place: reading full-text PDFs and extracting constructs 
 
 ---
 
+## 🧭 Design Principles
+
+* **For researchers who have read Noblit and Hare (1988) and France et al. (2019).** The workspace does not teach the method, and it does not impose one reading of it: starting from an Index Paper, for example, is a choice you make, not a default you have to work around.
+* **It takes the clerical load off.** Keeping each quote linked to its page, construct and theme, recording what was changed and why, laying out the tables and matching two reviewers' files are done for you, so your attention stays on reading and interpretation.
+* **It does not think for you.** Everything it does automatically is an extension of what you would otherwise do by hand. No workspace is neutral, so its structure (rows, columns, the symbols in the cells) is named, optional where it can be, and can be changed or undone: how it shaped your reading is something to reflect on, like any other influence.
+
+**What it does not do**
+
+* Search or screen the literature.
+* Identify or suggest constructs or themes: no AI or machine learning reads your papers. Text similarity is used only to pair the same passage in two reviewers' files.
+* Decide how studies relate (reciprocal, refutational, a different aspect), which study comes first, or what a theme means.
+* Score quality appraisal, or use it to rank or exclude studies.
+* Compute agreement statistics between reviewers: different readings are there to be discussed.
+* Write interpretation for you: the Methods Summary restates what you entered and leaves the gaps open.
+* Judge whether a manuscript meets eMERGe: it shows where each criterion is addressed, not whether that is enough.
+* Apply GRADE-CERQual to the line of argument.
+* Send your data anywhere: projects and PDFs stay in your browser.
+
+---
+
 ## 🚀 Live Application & Documentation
 
 Nothing to install and no account needed. Open it in a desktop browser:
@@ -63,7 +83,7 @@ Meta-Ethnography Canvas is a **plain HTML and JavaScript** app with **no build s
 * **Copy to Word or Google Docs:** The copy button puts both a formatted table and plain text on the clipboard, so you can paste straight in.
 
 ### 5. Testing and data safety
-* **Automated tests:** `npm test` first type-checks the app's JavaScript with TypeScript (`tsc --checkJs`, no build step: a misspelt function, global or state field is an error), checks that every change is stored with its audit entry in one transaction (`tools/dev/list-operations.mjs --rules`), then runs three suites. Unit tests (Node, no browser) cover the app's pure logic: which audit entries Appendix A shows, how project files are checked, the rules for merging a backup, text similarity, the columns of the line-of-argument map, and author / year parsing. Scenario tests (Node) chain the reviewer's steps on a small project (placing, judging, merging and splitting rows, deleting, passages, imports from another reviewer, Undo), in fixed scenarios and seeded random walks, and check the project's consistency rules after every step. Smoke tests drive the demo project in a real browser (Chromium, through Playwright). They cover saving and the audit trail, Undo, backup / restore / merge, Compare, the exports, the Content-Security-Policy, the offline (`file://`) edition and layout at laptop widths (1024 px and up).
+* **Automated tests:** `npm test` first type-checks the app's JavaScript with TypeScript (`tsc --checkJs`, no build step: a misspelt function, global or state field is an error), checks that every change is stored with its audit entry in one transaction (`tools/dev/list-operations.mjs --rules`), then runs three suites. Unit tests (Node, no browser) cover the app's pure logic: which audit entries Appendix A shows, how project files are checked, the rules for merging a backup, text similarity, the columns of the line-of-argument map, and author / year parsing. Scenario tests (Node) chain the reviewer's steps on a small project (placing, judging, merging and splitting rows, deleting, passages, imports from another reviewer, Undo), in fixed scenarios and seeded random walks, and check the project's consistency rules after every step. Smoke tests drive the demo project in a real browser (Chromium, through Playwright). They cover saving and the audit trail, Undo, backup / restore / merge, Compare, the exports, the Content-Security-Policy, the offline (`file://`) edition and layout at laptop widths (1024 px and up). GitHub Actions runs all of it on every pull request and every push to `main`.
 * **Backward compatibility:** A fixture project saved in data format 1 (version 1.4.7) is restored on every test run. Its meaning (row bases, judgements, translation types, CERQual, team status) must stay the same.
 * **Safe writes:** A change to several records at once (merging, splitting or deleting rows, deleting a study, reordering) is written in one database transaction, so a failure part way leaves the project as it was. A failed restore rolls back to the workspace as it was. The app asks the browser to keep its storage (persistent storage) and reminds you when changes have not been backed up.
 * **Browsers:** Made for current desktop versions of Chrome, Edge, Firefox and Safari. The automated tests run in Chromium only, so please [report](https://github.com/jdaeyun/meta-ethnography-canvas/issues) anything that behaves differently in another browser.

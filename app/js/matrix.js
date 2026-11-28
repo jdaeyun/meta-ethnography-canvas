@@ -721,6 +721,7 @@ const matrixRowHeights = {};
 function buildEmptyCell(cluster, doc) {
   normalizeCluster(cluster);
   const info = emptyCellInfo(cluster, doc.id);
+  const notePlaceholder = info && info.status === 'other_aspect' ? 'Which aspect? (feeds the line of argument)' : 'Why (optional)';
   const wrap = document.createElement('div');
   wrap.className = `empty-cell h-full min-h-[120px] rounded border border-dashed ${info ? (info.status === 'other_aspect' ? 'border-sky-300 bg-sky-50/40' : 'border-slate-300 bg-slate-50') : 'border-slate-200'} flex flex-col items-center justify-center gap-1.5 p-1.5 text-[13px] text-slate-400`;
   wrap.innerHTML = `
@@ -729,11 +730,28 @@ function buildEmptyCell(cluster, doc) {
       <option value="">Not yet checked</option>
       ${Object.entries(EMPTY_CELL_STATUS).map(([k, v]) => `<option value="${k}" ${info && info.status === k ? 'selected' : ''}>${v.symbol} ${escapeHtml(v.label)}</option>`).join('')}
     </select>
-    ${info ? `<input type="text" class="empty-note matrix-card-detail w-full text-[11px] border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-700" placeholder="${info.status === 'other_aspect' ? 'Which aspect? (feeds the line of argument)' : 'Why (optional)'}" value="${escapeHtml(info.note || '')}">` : ''}`;
+    ${info ? `<div class="matrix-card-detail w-full">
+      <div class="empty-note-view text-xs border border-slate-200 rounded px-1.5 py-1 bg-white cursor-text whitespace-pre-wrap break-words text-left ${info.note ? 'text-slate-700' : 'text-slate-400'}" title="${escapeHtml(info.note || 'Click to write a note')}">${escapeHtml(info.note || notePlaceholder)}</div>
+      <textarea rows="3" class="empty-note hidden w-full text-xs border border-indigo-400 rounded px-1.5 py-1 bg-white text-slate-700 focus:outline-none focus:border-indigo-500 resize-y" placeholder="${notePlaceholder}">${escapeHtml(info.note || '')}</textarea>
+    </div>` : ''}`;
   wrap.dataset.docId = doc.id; // (the table's actions read the study from here: MATRIX_ACTIONS)
   wrap.querySelector('.empty-status').addEventListener('mousedown', e => e.stopPropagation());
+  // The note reads and is written like the note on a placed card: a 3-line preview, click to edit the full text
   const note = wrap.querySelector('.empty-note');
-  if (note) bindPendingCommit(note, () => runOperation(opEmptyCellNote(state, { rowId: cluster.id, docId: doc.id, note: note.value.trim() }, OP_NAMES)));
+  if (note) {
+    const view = wrap.querySelector('.empty-note-view');
+    view.addEventListener('click', () => { view.classList.add('hidden'); note.classList.remove('hidden'); note.focus(); });
+    note.addEventListener('mousedown', e => e.stopPropagation());
+    note.addEventListener('blur', () => {
+      const v = note.value.trim();
+      view.textContent = v || notePlaceholder;
+      view.title = v || 'Click to write a note';
+      view.classList.toggle('text-slate-700', Boolean(v));
+      view.classList.toggle('text-slate-400', !v);
+      note.classList.add('hidden'); view.classList.remove('hidden');
+    });
+    bindPendingCommit(note, () => runOperation(opEmptyCellNote(state, { rowId: cluster.id, docId: doc.id, note: note.value.trim() }, OP_NAMES)));
+  }
   return wrap;
 }
 
